@@ -1,0 +1,61 @@
+# Build outputs
+/target
+/dist
+/build
+
+# Dependencies
+node_modules/
+vendor/
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Logs
+*.log
+logs/
+data/logs/
+
+# Runtime data
+*.pid
+*.seed
+
+# Database
+*.db
+*.sqlite
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.dockerignore
+
+# Go specific
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Coverage reports
+coverage.txt
+*.cover
+*.coverprofile
+
+# Temporary files
+*.tmp
+*.temp
+
+# Local data
+data/
+!data/.gitkeep
