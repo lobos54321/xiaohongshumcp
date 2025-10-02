@@ -6,21 +6,21 @@ app:
   host: "0.0.0.0"
   port: 8080
 
-# 使用SQLite数据库（适合单机部署）
+# 使用PostgreSQL数据库
 database:
-  host: ""
-  port: 0
-  user: ""
-  password: "sqlite-placeholder"  # 会被环境变量覆盖
-  name: "./data/xiaohongshu.db"   # SQLite文件路径
-  ssl_mode: ""
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "your-db-password"  # 会被环境变量覆盖
+  name: "xiaohongshu_proxy"
+  ssl_mode: "disable"
   max_connections: 25
   max_idle_connections: 5
 
-# Redis配置（可选，如果不配置会使用内存缓存）
+# Redis配置（Zeabur会自动提供）
 redis:
-  host: ""
-  port: 0
+  host: "localhost"
+  port: 6379
   password: ""
   db: 0
   pool_size: 10
