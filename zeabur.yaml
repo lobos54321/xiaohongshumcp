@@ -1,0 +1,31 @@
+# Zeabur部署配置
+name: xiaohongshu-proxy
+
+# 服务配置
+services:
+  app:
+    # 构建配置
+    build:
+      dockerfile: Dockerfile.zeabur
+
+    # 环境变量
+    env:
+      - PORT=8080
+      - APP_ENV=production
+      - LOG_LEVEL=info
+
+    # 端口映射
+    ports:
+      - "8080:8080"
+
+    # 健康检查
+    healthcheck:
+      http_get:
+        path: /health
+        port: 8080
+      initial_delay_seconds: 30
+      period_seconds: 10
+
+# 域名配置（可选）
+domains:
+  - xiaohongshu-proxy.zeabur.app
