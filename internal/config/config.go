@@ -151,8 +151,20 @@ func overrideFromEnv() {
 	if dbHost := os.Getenv("DB_HOST"); dbHost != "" {
 		viper.Set("database.host", dbHost)
 	}
+	if dbPort := os.Getenv("DB_PORT"); dbPort != "" {
+		viper.Set("database.port", dbPort)
+	}
+	if dbUser := os.Getenv("DB_USER"); dbUser != "" {
+		viper.Set("database.user", dbUser)
+	}
 	if dbPassword := os.Getenv("DB_PASSWORD"); dbPassword != "" {
 		viper.Set("database.password", dbPassword)
+	}
+	if dbName := os.Getenv("DB_NAME"); dbName != "" {
+		viper.Set("database.name", dbName)
+	}
+	if dbSSLMode := os.Getenv("DB_SSL_MODE"); dbSSLMode != "" {
+		viper.Set("database.ssl_mode", dbSSLMode)
 	}
 
 	// Claude API 配置
