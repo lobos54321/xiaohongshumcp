@@ -12,6 +12,7 @@ import (
 type Router struct {
 	authHandler        *AuthHandler
 	xiaohongshuHandler *XiaohongshuHandler
+	browserHandler     *BrowserHandler
 	authService        *auth.Service
 	userService        *user.Service
 }
@@ -25,6 +26,7 @@ func NewRouter(
 	return &Router{
 		authHandler:        NewAuthHandler(userService, authService),
 		xiaohongshuHandler: NewXiaohongshuHandler(claudeService, userService),
+		browserHandler:     NewBrowserHandler(userService),
 		authService:        authService,
 		userService:        userService,
 	}
@@ -86,6 +88,11 @@ func (r *Router) SetupRoutes() *gin.Engine {
 			jwtAuth.POST("/publish", r.xiaohongshuHandler.PublishContent)
 			jwtAuth.POST("/search", r.xiaohongshuHandler.SearchFeeds)
 			jwtAuth.GET("/feeds/recommended", r.xiaohongshuHandler.GetRecommendedFeeds)
+
+			// 浏览器自动化相关路由
+			jwtAuth.POST("/browser/login/qrcode", r.browserHandler.GetLoginQRCode)
+			jwtAuth.GET("/browser/login/status", r.browserHandler.CheckLoginStatus)
+			jwtAuth.POST("/browser/publish", r.browserHandler.PublishNote)
 		}
 
 		// API Key认证的路由（供第三方集成使用）
@@ -97,6 +104,11 @@ func (r *Router) SetupRoutes() *gin.Engine {
 			apiAuth.POST("/publish", r.xiaohongshuHandler.PublishContent)
 			apiAuth.POST("/search", r.xiaohongshuHandler.SearchFeeds)
 			apiAuth.GET("/feeds/recommended", r.xiaohongshuHandler.GetRecommendedFeeds)
+
+			// 浏览器自动化相关路由
+			apiAuth.POST("/browser/login/qrcode", r.browserHandler.GetLoginQRCode)
+			apiAuth.GET("/browser/login/status", r.browserHandler.CheckLoginStatus)
+			apiAuth.POST("/browser/publish", r.browserHandler.PublishNote)
 		}
 	}
 
