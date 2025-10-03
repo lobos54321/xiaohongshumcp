@@ -20,10 +20,12 @@ type BrowserService struct {
 func NewBrowserService() *BrowserService {
 	// 创建浏览器上下文
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath("/usr/bin/chromium-browser"), // 指定 Chromium 路径
 		chromedp.Flag("headless", true),
 		chromedp.Flag("disable-gpu", true),
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("disable-setuid-sandbox", true),
 	)
 
 	allocCtx, _ := chromedp.NewExecAllocator(context.Background(), opts...)

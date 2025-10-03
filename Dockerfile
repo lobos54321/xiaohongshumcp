@@ -22,11 +22,15 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./cmd/server
 # 运行阶段
 FROM alpine:latest
 
-# 安装ca-certificates
-RUN apk --no-cache add ca-certificates tzdata
+# 安装 ca-certificates 和 chromium
+RUN apk --no-cache add ca-certificates tzdata chromium chromium-chromedriver
 
 # 设置时区
 ENV TZ=Asia/Shanghai
+
+# 设置 Chrome 环境变量
+ENV CHROME_BIN=/usr/bin/chromium-browser \
+    CHROME_PATH=/usr/lib/chromium/
 
 # 创建非root用户
 RUN addgroup -g 1001 -S appgroup && \
