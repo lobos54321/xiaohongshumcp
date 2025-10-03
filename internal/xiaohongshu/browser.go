@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
+	"github.com/chromedp/cdproto/network"
 )
 
 // BrowserService 浏览器自动化服务
@@ -43,7 +44,7 @@ func (bs *BrowserService) Close() {
 
 // GetLoginQRCode 获取小红书登录二维码
 func (bs *BrowserService) GetLoginQRCode() (string, error) {
-	var qrCodeBase64 string
+	var qrCodeBytes []byte
 
 	err := chromedp.Run(bs.ctx,
 		// 访问小红书登录页
@@ -55,7 +56,7 @@ func (bs *BrowserService) GetLoginQRCode() (string, error) {
 		chromedp.Sleep(1*time.Second),
 
 		// 获取二维码图片
-		chromedp.Screenshot(`//img[@class="qrcode-img"]`, &qrCodeBase64, chromedp.BySearch),
+		chromedp.Screenshot(`//img[@class="qrcode-img"]`, &qrCodeBytes, chromedp.BySearch),
 	)
 
 	if err != nil {
@@ -63,12 +64,12 @@ func (bs *BrowserService) GetLoginQRCode() (string, error) {
 	}
 
 	// 返回 base64 编码的图片
-	return base64.StdEncoding.EncodeToString([]byte(qrCodeBase64)), nil
+	return base64.StdEncoding.EncodeToString(qrCodeBytes), nil
 }
 
 // CheckLoginStatus 检查登录状态并获取 cookies
 func (bs *BrowserService) CheckLoginStatus() (map[string]string, error) {
-	var cookies []*chromedp.Cookie
+	var cookies []*network.Cookie
 
 	err := chromedp.Run(bs.ctx,
 		// 等待登录完成（检查是否跳转到首页）
@@ -76,14 +77,10 @@ func (bs *BrowserService) CheckLoginStatus() (map[string]string, error) {
 
 		// 获取所有 cookies
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			cookies, err := chromedp.Cookies().Do(ctx)
+			var err error
+			cookies, err = network.GetCookies().Do(ctx)
 			if err != nil {
 				return err
-			}
-			// 转换为 map
-			cookieMap := make(map[string]string)
-			for _, cookie := range cookies {
-				cookieMap[cookie.Name] = cookie.Value
 			}
 			return nil
 		}),
@@ -105,9 +102,9 @@ func (bs *BrowserService) CheckLoginStatus() (map[string]string, error) {
 // PublishNote 发布笔记
 func (bs *BrowserService) PublishNote(cookies map[string]string, title, content string, images []string) error {
 	// 设置 cookies
-	var cookieList []*chromedp.Cookie
+	var cookieParams []*network.CookieParam
 	for name, value := range cookies {
-		cookieList = append(cookieList, &chromedp.Cookie{
+		cookieParams = append(cookieParams, &network.CookieParam{
 			Name:   name,
 			Value:  value,
 			Domain: ".xiaohongshu.com",
@@ -121,7 +118,7 @@ func (bs *BrowserService) PublishNote(cookies map[string]string, title, content 
 
 		// 设置 cookies
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			return chromedp.SetCookies(cookieList...).Do(ctx)
+			return network.SetCookies(cookieParams).Do(ctx)
 		}),
 
 		// 刷新页面
