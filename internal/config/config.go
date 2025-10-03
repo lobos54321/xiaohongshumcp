@@ -140,10 +140,18 @@ func overrideFromEnv() {
 	if env := os.Getenv("APP_ENV"); env != "" {
 		viper.Set("app.environment", env)
 	}
-	if port := os.Getenv("APP_PORT"); port != "" {
+	// 端口优先级: PORT > WEB_PORT > APP_PORT
+	if port := os.Getenv("PORT"); port != "" {
+		viper.Set("app.port", port)
+	} else if port := os.Getenv("WEB_PORT"); port != "" {
+		viper.Set("app.port", port)
+	} else if port := os.Getenv("APP_PORT"); port != "" {
 		viper.Set("app.port", port)
 	}
-	if host := os.Getenv("APP_HOST"); host != "" {
+	// 主机地址优先级: HOST > APP_HOST
+	if host := os.Getenv("HOST"); host != "" {
+		viper.Set("app.host", host)
+	} else if host := os.Getenv("APP_HOST"); host != "" {
 		viper.Set("app.host", host)
 	}
 
