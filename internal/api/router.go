@@ -13,6 +13,7 @@ type Router struct {
 	authHandler        *AuthHandler
 	xiaohongshuHandler *XiaohongshuHandler
 	browserHandler     *BrowserHandler
+	playwrightHandler  *PlaywrightHandler
 	authService        *auth.Service
 	userService        *user.Service
 }
@@ -27,6 +28,7 @@ func NewRouter(
 		authHandler:        NewAuthHandler(userService, authService),
 		xiaohongshuHandler: NewXiaohongshuHandler(claudeService, userService),
 		browserHandler:     NewBrowserHandler(userService),
+		playwrightHandler:  NewPlaywrightHandler(),
 		authService:        authService,
 		userService:        userService,
 	}
@@ -89,7 +91,13 @@ func (r *Router) SetupRoutes() *gin.Engine {
 			jwtAuth.POST("/search", r.xiaohongshuHandler.SearchFeeds)
 			jwtAuth.GET("/feeds/recommended", r.xiaohongshuHandler.GetRecommendedFeeds)
 
-			// 浏览器自动化相关路由
+			// Playwright 自动化路由（新版）
+			jwtAuth.POST("/playwright/publish", r.playwrightHandler.SubmitPublishTask)
+			jwtAuth.GET("/playwright/task/:taskId", r.playwrightHandler.GetTaskStatus)
+			jwtAuth.POST("/playwright/login/qrcode", r.playwrightHandler.GetLoginQRCode)
+			jwtAuth.GET("/playwright/login/status", r.playwrightHandler.CheckLoginStatus)
+
+			// 浏览器自动化相关路由（旧版，保留兼容）
 			jwtAuth.POST("/browser/login/qrcode", r.browserHandler.GetLoginQRCode)
 			jwtAuth.GET("/browser/login/status", r.browserHandler.CheckLoginStatus)
 			jwtAuth.POST("/browser/publish", r.browserHandler.PublishNote)

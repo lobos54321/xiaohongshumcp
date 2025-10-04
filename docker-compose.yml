@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # Redis 消息队列
+  redis:
+    image: redis:7-alpine
+    container_name: xiaohongshu-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - xiaohongshu-network
+
+  # Playwright 自动化服务
+  playwright-service:
+    build:
+      context: ./playwright-service
+      dockerfile: Dockerfile
+    container_name: xiaohongshu-playwright
+    ports:
+      - "3001:3001"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - PORT=3001
+      - NODE_ENV=production
+      - HEADLESS=true
+      - MAX_WORKERS=10
+      - BROWSER_POOL_SIZE=10
+      - COOKIE_DIR=/app/cookies
+    volumes:
+      - playwright_cookies:/app/cookies
+    depends_on:
+      - redis
+    networks:
+      - xiaohongshu-network
+    restart: unless-stopped
+
+  # Go 后端服务
+  go-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: xiaohongshu-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - HOST=0.0.0.0
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - DB_SSL_MODE=${DB_SSL_MODE}
+      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
+      - PLAYWRIGHT_SERVICE_URL=http://playwright-service:3001
+    depends_on:
+      - playwright-service
+      - redis
+    networks:
+      - xiaohongshu-network
+    restart: unless-stopped
+
+networks:
+  xiaohongshu-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+  playwright_cookies:

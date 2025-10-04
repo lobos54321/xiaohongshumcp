@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小红书智能自动化系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .chat-message {
+            animation: fadeIn 0.3s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+        <!-- Header -->
+        <div class="bg-gradient-to-r from-pink-500 to-red-500 rounded-lg shadow-lg p-6 mb-8 text-white">
+            <h1 class="text-3xl font-bold mb-2">🎨 小红书智能自动化系统</h1>
+            <p class="text-pink-100">由 Claude AI 驱动的智能内容创作与发布平台</p>
+        </div>
+
+        <!-- Main Content -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Left Panel - User Info & Quick Actions -->
+            <div class="lg:col-span-1 space-y-6">
+                <!-- User Info -->
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h2 class="text-xl font-bold mb-4">👤 用户信息</h2>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">用户 ID</label>
+                            <input type="text" id="userId" value="demo-user"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500">
+                        </div>
+                        <button onclick="checkLogin()"
+                            class="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-md transition">
+                            检查登录状态
+                        </button>
+                        <button onclick="getQRCode()"
+                            class="w-full bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-4 rounded-md transition">
+                            获取登录二维码
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h2 class="text-xl font-bold mb-4">⚡ 快捷操作</h2>
+                    <div class="space-y-2">
+                        <button onclick="quickAction('帮我检查小红书登录状态')"
+                            class="w-full text-left px-4 py-2 hover:bg-gray-100 rounded-md transition">
+                            📊 检查登录状态
+                        </button>
+                        <button onclick="showCreatePost()"
+                            class="w-full text-left px-4 py-2 hover:bg-gray-100 rounded-md transition">
+                            ✍️ 创作文章
+                        </button>
+                        <button onclick="showResearch()"
+                            class="w-full text-left px-4 py-2 hover:bg-gray-100 rounded-md transition">
+                            🔍 内容研究
+                        </button>
+                        <button onclick="showBatchPublish()"
+                            class="w-full text-left px-4 py-2 hover:bg-gray-100 rounded-md transition">
+                            📝 批量发布
+                        </button>
+                    </div>
+                </div>
+
+                <!-- System Status -->
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h2 class="text-xl font-bold mb-4">📡 系统状态</h2>
+                    <div id="systemStatus" class="space-y-2 text-sm">
+                        <div class="flex items-center justify-between">
+                            <span>Claude Agent</span>
+                            <span id="claudeStatus" class="text-gray-400">检查中...</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span>MCP Router</span>
+                            <span id="mcpStatus" class="text-gray-400">检查中...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel - Chat & Forms -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- Chat Interface -->
+                <div id="chatInterface" class="bg-white rounded-lg shadow">
+                    <div class="p-6 border-b border-gray-200">
+                        <h2 class="text-xl font-bold">💬 智能对话</h2>
+                        <p class="text-sm text-gray-500 mt-1">用自然语言描述你的需求，Claude会自动执行</p>
+                    </div>
+
+                    <div id="chatMessages" class="p-6 h-96 overflow-y-auto space-y-4">
+                        <div class="chat-message bg-blue-50 rounded-lg p-4">
+                            <div class="font-medium text-blue-900 mb-1">🤖 Claude</div>
+                            <div class="text-gray-700">你好！我是小红书智能助手。我可以帮你：<br>
+                            • 检查登录状态<br>
+                            • 创作并发布内容<br>
+                            • 搜索和分析热门内容<br>
+                            • 批量运营管理<br><br>
+                            请告诉我你需要什么帮助！</div>
+                        </div>
+                    </div>
+
+                    <div class="p-6 border-t border-gray-200">
+                        <div class="flex gap-2">
+                            <input type="text" id="chatInput" placeholder="输入你的需求，例如：帮我写一篇关于咖啡的文章"
+                                class="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500"
+                                onkeypress="if(event.key==='Enter') sendMessage()">
+                            <button onclick="sendMessage()"
+                                class="bg-pink-500 hover:bg-pink-600 text-white font-medium py-2 px-6 rounded-md transition">
+                                发送
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Create Post Form -->
+                <div id="createPostForm" class="bg-white rounded-lg shadow hidden">
+                    <div class="p-6 border-b border-gray-200">
+                        <h2 class="text-xl font-bold">✍️ 创作文章</h2>
+                    </div>
+                    <div class="p-6 space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">主题</label>
+                            <input type="text" id="postTopic" placeholder="例如：北京咖啡店探店"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">风格</label>
+                            <select id="postStyle" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500">
+                                <option value="轻松愉快">轻松愉快</option>
+                                <option value="专业干货">专业干货</option>
+                                <option value="幽默搞笑">幽默搞笑</option>
+                                <option value="温暖治愈">温暖治愈</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">字数</label>
+                            <input type="number" id="postLength" value="500"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500">
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="createPost()"
+                                class="flex-1 bg-pink-500 hover:bg-pink-600 text-white font-medium py-2 px-4 rounded-md transition">
+                                开始创作
+                            </button>
+                            <button onclick="hideAllForms()"
+                                class="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition">
+                                取消
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Research Form -->
+                <div id="researchForm" class="bg-white rounded-lg shadow hidden">
+                    <div class="p-6 border-b border-gray-200">
+                        <h2 class="text-xl font-bold">🔍 内容研究</h2>
+                    </div>
+                    <div class="p-6 space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">关键词</label>
+                            <input type="text" id="researchKeyword" placeholder="例如：咖啡拉花"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">分析任务</label>
+                            <textarea id="researchTask" rows="3" placeholder="例如：分析最近3天的热门内容特点"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500"></textarea>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="startResearch()"
+                                class="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-md transition">
+                                开始研究
+                            </button>
+                            <button onclick="hideAllForms()"
+                                class="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition">
+                                取消
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Batch Publish Form -->
+                <div id="batchForm" class="bg-white rounded-lg shadow hidden">
+                    <div class="p-6 border-b border-gray-200">
+                        <h2 class="text-xl font-bold">📝 批量发布</h2>
+                    </div>
+                    <div class="p-6 space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">主题列表（每行一个）</label>
+                            <textarea id="batchTopics" rows="5" placeholder="早餐推荐&#10;午餐打卡&#10;晚餐美食"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500"></textarea>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="batchPublish()"
+                                class="flex-1 bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-4 rounded-md transition">
+                                批量发布
+                            </button>
+                            <button onclick="hideAllForms()"
+                                class="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition">
+                                取消
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const CLAUDE_API = 'http://localhost:4000';
+        const MCP_API = 'http://localhost:3000';
+
+        // Check system status on load
+        window.onload = () => {
+            checkSystemStatus();
+        };
+
+        async function checkSystemStatus() {
+            try {
+                const claudeRes = await fetch(`${CLAUDE_API}/health`);
+                document.getElementById('claudeStatus').innerHTML =
+                    claudeRes.ok ? '<span class="text-green-500">● 正常</span>' : '<span class="text-red-500">● 离线</span>';
+            } catch (e) {
+                document.getElementById('claudeStatus').innerHTML = '<span class="text-red-500">● 离线</span>';
+            }
+
+            try {
+                const mcpRes = await fetch(`${MCP_API}/health`);
+                document.getElementById('mcpStatus').innerHTML =
+                    mcpRes.ok ? '<span class="text-green-500">● 正常</span>' : '<span class="text-red-500">● 离线</span>';
+            } catch (e) {
+                document.getElementById('mcpStatus').innerHTML = '<span class="text-red-500">● 离线</span>';
+            }
+        }
+
+        function getUserId() {
+            return document.getElementById('userId').value || 'demo-user';
+        }
+
+        function addMessage(role, content, isLoading = false) {
+            const messagesDiv = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'chat-message';
+
+            if (role === 'user') {
+                messageDiv.innerHTML = `
+                    <div class="bg-pink-50 rounded-lg p-4 ml-12">
+                        <div class="font-medium text-pink-900 mb-1">👤 你</div>
+                        <div class="text-gray-700">${content}</div>
+                    </div>
+                `;
+            } else {
+                messageDiv.innerHTML = `
+                    <div class="bg-blue-50 rounded-lg p-4 mr-12">
+                        <div class="font-medium text-blue-900 mb-1">🤖 Claude ${isLoading ? '<span class="loading ml-2"></span>' : ''}</div>
+                        <div class="text-gray-700">${content}</div>
+                    </div>
+                `;
+            }
+
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            return messageDiv;
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const prompt = input.value.trim();
+            if (!prompt) return;
+
+            addMessage('user', prompt);
+            input.value = '';
+
+            const loadingMsg = addMessage('assistant', '正在思考...', true);
+
+            try {
+                const response = await fetch(`${CLAUDE_API}/agent/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: getUserId(),
+                        prompt: prompt
+                    })
+                });
+
+                const data = await response.json();
+                loadingMsg.remove();
+
+                if (data.success) {
+                    addMessage('assistant', data.data.content);
+
+                    // Show tool calls if any
+                    if (data.data.toolCalls && data.data.toolCalls.length > 0) {
+                        const toolsInfo = data.data.toolCalls.map(t => `• ${t.name}`).join('<br>');
+                        addMessage('assistant', `<div class="text-sm text-gray-500 mt-2">使用的工具：<br>${toolsInfo}</div>`);
+                    }
+                } else {
+                    addMessage('assistant', `错误：${data.error || '请求失败'}`);
+                }
+            } catch (error) {
+                loadingMsg.remove();
+                addMessage('assistant', `错误：${error.message}`);
+            }
+        }
+
+        async function checkLogin() {
+            await sendMessageDirect('帮我检查小红书登录状态');
+        }
+
+        async function getQRCode() {
+            await sendMessageDirect('帮我获取小红书登录二维码');
+        }
+
+        async function quickAction(prompt) {
+            await sendMessageDirect(prompt);
+        }
+
+        async function sendMessageDirect(prompt) {
+            document.getElementById('chatInput').value = prompt;
+            await sendMessage();
+        }
+
+        function showCreatePost() {
+            hideAllForms();
+            document.getElementById('createPostForm').classList.remove('hidden');
+            document.getElementById('chatInterface').classList.add('hidden');
+        }
+
+        function showResearch() {
+            hideAllForms();
+            document.getElementById('researchForm').classList.remove('hidden');
+            document.getElementById('chatInterface').classList.add('hidden');
+        }
+
+        function showBatchPublish() {
+            hideAllForms();
+            document.getElementById('batchForm').classList.remove('hidden');
+            document.getElementById('chatInterface').classList.add('hidden');
+        }
+
+        function hideAllForms() {
+            document.getElementById('createPostForm').classList.add('hidden');
+            document.getElementById('researchForm').classList.add('hidden');
+            document.getElementById('batchForm').classList.add('hidden');
+            document.getElementById('chatInterface').classList.remove('hidden');
+        }
+
+        async function createPost() {
+            const topic = document.getElementById('postTopic').value;
+            const style = document.getElementById('postStyle').value;
+            const length = document.getElementById('postLength').value;
+
+            if (!topic) {
+                alert('请输入主题');
+                return;
+            }
+
+            hideAllForms();
+
+            try {
+                const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/create-post`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: getUserId(),
+                        topic: topic,
+                        style: style,
+                        length: parseInt(length)
+                    })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    addMessage('assistant', data.data.content);
+                } else {
+                    addMessage('assistant', `错误：${data.error}`);
+                }
+            } catch (error) {
+                addMessage('assistant', `错误：${error.message}`);
+            }
+        }
+
+        async function startResearch() {
+            const keyword = document.getElementById('researchKeyword').value;
+            const task = document.getElementById('researchTask').value;
+
+            if (!keyword) {
+                alert('请输入关键词');
+                return;
+            }
+
+            hideAllForms();
+
+            try {
+                const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/research`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: getUserId(),
+                        keyword: keyword,
+                        task: task || '分析热门内容特点'
+                    })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    addMessage('assistant', data.data.content);
+                } else {
+                    addMessage('assistant', `错误：${data.error}`);
+                }
+            } catch (error) {
+                addMessage('assistant', `错误：${error.message}`);
+            }
+        }
+
+        async function batchPublish() {
+            const topicsText = document.getElementById('batchTopics').value;
+            const topics = topicsText.split('\n').filter(t => t.trim());
+
+            if (topics.length === 0) {
+                alert('请输入至少一个主题');
+                return;
+            }
+
+            hideAllForms();
+
+            try {
+                const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/batch-publish`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: getUserId(),
+                        topics: topics
+                    })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    addMessage('assistant', data.data.content);
+                } else {
+                    addMessage('assistant', `错误：${data.error}`);
+                }
+            } catch (error) {
+                addMessage('assistant', `错误：${error.message}`);
+            }
+        }
+    </script>
+</body>
+</html>
