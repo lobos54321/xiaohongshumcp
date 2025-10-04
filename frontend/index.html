@@ -227,8 +227,13 @@
     </div>
 
     <script>
-        const CLAUDE_API = 'http://localhost:4000';
-        const MCP_API = 'http://localhost:3000';
+        // 自动检测API地址（生产环境使用当前域名，本地开发使用localhost）
+        const CLAUDE_API = window.location.hostname === 'localhost'
+            ? 'http://localhost:4000'
+            : window.location.origin;
+        const MCP_API = window.location.hostname === 'localhost'
+            ? 'http://localhost:3000'
+            : 'http://localhost:3000'; // MCP在同一容器内部
 
         // Check system status on load
         window.onload = () => {
