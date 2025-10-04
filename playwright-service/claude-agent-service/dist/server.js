@@ -3,8 +3,12 @@
  */
 import express from 'express';
 import * as dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { ClaudeAgentHTTP } from './claudeAgentHTTP.js';
 dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const PORT = parseInt(process.env.PORT || '4000');
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 if (!ANTHROPIC_API_KEY) {
@@ -21,8 +25,8 @@ const agent = new ClaudeAgentHTTP({
 });
 const app = express();
 app.use(express.json());
-// 根路径 - API文档
-app.get('/', (_req, res) => {
+// API文档路由
+app.get('/api', (_req, res) => {
     res.json({
         name: '小红书智能自动化系统',
         version: '2.0.0',
@@ -37,6 +41,9 @@ app.get('/', (_req, res) => {
         documentation: 'https://github.com/lobos54321/xiaohongshumcp',
     });
 });
+// 提供前端静态文件（放在最后，避免覆盖API路由）
+const frontendPath = path.join(__dirname, '../../../frontend');
+app.use(express.static(frontendPath));
 // 健康检查
 app.get('/health', (_req, res) => {
     res.json({
