@@ -16,18 +16,6 @@
             animation: flow 3s ease-in-out infinite;
         }
         @keyframes flow { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
-        .chat-message { animation: fadeIn 0.3s ease-in; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255,255,255,.3);
-            border-radius: 50%;
-            border-top-color: #fff;
-            animation: spin 1s ease-in-out infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body class="gradient-bg min-h-screen">
@@ -142,13 +130,13 @@
                 <div class="flex items-center justify-between">
                     <div>
                         <h2 class="text-2xl font-bold text-gray-800">🤖 自动运营中</h2>
-                        <p class="text-gray-600" id="autoStatusText">Claude正在为您的产品规划内容...</p>
+                        <p class="text-gray-600" id="autoStatusText">Claude正在为您的咖啡店规划内容...</p>
                     </div>
                     <div class="text-right">
                         <div class="auto-running text-white px-4 py-2 rounded-lg font-medium">
                             <span class="pulse">●</span> 运行中
                         </div>
-                        <div class="text-sm text-gray-500 mt-1" id="runningTime">已运行 0分钟</div>
+                        <div class="text-sm text-gray-500 mt-1" id="runningTime">已运行 2小时15分</div>
                     </div>
                 </div>
             </div>
@@ -164,15 +152,15 @@
                     <div id="aiStrategy" class="space-y-3 text-sm">
                         <div class="bg-blue-50 p-3 rounded-lg">
                             <div class="font-medium text-blue-800">本周主题</div>
-                            <div class="text-blue-600">正在分析...</div>
+                            <div class="text-blue-600">秋季新品推广</div>
                         </div>
                         <div class="bg-green-50 p-3 rounded-lg">
                             <div class="font-medium text-green-800">热门话题</div>
-                            <div class="text-green-600">正在收集...</div>
+                            <div class="text-green-600">#秋日暖饮 #手冲咖啡</div>
                         </div>
                         <div class="bg-purple-50 p-3 rounded-lg">
                             <div class="font-medium text-purple-800">发布时机</div>
-                            <div class="text-purple-600">正在优化...</div>
+                            <div class="text-purple-600">9:00, 15:00, 20:00</div>
                         </div>
                     </div>
                 </div>
@@ -183,8 +171,17 @@
                         📅 今日计划
                     </h3>
                     <div id="todayPlan" class="space-y-3 text-sm">
-                        <div class="text-gray-500 text-center py-4">
-                            Claude正在制定今日计划...
+                        <div class="flex items-center justify-between p-2 bg-green-50 rounded-lg">
+                            <span>早餐搭配推荐</span>
+                            <span class="text-green-600 text-xs">✓ 已发布</span>
+                        </div>
+                        <div class="flex items-center justify-between p-2 bg-yellow-50 rounded-lg">
+                            <span>新品拉花教学</span>
+                            <span class="text-yellow-600 text-xs">⏱ 15:00</span>
+                        </div>
+                        <div class="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                            <span>晚间氛围分享</span>
+                            <span class="text-gray-600 text-xs">⏳ 20:00</span>
                         </div>
                     </div>
                 </div>
@@ -197,19 +194,19 @@
                     <div id="performance" class="space-y-3 text-sm">
                         <div class="flex justify-between">
                             <span>今日发布</span>
-                            <span class="font-medium text-blue-600">0 / 计划中</span>
+                            <span class="font-medium text-blue-600">1 / 3</span>
                         </div>
                         <div class="flex justify-between">
                             <span>本周阅读</span>
-                            <span class="font-medium text-green-600">收集中</span>
+                            <span class="font-medium text-green-600">2.3k</span>
                         </div>
                         <div class="flex justify-between">
                             <span>新增粉丝</span>
-                            <span class="font-medium text-purple-600">统计中</span>
+                            <span class="font-medium text-purple-600">+24</span>
                         </div>
                         <div class="flex justify-between">
                             <span>互动率</span>
-                            <span class="font-medium text-orange-600">分析中</span>
+                            <span class="font-medium text-orange-600">8.5%</span>
                         </div>
                     </div>
                 </div>
@@ -241,22 +238,6 @@
                     </button>
                 </div>
             </div>
-
-            <!-- Manual Chat Interface (Hidden by default) -->
-            <div id="manualChatInterface" class="hidden card rounded-xl p-6 shadow-lg">
-                <h3 class="text-lg font-bold mb-4">💬 手动对话</h3>
-                <div id="chatMessages" class="h-64 overflow-y-auto space-y-3 mb-4 p-4 bg-gray-50 rounded-lg">
-                    <!-- Chat messages will be populated here -->
-                </div>
-                <div class="flex gap-2">
-                    <input type="text" id="chatInput" placeholder="输入指令..."
-                        class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                        onkeypress="if(event.key==='Enter') sendManualMessage()">
-                    <button onclick="sendManualMessage()" class="bg-purple-500 hover:bg-purple-600 text-white px-6 py-2 rounded-lg transition">
-                        发送
-                    </button>
-                </div>
-            </div>
         </div>
     </div>
 
@@ -268,7 +249,6 @@
 
         let currentUser = null;
         let autoModeEnabled = false;
-        let startTime = null;
 
         // 获取登录二维码
         async function getLoginQR() {
@@ -292,13 +272,13 @@
 
                 const data = await response.json();
                 if (data.success) {
-                    // 显示二维码（需要根据实际返回的数据格式调整）
+                    // 显示二维码（这里需要根据实际返回的数据格式调整）
                     document.getElementById('qrCodeArea').innerHTML =
                         `<div class="text-center">
-                            <div class="w-32 h-32 bg-gray-100 mx-auto mb-2 flex items-center justify-center text-xs">
-                                扫码登录
+                            <div class="w-32 h-32 bg-gray-100 mx-auto mb-2 flex items-center justify-center">
+                                QR Code
                             </div>
-                            <div class="text-sm text-gray-600">请用小红书APP扫描</div>
+                            <div class="text-sm text-gray-600">请用小红书扫码登录</div>
                         </div>`;
 
                     document.getElementById('loginStatus').innerHTML =
@@ -306,6 +286,7 @@
 
                     // 启用第二步
                     enableStep2();
+
                     // 开始检查登录状态
                     checkLoginStatus();
                 }
@@ -320,11 +301,8 @@
         function enableStep2() {
             const step2 = document.getElementById('step2');
             step2.classList.remove('opacity-50');
-            const numberDiv = step2.querySelector('.bg-gray-400');
-            if (numberDiv) {
-                numberDiv.classList.remove('bg-gray-400');
-                numberDiv.classList.add('bg-purple-500');
-            }
+            step2.querySelector('.bg-gray-400').classList.remove('bg-gray-400');
+            step2.querySelector('.bg-gray-400').classList.add('bg-purple-500');
             step2.querySelector('button').disabled = false;
         }
 
@@ -353,7 +331,7 @@
                 } catch (error) {
                     console.error('检查登录状态失败:', error);
                 }
-            }, 3000);
+            }, 3000); // 每3秒检查一次
 
             // 30秒后停止检查
             setTimeout(() => clearInterval(checkInterval), 30000);
@@ -377,11 +355,22 @@
             }
 
             try {
-                // 发送配置给Claude，启动自动模式
-                const response = await fetch(`${CLAUDE_API}/agent/auto/start`, {
+                // 发送配置给Claude，让它开始制定运营策略
+                const response = await fetch(`${CLAUDE_API}/agent/chat`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(config)
+                    body: JSON.stringify({
+                        userId: currentUser,
+                        prompt: `请根据以下信息为我制定小红书自动运营策略：
+                        产品：${config.productName}
+                        目标客户：${config.targetAudience}
+                        营销目标：${config.marketingGoal}
+                        发布频率：${config.postFrequency}
+                        品牌风格：${config.brandStyle}
+                        审核模式：${config.reviewMode}
+
+                        请为我制定详细的内容规划，并开始自动运营。`
+                    })
                 });
 
                 const data = await response.json();
@@ -391,10 +380,7 @@
                     document.getElementById('autoManagerDashboard').classList.remove('hidden');
 
                     autoModeEnabled = true;
-                    startTime = Date.now();
                     startAutoMode(config);
-                } else {
-                    alert('启动失败: ' + (data.error || '未知错误'));
                 }
             } catch (error) {
                 console.error('启动自动运营失败:', error);
@@ -409,90 +395,20 @@
                 `Claude正在为您的${config.productName}制定运营策略...`;
 
             // 开始运营计时
-            const updateTimer = () => {
-                if (!startTime) return;
+            let startTime = Date.now();
+            setInterval(() => {
                 const elapsed = Date.now() - startTime;
                 const hours = Math.floor(elapsed / 3600000);
                 const minutes = Math.floor((elapsed % 3600000) / 60000);
                 document.getElementById('runningTime').textContent =
                     `已运行 ${hours}小时${minutes}分`;
-            };
-            setInterval(updateTimer, 60000);
-            updateTimer();
-
-            // 开始获取AI策略和计划
-            fetchAIStrategy();
-            fetchTodayPlan();
+            }, 60000);
 
             // 模拟活动流
             simulateActivity();
 
-            // 定期更新数据
-            setInterval(updateDashboard, 30000);
-        }
-
-        // 获取AI策略
-        async function fetchAIStrategy() {
-            try {
-                const response = await fetch(`${CLAUDE_API}/agent/auto/strategy/${currentUser}`);
-                const data = await response.json();
-
-                if (data.success && data.strategy) {
-                    updateStrategyDisplay(data.strategy);
-                }
-            } catch (error) {
-                console.error('获取策略失败:', error);
-            }
-        }
-
-        // 获取今日计划
-        async function fetchTodayPlan() {
-            try {
-                const response = await fetch(`${CLAUDE_API}/agent/auto/plan/${currentUser}`);
-                const data = await response.json();
-
-                if (data.success && data.plan) {
-                    updatePlanDisplay(data.plan);
-                }
-            } catch (error) {
-                console.error('获取计划失败:', error);
-            }
-        }
-
-        // 更新策略显示
-        function updateStrategyDisplay(strategy) {
-            const container = document.getElementById('aiStrategy');
-            container.innerHTML = `
-                <div class="bg-blue-50 p-3 rounded-lg">
-                    <div class="font-medium text-blue-800">本周主题</div>
-                    <div class="text-blue-600">${strategy.keyThemes?.join(', ') || '制定中...'}</div>
-                </div>
-                <div class="bg-green-50 p-3 rounded-lg">
-                    <div class="font-medium text-green-800">热门话题</div>
-                    <div class="text-green-600">${strategy.trendingTopics?.join(', ') || '分析中...'}</div>
-                </div>
-                <div class="bg-purple-50 p-3 rounded-lg">
-                    <div class="font-medium text-purple-800">发布时机</div>
-                    <div class="text-purple-600">${strategy.optimalTimes?.join(', ') || '优化中...'}</div>
-                </div>
-            `;
-        }
-
-        // 更新计划显示
-        function updatePlanDisplay(plan) {
-            const container = document.getElementById('todayPlan');
-            if (plan.tasks && plan.tasks.length > 0) {
-                container.innerHTML = plan.tasks.map(task => `
-                    <div class="flex items-center justify-between p-2 bg-${task.status === 'completed' ? 'green' : task.status === 'in-progress' ? 'yellow' : 'gray'}-50 rounded-lg">
-                        <span>${task.title}</span>
-                        <span class="text-${task.status === 'completed' ? 'green' : task.status === 'in-progress' ? 'yellow' : 'gray'}-600 text-xs">
-                            ${task.status === 'completed' ? '✓ 已完成' : task.status === 'in-progress' ? '⏱ 进行中' : '⏳ 计划中'}
-                        </span>
-                    </div>
-                `).join('');
-            } else {
-                container.innerHTML = '<div class="text-gray-500 text-center py-4">暂无计划</div>';
-            }
+            // 定期检查和执行任务
+            setInterval(executeScheduledTasks, 60000); // 每分钟检查一次
         }
 
         // 模拟实时活动
@@ -512,7 +428,7 @@
                     const activity = activities[Math.floor(Math.random() * activities.length)];
                     addActivityLog(activity);
                 }
-            }, 8000);
+            }, 5000);
         }
 
         // 添加活动日志
@@ -535,115 +451,32 @@
             }
         }
 
-        // 更新仪表盘
-        async function updateDashboard() {
-            try {
-                const response = await fetch(`${CLAUDE_API}/agent/auto/stats/${currentUser}`);
-                const data = await response.json();
+        // 执行定时任务
+        async function executeScheduledTasks() {
+            if (!autoModeEnabled) return;
 
-                if (data.success && data.stats) {
-                    updatePerformanceDisplay(data.stats);
-                }
-            } catch (error) {
-                console.error('更新数据失败:', error);
-            }
-        }
-
-        // 更新性能显示
-        function updatePerformanceDisplay(stats) {
-            const container = document.getElementById('performance');
-            container.innerHTML = `
-                <div class="flex justify-between">
-                    <span>今日发布</span>
-                    <span class="font-medium text-blue-600">${stats.todayPosts || 0} / ${stats.plannedPosts || 0}</span>
-                </div>
-                <div class="flex justify-between">
-                    <span>本周阅读</span>
-                    <span class="font-medium text-green-600">${stats.weeklyReads || '统计中'}</span>
-                </div>
-                <div class="flex justify-between">
-                    <span>新增粉丝</span>
-                    <span class="font-medium text-purple-600">+${stats.newFollowers || 0}</span>
-                </div>
-                <div class="flex justify-between">
-                    <span>互动率</span>
-                    <span class="font-medium text-orange-600">${stats.engagementRate || 0}%</span>
-                </div>
-            `;
+            // 这里会调用Claude来执行具体的任务
+            // 比如生成内容、发布文章、分析数据等
+            console.log('执行定时任务...');
         }
 
         // 控制面板功能
         function pauseAutoMode() {
-            if (autoModeEnabled) {
-                autoModeEnabled = false;
-                alert('自动运营已暂停');
-                // 这里可以调用API暂停服务
-            } else {
-                autoModeEnabled = true;
-                startTime = Date.now();
-                alert('自动运营已恢复');
-            }
+            autoModeEnabled = false;
+            alert('自动运营已暂停');
         }
 
         function showPendingPosts() {
-            // 显示待审核内容
-            document.getElementById('manualChatInterface').classList.toggle('hidden');
+            alert('功能开发中...');
         }
 
         function adjustStrategy() {
-            alert('策略调整功能开发中...');
+            alert('功能开发中...');
         }
 
         function viewAnalytics() {
-            alert('数据分析功能开发中...');
+            alert('功能开发中...');
         }
-
-        // 手动对话功能
-        async function sendManualMessage() {
-            const input = document.getElementById('chatInput');
-            const message = input.value.trim();
-            if (!message) return;
-
-            input.value = '';
-            addChatMessage('user', message);
-
-            try {
-                const response = await fetch(`${CLAUDE_API}/agent/chat`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        userId: currentUser,
-                        prompt: message
-                    })
-                });
-
-                const data = await response.json();
-                if (data.success) {
-                    addChatMessage('assistant', data.data.content);
-                } else {
-                    addChatMessage('assistant', '错误: ' + (data.error || '未知错误'));
-                }
-            } catch (error) {
-                addChatMessage('assistant', '错误: ' + error.message);
-            }
-        }
-
-        function addChatMessage(role, content) {
-            const container = document.getElementById('chatMessages');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `chat-message p-3 rounded-lg ${role === 'user' ? 'bg-purple-100 ml-8' : 'bg-gray-100 mr-8'}`;
-            messageDiv.innerHTML = `
-                <div class="font-medium text-sm mb-1">${role === 'user' ? '👤 你' : '🤖 Claude'}</div>
-                <div class="text-sm">${content}</div>
-            `;
-            container.appendChild(messageDiv);
-            container.scrollTop = container.scrollHeight;
-        }
-
-        // 页面加载时的初始化
-        window.onload = () => {
-            addActivityLog('🚀 系统初始化完成');
-        };
     </script>
 </body>
 </html>
