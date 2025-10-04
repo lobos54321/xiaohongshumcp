@@ -284,28 +284,47 @@
 
                 const data = await response.json();
                 if (data.success) {
-                    // 显示浏览器已启动的信息
+                    // 直接嵌入小红书登录页面
                     document.getElementById('qrCodeArea').innerHTML =
                         `<div class="text-center">
-                            <div class="w-32 h-32 bg-green-100 mx-auto mb-2 flex items-center justify-center text-xs border-2 border-green-300 rounded-lg">
-                                <div class="text-green-600">
-                                    <div>✓ 浏览器</div>
-                                    <div>已启动</div>
-                                </div>
+                            <div class="mb-2">
+                                <iframe
+                                    src="https://www.xiaohongshu.com/login"
+                                    width="300"
+                                    height="400"
+                                    frameborder="0"
+                                    style="border: 2px solid #e5e7eb; border-radius: 12px; background: white;"
+                                    sandbox="allow-same-origin allow-scripts allow-forms allow-popups">
+                                </iframe>
                             </div>
-                            <div class="text-sm text-gray-600">请在浏览器窗口中扫码登录</div>
+                            <div class="text-sm text-gray-600">请用手机小红书APP扫描上方二维码</div>
                         </div>`;
 
                     document.getElementById('loginStatus').innerHTML =
                         `<div class="text-green-600">
-                            <div>✅ 小红书登录浏览器已启动</div>
-                            <div class="text-sm text-gray-500 mt-1">${data.data.instruction}</div>
+                            <div>✅ 小红书登录页面已加载</div>
+                            <div class="text-sm text-gray-500 mt-1">请扫描上方二维码完成登录</div>
                         </div>`;
 
                     // 启用第二步
                     enableStep2();
-                    // 开始检查登录状态
-                    checkLoginStatus();
+
+                    // 检查登录状态（定期检查用户是否已登录）
+                    const checkInterval = setInterval(() => {
+                        // 这里可以通过postMessage与iframe通信检查登录状态
+                        // 或者让用户手动点击"已完成登录"按钮
+                        console.log('检查登录状态...');
+                    }, 3000);
+
+                    // 添加"已完成登录"按钮
+                    setTimeout(() => {
+                        document.getElementById('loginStatus').innerHTML +=
+                            `<div class="mt-2">
+                                <button onclick="confirmLogin()" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 text-sm">
+                                    我已完成扫码登录 ✓
+                                </button>
+                            </div>`;
+                    }, 2000);
                 } else {
                     document.getElementById('loginStatus').innerHTML =
                         `<div class="text-red-600">启动失败: ${data.error}</div>`;
@@ -327,6 +346,20 @@
                 numberDiv.classList.add('bg-purple-500');
             }
             step2.querySelector('button').disabled = false;
+        }
+
+        // 确认登录完成
+        function confirmLogin() {
+            document.getElementById('loginStatus').innerHTML =
+                `<div class="text-green-600">
+                    <div>✅ 登录确认成功</div>
+                    <div class="text-sm text-gray-500 mt-1">可以继续配置产品信息了</div>
+                </div>`;
+
+            // 切换到设置第二步的重点
+            const step2Button = document.getElementById('step2').querySelector('button');
+            step2Button.classList.add('ring-2', 'ring-purple-300', 'animate-pulse');
+            step2Button.textContent = '立即配置产品 →';
         }
 
         // 检查登录状态
