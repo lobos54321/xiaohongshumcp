@@ -1,44 +1,4 @@
-# Build outputs
-/target
-/dist
-/build
-
-# Dependencies
-node_modules/
-vendor/
-
-# Environment files
-.env
-.env.local
-.env.production
-
-# Logs
-*.log
-logs/
-data/logs/
-
-# Runtime data
-*.pid
-*.seed
-
-# Database
-*.db
-*.sqlite
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Docker
-.dockerignore
-
-# Go specific
+# Go
 *.exe
 *.exe~
 *.dll
@@ -46,16 +6,42 @@ Thumbs.db
 *.dylib
 *.test
 *.out
+go.work
+main
 
-# Coverage reports
-coverage.txt
-*.cover
-*.coverprofile
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+dist/
+*.tsbuildinfo
 
-# Temporary files
-*.tmp
-*.temp
+# Env
+.env
+.env.local
+.env.*.local
 
-# Local data
-data/
-!data/.gitkeep
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Cookies
+cookies/
+*.json
+
+# Binary
+xiaohongshu-mcp
+!playwright-service/mcp-router/xiaohongshu-mcp

@@ -1,18 +1,18 @@
 {
-  "name": "xiaohongshu-proxy-demo",
-  "version": "1.0.0",
-  "description": "小红书代理服务演示版",
-  "main": "server.js",
+  "name": "xiaohongshu-ai-automation",
+  "version": "2.0.0",
+  "description": "小红书智能自动化系统 - Claude AI驱动",
+  "main": "start.sh",
+  "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "bash start.sh",
+    "build": "cd playwright-service/mcp-router && npm install && npm run build && cd ../claude-agent-service && npm install && npm run build",
+    "dev:mcp": "cd playwright-service/mcp-router && npm run start:http",
+    "dev:claude": "cd playwright-service/claude-agent-service && npm start"
   },
-  "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "jsonwebtoken": "^9.0.2",
-    "bcryptjs": "^2.4.3"
+  "engines": {
+    "node": ">=18.0.0"
   },
-  "author": "xiaohongshu-proxy",
+  "author": "xiaohongshu-ai",
   "license": "MIT"
 }
