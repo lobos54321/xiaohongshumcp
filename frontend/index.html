@@ -284,47 +284,47 @@
 
                 const data = await response.json();
                 if (data.success) {
-                    // 直接嵌入小红书登录页面
+                    // 安全的新窗口方式打开登录
                     document.getElementById('qrCodeArea').innerHTML =
                         `<div class="text-center">
-                            <div class="mb-2">
-                                <iframe
-                                    src="https://www.xiaohongshu.com/login"
-                                    width="300"
-                                    height="400"
-                                    frameborder="0"
-                                    style="border: 2px solid #e5e7eb; border-radius: 12px; background: white;"
-                                    sandbox="allow-same-origin allow-scripts allow-forms allow-popups">
-                                </iframe>
+                            <div class="w-32 h-32 bg-blue-100 mx-auto mb-4 flex items-center justify-center text-xs border-2 border-blue-300 rounded-lg">
+                                <div class="text-blue-600">
+                                    <div>📱 扫码</div>
+                                    <div>登录</div>
+                                </div>
                             </div>
-                            <div class="text-sm text-gray-600">请用手机小红书APP扫描上方二维码</div>
+                            <button onclick="openXHSLogin()" class="w-full bg-red-500 hover:bg-red-600 text-white font-medium py-3 px-6 rounded-lg transition mb-3">
+                                🚀 打开小红书登录页面
+                            </button>
+                            <div class="text-sm text-gray-600">
+                                <div class="mb-2">点击上方按钮将打开新窗口：</div>
+                                <div class="text-left text-xs bg-gray-50 p-3 rounded">
+                                    <div>1. 🔗 自动打开小红书登录页面</div>
+                                    <div>2. 📱 扫描页面中的二维码</div>
+                                    <div>3. ✅ 登录成功后关闭窗口</div>
+                                    <div>4. 🎯 返回本页面继续配置</div>
+                                </div>
+                            </div>
                         </div>`;
 
                     document.getElementById('loginStatus').innerHTML =
                         `<div class="text-green-600">
-                            <div>✅ 小红书登录页面已加载</div>
-                            <div class="text-sm text-gray-500 mt-1">请扫描上方二维码完成登录</div>
+                            <div>✅ 准备开始登录</div>
+                            <div class="text-sm text-gray-500 mt-1">点击上方按钮打开登录页面</div>
                         </div>`;
 
                     // 启用第二步
                     enableStep2();
 
-                    // 检查登录状态（定期检查用户是否已登录）
-                    const checkInterval = setInterval(() => {
-                        // 这里可以通过postMessage与iframe通信检查登录状态
-                        // 或者让用户手动点击"已完成登录"按钮
-                        console.log('检查登录状态...');
-                    }, 3000);
-
                     // 添加"已完成登录"按钮
                     setTimeout(() => {
                         document.getElementById('loginStatus').innerHTML +=
-                            `<div class="mt-2">
+                            `<div class="mt-3">
                                 <button onclick="confirmLogin()" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 text-sm">
-                                    我已完成扫码登录 ✓
+                                    ✓ 我已在新窗口完成登录
                                 </button>
                             </div>`;
-                    }, 2000);
+                    }, 1000);
                 } else {
                     document.getElementById('loginStatus').innerHTML =
                         `<div class="text-red-600">启动失败: ${data.error}</div>`;
@@ -360,6 +360,28 @@
             const step2Button = document.getElementById('step2').querySelector('button');
             step2Button.classList.add('ring-2', 'ring-purple-300', 'animate-pulse');
             step2Button.textContent = '立即配置产品 →';
+        }
+
+        // 安全地打开小红书登录页面
+        function openXHSLogin() {
+            const loginWindow = window.open(
+                'https://www.xiaohongshu.com/login',
+                'xhsLogin',
+                'width=400,height=600,scrollbars=yes,resizable=yes,toolbar=no,location=no,status=no,menubar=no'
+            );
+
+            if (loginWindow) {
+                document.getElementById('loginStatus').innerHTML =
+                    `<div class="text-blue-600">
+                        <div>🌐 登录窗口已打开</div>
+                        <div class="text-sm text-gray-500 mt-1">请在新窗口中扫码登录</div>
+                        <div class="mt-2 text-xs bg-blue-50 p-2 rounded">
+                            如果窗口被浏览器拦截，请手动点击地址栏的弹窗图标允许弹窗
+                        </div>
+                    </div>`;
+            } else {
+                alert('弹窗被浏览器拦截，请手动打开 https://www.xiaohongshu.com/login');
+            }
         }
 
         // 检查登录状态
