@@ -1,0 +1,4 @@
+{
+  "buildCommand": "cd playwright-service/mcp-router && npm install && npm run build && cd ../claude-agent-service && npm install && npm run build",
+  "startCommand": "bash start.sh"
+}

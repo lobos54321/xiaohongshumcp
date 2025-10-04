@@ -41,6 +41,11 @@ logs/
 # Cookies
 cookies/
 *.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!zbpack.json
+!.zeabur/config.json
 
 # Binary
 xiaohongshu-mcp
