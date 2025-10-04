@@ -52,10 +52,9 @@
                 <div class="grid md:grid-cols-2 gap-6">
                     <div>
                         <div class="space-y-4">
-                            <div>
-                                <label class="block text-sm font-medium mb-2">用户昵称</label>
-                                <input type="text" id="userNickname" placeholder="给自己起个名字"
-                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            <div class="text-center">
+                                <div class="text-lg font-medium mb-2">扫码登录小红书</div>
+                                <div class="text-gray-600 text-sm">登录后即可开始自动运营</div>
                             </div>
                             <button onclick="getLoginQR()" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 px-6 rounded-lg transition">
                                 获取登录二维码
@@ -272,42 +271,44 @@
 
         // 获取登录二维码
         async function getLoginQR() {
-            const nickname = document.getElementById('userNickname').value;
-            if (!nickname) {
-                alert('请输入用户昵称');
-                return;
-            }
-
             currentUser = `user_${Date.now()}`;
 
             try {
-                const response = await fetch(`${CLAUDE_API}/agent/chat`, {
+                const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        userId: currentUser,
-                        prompt: '请帮我获取小红书登录二维码'
+                        userId: currentUser
                     })
                 });
 
                 const data = await response.json();
                 if (data.success) {
-                    // 显示二维码（需要根据实际返回的数据格式调整）
+                    // 显示浏览器已启动的信息
                     document.getElementById('qrCodeArea').innerHTML =
                         `<div class="text-center">
-                            <div class="w-32 h-32 bg-gray-100 mx-auto mb-2 flex items-center justify-center text-xs">
-                                扫码登录
+                            <div class="w-32 h-32 bg-green-100 mx-auto mb-2 flex items-center justify-center text-xs border-2 border-green-300 rounded-lg">
+                                <div class="text-green-600">
+                                    <div>✓ 浏览器</div>
+                                    <div>已启动</div>
+                                </div>
                             </div>
-                            <div class="text-sm text-gray-600">请用小红书APP扫描</div>
+                            <div class="text-sm text-gray-600">请在浏览器窗口中扫码登录</div>
                         </div>`;
 
                     document.getElementById('loginStatus').innerHTML =
-                        '<span class="text-blue-600">请用小红书APP扫描二维码登录</span>';
+                        `<div class="text-green-600">
+                            <div>✅ 小红书登录浏览器已启动</div>
+                            <div class="text-sm text-gray-500 mt-1">${data.data.instruction}</div>
+                        </div>`;
 
                     // 启用第二步
                     enableStep2();
                     // 开始检查登录状态
                     checkLoginStatus();
+                } else {
+                    document.getElementById('loginStatus').innerHTML =
+                        `<div class="text-red-600">启动失败: ${data.error}</div>`;
                 }
             } catch (error) {
                 console.error('获取二维码失败:', error);

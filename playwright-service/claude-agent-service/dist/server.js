@@ -59,6 +59,8 @@ app.get('/api', (_req, res) => {
             autoResume: 'POST /agent/auto/resume/:userId - 恢复自动运营',
             // 图片生成API
             generateImage: 'POST /agent/image/generate - 生成图片 {prompt, style?, aspectRatio?}',
+            // 小红书登录API
+            xiaohongshuLogin: 'POST /agent/xiaohongshu/login - 启动小红书登录 {userId}',
         },
         documentation: 'https://github.com/lobos54321/xiaohongshumcp',
     });
@@ -404,6 +406,45 @@ app.post('/agent/image/generate', async (req, res) => {
     }
     catch (error) {
         console.error('[Image] Error generating image:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+        });
+    }
+});
+// 小红书登录API
+app.post('/agent/xiaohongshu/login', async (req, res) => {
+    try {
+        const { userId } = req.body;
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                error: 'userId is required',
+            });
+        }
+        console.log(`[XHS Login] Starting xiaohongshu-mcp browser for user ${userId}`);
+        // 直接启动xiaohongshu-mcp浏览器进程
+        const { spawn } = await import('child_process');
+        const childProcess = spawn('xiaohongshu-mcp', [], {
+            detached: true,
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        // 让进程在后台运行
+        childProcess.unref();
+        console.log(`[XHS Login] Xiaohongshu MCP process started with PID: ${childProcess.pid}`);
+        res.json({
+            success: true,
+            message: '小红书登录浏览器已启动，请在浏览器窗口中扫描二维码登录',
+            data: {
+                userId,
+                processId: childProcess.pid,
+                status: 'browser_started',
+                instruction: '1. 浏览器窗口应该已经打开\n2. 访问小红书登录页面\n3. 扫描二维码完成登录'
+            }
+        });
+    }
+    catch (error) {
+        console.error('[XHS Login] Error starting xiaohongshu-mcp:', error);
         res.status(500).json({
             success: false,
             error: error.message,
