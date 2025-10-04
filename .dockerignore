@@ -1,8 +1,0 @@
-node_modules
-dist
-.git
-.env
-*.log
-cookies
-.DS_Store
-README.old.md

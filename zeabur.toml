@@ -1,0 +1,6 @@
+[build]
+framework = "nodejs"
+command = "npm run build"
+
+[deploy]
+command = "npm start"
