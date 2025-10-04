@@ -21,6 +21,22 @@ const agent = new ClaudeAgentHTTP({
 });
 const app = express();
 app.use(express.json());
+// 根路径 - API文档
+app.get('/', (_req, res) => {
+    res.json({
+        name: '小红书智能自动化系统',
+        version: '2.0.0',
+        description: 'Claude AI驱动的小红书内容创作与发布平台',
+        endpoints: {
+            health: 'GET /health - 健康检查',
+            chat: 'POST /agent/chat - 智能对话 {userId, prompt, systemPrompt?}',
+            createPost: 'POST /agent/xiaohongshu/create-post - 创作发布 {userId, topic, style?, length?}',
+            research: 'POST /agent/xiaohongshu/research - 内容研究 {userId, keyword, task?}',
+            batchPublish: 'POST /agent/xiaohongshu/batch-publish - 批量发布 {userId, topics[], schedule?}',
+        },
+        documentation: 'https://github.com/lobos54321/xiaohongshumcp',
+    });
+});
 // 健康检查
 app.get('/health', (_req, res) => {
     res.json({
