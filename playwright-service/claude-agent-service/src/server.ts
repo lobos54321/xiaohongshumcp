@@ -339,18 +339,25 @@ app.get('/agent/auto/strategy/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
 
-    // 模拟返回策略数据（实际应该从autoContentManager获取）
-    const strategy = {
-      keyThemes: ['产品介绍', '用户评价', '使用技巧', '品牌故事'],
-      trendingTopics: ['#好物推荐', '#生活分享', '#品质生活'],
-      optimalTimes: ['09:00', '15:00', '20:00'],
-      contentTypes: ['图文', '轮播图', '视频'],
-      weeklyPlan: '本周重点推广新品特色'
-    };
+    // 从autoContentManager获取真实策略
+    const strategy = autoContentManager.getStrategy(userId);
+
+    if (!strategy) {
+      return res.status(404).json({
+        success: false,
+        error: 'No strategy found for this user. Please start auto mode first.'
+      });
+    }
 
     res.json({
       success: true,
-      strategy
+      strategy: {
+        keyThemes: strategy.keyThemes,
+        trendingTopics: strategy.trendingTopics,
+        optimalTimes: strategy.optimalTimes,
+        contentTypes: strategy.contentTypes,
+        hashtags: strategy.hashtags
+      }
     });
   } catch (error: any) {
     console.error('[Auto Mode] Error getting strategy:', error);
@@ -366,29 +373,41 @@ app.get('/agent/auto/plan/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
 
-    // 模拟返回计划数据
+    // 从autoContentManager获取真实任务
+    const dailyTasks = autoContentManager.getDailyTasks(userId);
+
+    if (!dailyTasks || dailyTasks.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No tasks found for this user. Please start auto mode first.'
+      });
+    }
+
+    // 只返回今天的任务
+    const today = new Date().toISOString().split('T')[0];
+    const todayTasks = dailyTasks
+      .filter(task => {
+        const taskDate = task.scheduledTime.toISOString().split('T')[0];
+        return taskDate === today;
+      })
+      .map((task, index) => ({
+        id: (index + 1).toString(),
+        title: task.title,
+        scheduledTime: task.scheduledTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+        status: task.status === 'published' ? 'completed' :
+                task.status === 'generating' || task.status === 'ready' ? 'in-progress' :
+                'pending',
+        type: task.contentType
+      }));
+
     const plan = {
-      date: new Date().toISOString().split('T')[0],
-      tasks: [
+      date: today,
+      tasks: todayTasks.length > 0 ? todayTasks : [
         {
           id: '1',
-          title: '早晨产品介绍',
+          title: '暂无计划任务',
           scheduledTime: '09:00',
-          status: 'completed',
-          type: '图文'
-        },
-        {
-          id: '2',
-          title: '下午用户分享',
-          scheduledTime: '15:00',
-          status: 'in-progress',
-          type: '轮播图'
-        },
-        {
-          id: '3',
-          title: '晚间品牌故事',
-          scheduledTime: '20:00',
-          status: 'planned',
+          status: 'pending',
           type: '图文'
         }
       ]

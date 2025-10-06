@@ -551,6 +551,30 @@ export class AutoContentManager {
     // 实现任务重新生成逻辑
     console.log(`🔄 重新生成任务: ${task.title}`);
   }
+
+  /**
+   * 获取用户的内容策略
+   */
+  getStrategy(userId: string): ContentStrategy | null {
+    const plan = this.contentPlans.get(userId);
+    return plan ? plan.strategy : null;
+  }
+
+  /**
+   * 获取用户的每日任务
+   */
+  getDailyTasks(userId: string): DailyTask[] {
+    const plan = this.contentPlans.get(userId);
+    return plan ? plan.dailyTasks : [];
+  }
+
+  /**
+   * 获取用户的周计划
+   */
+  getWeeklyPlan(userId: string): WeeklyPlan | null {
+    const plan = this.contentPlans.get(userId);
+    return plan ? plan.weeklyPlan : null;
+  }
 }
 
 // 类型定义
