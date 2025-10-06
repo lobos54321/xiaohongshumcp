@@ -170,7 +170,24 @@ export class AutoContentManager {
 
     try {
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
-      return JSON.parse(responseText);
+      const rawPlan = JSON.parse(responseText);
+      console.log('📅 周计划生成完成:', rawPlan);
+
+      // 转换Claude返回的嵌套对象格式为数组格式
+      const days = Array.isArray(rawPlan.days)
+        ? rawPlan.days
+        : Object.values(rawPlan.days || rawPlan['每日计划'] || {});
+
+      const weeklyPlan: WeeklyPlan = {
+        days: days.map((day: any) => ({
+          date: new Date(day.date || day['日期']),
+          posts: Array.isArray(day.posts)
+            ? day.posts
+            : Object.values(day.posts || day['发布内容'] || {})
+        }))
+      };
+
+      return weeklyPlan;
     } catch (error) {
       console.error('周计划解析失败:', error);
       return this.getDefaultWeeklyPlan();
