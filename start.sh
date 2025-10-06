@@ -90,10 +90,9 @@ for i in {1..10}; do
 
     if [ $i -eq 10 ]; then
         echo "⚠️  MCP Router health check failed, but continuing anyway..."
-        echo "📋 MCP Router logs:"
-        ps aux | grep node || true
-        echo "🔌 Port 3000 status:"
-        netstat -tuln | grep 3000 || true
+        echo "📋 MCP Router logs (last 20 lines):"
+        tail -20 /tmp/mcp-router.log 2>&1 || echo "No logs available"
+        echo "---"
     fi
 done
 
