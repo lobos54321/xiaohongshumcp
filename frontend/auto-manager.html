@@ -247,7 +247,8 @@
             ? 'http://localhost:4000'
             : window.location.origin;
 
-        let currentUser = null;
+        // 使用固定的demo-user，与登录页面保持一致
+        let currentUser = 'demo-user';
         let autoModeEnabled = false;
 
         // 获取登录二维码
@@ -258,42 +259,34 @@
                 return;
             }
 
-            currentUser = `user_${Date.now()}`;
-
+            // 检查是否已登录
             try {
                 const response = await fetch(`${CLAUDE_API}/agent/chat`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         userId: currentUser,
-                        prompt: '请帮我获取小红书登录二维码'
+                        prompt: '检查登录状态'
                     })
                 });
 
                 const data = await response.json();
-                if (data.success) {
-                    // 显示二维码（这里需要根据实际返回的数据格式调整）
-                    document.getElementById('qrCodeArea').innerHTML =
-                        `<div class="text-center">
-                            <div class="w-32 h-32 bg-gray-100 mx-auto mb-2 flex items-center justify-center">
-                                QR Code
-                            </div>
-                            <div class="text-sm text-gray-600">请用小红书扫码登录</div>
-                        </div>`;
 
+                if (data.success && !data.data.content.includes('请先登录')) {
+                    // 已经登录
                     document.getElementById('loginStatus').innerHTML =
-                        '<span class="text-blue-600">请用小红书APP扫描二维码登录</span>';
-
-                    // 启用第二步
+                        '<span class="text-green-600">✓ 已登录！</span>';
                     enableStep2();
-
-                    // 开始检查登录状态
-                    checkLoginStatus();
+                } else {
+                    // 未登录，提示打开登录页面
+                    document.getElementById('loginStatus').innerHTML =
+                        '<span class="text-orange-600">请先在主页面（v2.html）登录小红书</span>';
+                    alert('请先在主页面（v2.html）登录小红书后再使用自动运营功能');
                 }
             } catch (error) {
-                console.error('获取二维码失败:', error);
+                console.error('检查登录状态失败:', error);
                 document.getElementById('loginStatus').innerHTML =
-                    '<span class="text-red-600">获取二维码失败，请重试</span>';
+                    '<span class="text-red-600">检查登录失败，请重试</span>';
             }
         }
 
@@ -355,22 +348,11 @@
             }
 
             try {
-                // 发送配置给Claude，让它开始制定运营策略
-                const response = await fetch(`${CLAUDE_API}/agent/chat`, {
+                // 调用真正的自动运营API
+                const response = await fetch(`${CLAUDE_API}/agent/auto/start`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        userId: currentUser,
-                        prompt: `请根据以下信息为我制定小红书自动运营策略：
-                        产品：${config.productName}
-                        目标客户：${config.targetAudience}
-                        营销目标：${config.marketingGoal}
-                        发布频率：${config.postFrequency}
-                        品牌风格：${config.brandStyle}
-                        审核模式：${config.reviewMode}
-
-                        请为我制定详细的内容规划，并开始自动运营。`
-                    })
+                    body: JSON.stringify(config)
                 });
 
                 const data = await response.json();
@@ -381,10 +363,15 @@
 
                     autoModeEnabled = true;
                     startAutoMode(config);
+
+                    // 开始加载真实数据
+                    loadRealData();
+                } else {
+                    alert(`启动失败: ${data.error}`);
                 }
             } catch (error) {
                 console.error('启动自动运营失败:', error);
-                alert('启动失败，请重试');
+                alert(`启动失败: ${error.message}`);
             }
         }
 
@@ -449,6 +436,75 @@
             while (feed.children.length > 10) {
                 feed.removeChild(feed.lastChild);
             }
+        }
+
+        // 加载真实数据
+        async function loadRealData() {
+            try {
+                // 加载策略
+                const strategyRes = await fetch(`${CLAUDE_API}/agent/auto/strategy/${currentUser}`);
+                const strategyData = await strategyRes.json();
+                if (strategyData.success) {
+                    updateStrategy(strategyData.strategy);
+                }
+
+                // 加载今日计划
+                const planRes = await fetch(`${CLAUDE_API}/agent/auto/plan/${currentUser}`);
+                const planData = await planRes.json();
+                if (planData.success) {
+                    updateTodayPlan(planData.plan);
+                }
+
+                // 每30秒更新一次数据
+                setInterval(async () => {
+                    if (autoModeEnabled) {
+                        const planRes = await fetch(`${CLAUDE_API}/agent/auto/plan/${currentUser}`);
+                        const planData = await planRes.json();
+                        if (planData.success) {
+                            updateTodayPlan(planData.plan);
+                        }
+                    }
+                }, 30000);
+            } catch (error) {
+                console.error('加载数据失败:', error);
+            }
+        }
+
+        // 更新策略显示
+        function updateStrategy(strategy) {
+            document.getElementById('aiStrategy').innerHTML = `
+                <div class="bg-blue-50 p-3 rounded-lg">
+                    <div class="font-medium text-blue-800">本周主题</div>
+                    <div class="text-blue-600">${strategy.keyThemes.join(', ')}</div>
+                </div>
+                <div class="bg-green-50 p-3 rounded-lg">
+                    <div class="font-medium text-green-800">热门话题</div>
+                    <div class="text-green-600">${strategy.trendingTopics.join(' ')}</div>
+                </div>
+                <div class="bg-purple-50 p-3 rounded-lg">
+                    <div class="font-medium text-purple-800">发布时机</div>
+                    <div class="text-purple-600">${strategy.optimalTimes.join(', ')}</div>
+                </div>
+            `;
+        }
+
+        // 更新今日计划
+        function updateTodayPlan(plan) {
+            const statusMap = {
+                'completed': { text: '✓ 已完成', class: 'bg-green-50 text-green-600' },
+                'in-progress': { text: '⏱ 进行中', class: 'bg-yellow-50 text-yellow-600' },
+                'pending': { text: '⏳ 计划中', class: 'bg-gray-50 text-gray-600' }
+            };
+
+            document.getElementById('todayPlan').innerHTML = plan.tasks.map(task => {
+                const status = statusMap[task.status];
+                return `
+                    <div class="flex items-center justify-between p-2 ${status.class.split(' ')[0]} rounded-lg">
+                        <span>${task.title}</span>
+                        <span class="${status.class.split(' ')[1]} text-xs">${status.text}</span>
+                    </div>
+                `;
+            }).join('');
         }
 
         // 执行定时任务
