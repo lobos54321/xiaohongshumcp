@@ -589,8 +589,8 @@ app.post('/agent/xiaohongshu/login', async (req, res) => {
     }
 });
 // 启动服务器
-app.listen(PORT, () => {
-    console.log(`[Claude Agent Service] Server listening on port ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[Claude Agent Service] Server listening on 0.0.0.0:${PORT}`);
     console.log(`[Claude Agent Service] Health check: http://localhost:${PORT}/health`);
     console.log(`[Claude Agent Service] MCP Router URL: ${MCP_ROUTER_URL}`);
 });

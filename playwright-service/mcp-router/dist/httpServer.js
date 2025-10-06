@@ -163,8 +163,8 @@ app.get('/api/xiaohongshu/feeds/list', async (req, res) => {
     }
 });
 // 启动服务器
-app.listen(HTTP_PORT, () => {
-    console.log(`[MCP Router HTTP] Server listening on port ${HTTP_PORT}`);
+app.listen(HTTP_PORT, '0.0.0.0', () => {
+    console.log(`[MCP Router HTTP] Server listening on 0.0.0.0:${HTTP_PORT}`);
     console.log(`[MCP Router HTTP] Health check: http://localhost:${HTTP_PORT}/health`);
     console.log(`[MCP Router HTTP] Stats: http://localhost:${HTTP_PORT}/stats`);
 });
