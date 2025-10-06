@@ -15,8 +15,29 @@ if [ ! -f "playwright-service/claude-agent-service/dist/server.js" ]; then
 fi
 
 # 检查二进制文件
-if [ ! -f "playwright-service/mcp-router/xiaohongshu-mcp" ]; then
-    echo "❌ xiaohongshu-mcp binary not found!"
+BINARY_PATHS=(
+    "playwright-service/mcp-router/xiaohongshu-mcp"
+    "/usr/local/bin/xiaohongshu-mcp"
+    "./xiaohongshu-mcp"
+)
+
+BINARY_FOUND=""
+for path in "${BINARY_PATHS[@]}"; do
+    if [ -f "$path" ]; then
+        echo "✅ Found xiaohongshu-mcp binary at: $path"
+        BINARY_FOUND="$path"
+        break
+    fi
+done
+
+if [ -z "$BINARY_FOUND" ]; then
+    echo "❌ xiaohongshu-mcp binary not found in any of these locations:"
+    for path in "${BINARY_PATHS[@]}"; do
+        echo "   - $path"
+    done
+    echo "Current working directory: $(pwd)"
+    echo "Directory contents:"
+    find . -name "*xiaohongshu*" -type f 2>/dev/null || echo "No xiaohongshu files found"
     exit 1
 fi
 
@@ -26,7 +47,18 @@ echo "✅ All dist files ready"
 # 启动MCP Router (后台)
 echo "🔧 Starting MCP Router..."
 cd playwright-service/mcp-router
-MCP_BINARY_PATH=./xiaohongshu-mcp HTTP_PORT=3000 COOKIE_DIR=./cookies node dist/httpServer.js &
+
+# 根据binary路径设置正确的MCP_BINARY_PATH
+if [[ "$BINARY_FOUND" == /* ]]; then
+    # 绝对路径
+    MCP_BINARY_PATH="$BINARY_FOUND"
+else
+    # 相对路径，需要调整
+    MCP_BINARY_PATH="../../$BINARY_FOUND"
+fi
+
+echo "📍 Using binary at: $MCP_BINARY_PATH"
+MCP_BINARY_PATH="$MCP_BINARY_PATH" HTTP_PORT=3000 COOKIE_DIR=./cookies node dist/httpServer.js &
 MCP_PID=$!
 echo "📍 MCP Router PID: $MCP_PID"
 cd ../..
