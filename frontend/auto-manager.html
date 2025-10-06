@@ -30,31 +30,20 @@
         <!-- Setup Wizard -->
         <div id="setupWizard" class="space-y-6">
 
-            <!-- Step 1: Login -->
+            <!-- Step 1: Login Check -->
             <div id="step1" class="card rounded-2xl p-8 shadow-xl">
                 <div class="flex items-center mb-6">
                     <div class="w-8 h-8 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold mr-4">1</div>
-                    <h2 class="text-2xl font-bold">📱 扫码登录小红书</h2>
+                    <h2 class="text-2xl font-bold">📱 登录状态检查</h2>
                 </div>
 
-                <div class="grid md:grid-cols-2 gap-6">
-                    <div>
-                        <div class="space-y-4">
-                            <div>
-                                <label class="block text-sm font-medium mb-2">用户昵称</label>
-                                <input type="text" id="userNickname" placeholder="给自己起个名字"
-                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                            </div>
-                            <button onclick="getLoginQR()" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 px-6 rounded-lg transition">
-                                获取登录二维码
-                            </button>
-                            <div id="loginStatus" class="text-center text-sm text-gray-600"></div>
-                        </div>
-                    </div>
-                    <div class="flex items-center justify-center">
-                        <div id="qrCodeArea" class="w-48 h-48 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center text-gray-400">
-                            二维码将在这里显示
-                        </div>
+                <div class="text-center space-y-4">
+                    <div id="loginStatus" class="text-lg text-gray-600">正在检查登录状态...</div>
+                    <div id="loginActions" class="hidden">
+                        <p class="text-orange-600 mb-4">您尚未登录小红书</p>
+                        <a href="v2.html" class="inline-block bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 px-6 rounded-lg transition">
+                            前往主页面登录 →
+                        </a>
                     </div>
                 </div>
             </div>
@@ -251,15 +240,10 @@
         let currentUser = 'demo-user';
         let autoModeEnabled = false;
 
-        // 获取登录二维码
-        async function getLoginQR() {
-            const nickname = document.getElementById('userNickname').value;
-            if (!nickname) {
-                alert('请输入用户昵称');
-                return;
-            }
+        // 页面加载时自动检查登录状态
+        window.addEventListener('DOMContentLoaded', checkLoginOnLoad);
 
-            // 检查是否已登录
+        async function checkLoginOnLoad() {
             try {
                 const response = await fetch(`${CLAUDE_API}/agent/chat`, {
                     method: 'POST',
@@ -275,18 +259,22 @@
                 if (data.success && !data.data.content.includes('请先登录')) {
                     // 已经登录
                     document.getElementById('loginStatus').innerHTML =
-                        '<span class="text-green-600">✓ 已登录！</span>';
-                    enableStep2();
+                        '<span class="text-green-600 text-xl">✓ 已登录成功！</span>';
+                    setTimeout(() => {
+                        enableStep2();
+                        document.getElementById('step2').scrollIntoView({ behavior: 'smooth' });
+                    }, 1000);
                 } else {
-                    // 未登录，提示打开登录页面
+                    // 未登录
                     document.getElementById('loginStatus').innerHTML =
-                        '<span class="text-orange-600">请先在主页面（v2.html）登录小红书</span>';
-                    alert('请先在主页面（v2.html）登录小红书后再使用自动运营功能');
+                        '<span class="text-orange-600">未检测到登录状态</span>';
+                    document.getElementById('loginActions').classList.remove('hidden');
                 }
             } catch (error) {
                 console.error('检查登录状态失败:', error);
                 document.getElementById('loginStatus').innerHTML =
-                    '<span class="text-red-600">检查登录失败，请重试</span>';
+                    '<span class="text-red-600">检查登录失败</span>';
+                document.getElementById('loginActions').classList.remove('hidden');
             }
         }
 
@@ -294,40 +282,15 @@
         function enableStep2() {
             const step2 = document.getElementById('step2');
             step2.classList.remove('opacity-50');
-            step2.querySelector('.bg-gray-400').classList.remove('bg-gray-400');
-            step2.querySelector('.bg-gray-400').classList.add('bg-purple-500');
-            step2.querySelector('button').disabled = false;
-        }
-
-        // 检查登录状态
-        async function checkLoginStatus() {
-            const checkInterval = setInterval(async () => {
-                try {
-                    const response = await fetch(`${CLAUDE_API}/agent/chat`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            userId: currentUser,
-                            prompt: '检查小红书登录状态'
-                        })
-                    });
-
-                    const data = await response.json();
-                    if (data.success && data.data.content.includes('已登录')) {
-                        clearInterval(checkInterval);
-                        document.getElementById('loginStatus').innerHTML =
-                            '<span class="text-green-600">✓ 登录成功！</span>';
-
-                        // 自动滚动到第二步
-                        document.getElementById('step2').scrollIntoView({ behavior: 'smooth' });
-                    }
-                } catch (error) {
-                    console.error('检查登录状态失败:', error);
-                }
-            }, 3000); // 每3秒检查一次
-
-            // 30秒后停止检查
-            setTimeout(() => clearInterval(checkInterval), 30000);
+            const badge = step2.querySelector('.bg-gray-400');
+            if (badge) {
+                badge.classList.remove('bg-gray-400');
+                badge.classList.add('bg-purple-500');
+            }
+            const button = step2.querySelector('button');
+            if (button) {
+                button.disabled = false;
+            }
         }
 
         // 保存配置并启动自动运营
