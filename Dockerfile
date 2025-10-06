@@ -30,9 +30,12 @@ RUN mkdir -p playwright-service/mcp-router && \
     cd /tmp && \
     wget https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz && \
     tar xzf xiaohongshu-mcp-linux-amd64.tar.gz && \
-    mv xiaohongshu-mcp-linux-amd64 /app/playwright-service/mcp-router/xiaohongshu-mcp && \
+    ls -la && \
+    cp xiaohongshu-mcp-linux-amd64 /app/playwright-service/mcp-router/xiaohongshu-mcp && \
     chmod +x /app/playwright-service/mcp-router/xiaohongshu-mcp && \
-    rm -f xiaohongshu-mcp-linux-amd64.tar.gz xiaohongshu-login-linux-amd64
+    ls -la /app/playwright-service/mcp-router/ && \
+    cd /tmp && \
+    rm -f xiaohongshu-mcp-linux-amd64.tar.gz xiaohongshu-mcp-linux-amd64 xiaohongshu-login-linux-amd64
 
 # 编译TypeScript
 RUN cd playwright-service/mcp-router && npm run build
