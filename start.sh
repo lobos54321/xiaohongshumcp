@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🚀 Starting Xiaohongshu AI Automation System v2.1.1 (runtime-fix)..."
+echo "🚀 Starting Xiaohongshu AI Automation System v2.1.1 (binary-included)..."
 
 # 检查必要的文件
 echo "📦 Checking dist files..."
@@ -14,28 +14,34 @@ if [ ! -f "playwright-service/claude-agent-service/dist/server.js" ]; then
     cd playwright-service/claude-agent-service && npm run build && cd ../..
 fi
 
-# 直接下载二进制文件（不依赖Dockerfile）
-echo "🔧 Downloading xiaohongshu-mcp binary..."
-mkdir -p playwright-service/mcp-router
-cd /tmp
-
-echo "📥 Downloading from GitHub releases..."
-wget -q https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz
-
-if [ $? -eq 0 ]; then
-    echo "📦 Extracting binary..."
-    tar -xzf xiaohongshu-mcp-linux-amd64.tar.gz
-
-    # 使用当前工作目录路径
-    WORKING_DIR=$(pwd | sed 's|/tmp|/src|')
-    cp xiaohongshu-mcp-linux-amd64 ${WORKING_DIR}/playwright-service/mcp-router/xiaohongshu-mcp
-    chmod +x ${WORKING_DIR}/playwright-service/mcp-router/xiaohongshu-mcp
-
-    echo "✅ Binary installed successfully"
-    cd ${WORKING_DIR}
+# 检查预包含的二进制文件
+if [ -f "playwright-service/mcp-router/bin/xiaohongshu-mcp" ]; then
+    echo "✅ Found pre-included Linux binary"
+    cp playwright-service/mcp-router/bin/xiaohongshu-mcp playwright-service/mcp-router/xiaohongshu-mcp
+    chmod +x playwright-service/mcp-router/xiaohongshu-mcp
 else
-    echo "❌ Failed to download binary"
-    exit 1
+    echo "🔧 Pre-included binary not found, downloading..."
+    mkdir -p playwright-service/mcp-router
+    cd /tmp
+
+    echo "📥 Downloading from GitHub releases..."
+    wget -q https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz
+
+    if [ $? -eq 0 ]; then
+        echo "📦 Extracting binary..."
+        tar -xzf xiaohongshu-mcp-linux-amd64.tar.gz
+
+        # 使用当前工作目录路径
+        WORKING_DIR=$(pwd | sed 's|/tmp|/src|')
+        cp xiaohongshu-mcp-linux-amd64 ${WORKING_DIR}/playwright-service/mcp-router/xiaohongshu-mcp
+        chmod +x ${WORKING_DIR}/playwright-service/mcp-router/xiaohongshu-mcp
+
+        echo "✅ Binary installed successfully"
+        cd ${WORKING_DIR}
+    else
+        echo "❌ Failed to download binary"
+        exit 1
+    fi
 fi
 
 echo "✅ All files ready"
