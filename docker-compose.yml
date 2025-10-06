@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  xiaohongshu-automation:
+    build: .
+    ports:
+      - "4000:4000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - MCP_ROUTER_URL=http://localhost:3000
+      - PORT=4000
+      - NODE_ENV=production
+    volumes:
+      - ./cookies:/app/playwright-service/mcp-router/cookies
+    restart: unless-stopped
