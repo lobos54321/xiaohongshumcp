@@ -618,7 +618,7 @@ app.post('/agent/image/generate-batch', async (req, res) => {
   }
 });
 
-// 小红书登录API
+// 小红书登录API - 获取登录二维码
 app.post('/agent/xiaohongshu/login', async (req, res) => {
   try {
     const { userId } = req.body;
@@ -630,67 +630,59 @@ app.post('/agent/xiaohongshu/login', async (req, res) => {
       });
     }
 
-    console.log(`[XHS Login] Starting xiaohongshu-mcp browser for user ${userId}`);
+    console.log(`[XHS Login] Requesting QR code for user ${userId}`);
 
-    // xiaohongshu-mcp二进制文件的完整路径
-    const mcpBinaryPath = path.join(__dirname, '../../mcp-router/xiaohongshu-mcp');
+    // 调用 MCP Router 获取二维码
+    const axios = await import('axios');
+    const response = await axios.default.get(
+      `${MCP_ROUTER_URL}/api/xiaohongshu/login/qrcode?userId=${userId}`
+    );
 
-    // 检查二进制文件是否存在
-    const fs = await import('fs');
-    if (!fs.existsSync(mcpBinaryPath)) {
-      return res.status(503).json({
-        success: false,
-        error: 'xiaohongshu-mcp binary not found. This feature requires the Linux binary to be installed.',
-        help: 'Please install the xiaohongshu-mcp Linux binary or use manual login mode.'
-      });
-    }
-
-    // 检查二进制文件是否可执行
-    try {
-      fs.accessSync(mcpBinaryPath, fs.constants.X_OK);
-    } catch (error) {
-      return res.status(503).json({
-        success: false,
-        error: 'xiaohongshu-mcp binary is not executable',
-        help: `Run: chmod +x ${mcpBinaryPath}`
-      });
-    }
-
-    // 用户Cookie目录
-    const userCookieDir = path.join(__dirname, '../../mcp-router/cookies', userId);
-
-    // 确保用户目录存在
-    if (!fs.existsSync(userCookieDir)) {
-      fs.mkdirSync(userCookieDir, { recursive: true });
-    }
-
-    // 直接在后台运行xiaohongshu-mcp，让浏览器窗口弹出
-    const { spawn } = await import('child_process');
-
-    const childProcess = spawn(mcpBinaryPath, [], {
-      cwd: userCookieDir,
-      detached: false, // 不分离进程
-      stdio: 'inherit' // 继承stdio，让浏览器窗口能正常显示
-    });
-
-    console.log(`[XHS Login] Xiaohongshu MCP browser started with PID: ${childProcess.pid}`);
+    console.log(`[XHS Login] QR code received for user ${userId}`);
 
     res.json({
       success: true,
-      message: '小红书登录浏览器已启动',
-      data: {
-        userId,
-        cookieDir: userCookieDir,
-        processId: childProcess.pid,
-        status: 'browser_started',
-        instruction: '1. 浏览器窗口应该已经打开\n2. 扫描二维码完成登录\n3. 登录成功后关闭浏览器窗口'
-      }
+      message: '登录二维码已生成',
+      data: response.data
     });
   } catch (error: any) {
-    console.error('[XHS Login] Error starting xiaohongshu-mcp:', error);
+    console.error('[XHS Login] Error getting QR code:', error.message);
     res.status(500).json({
       success: false,
-      error: error.message,
+      error: error.message || 'Failed to get login QR code',
+    });
+  }
+});
+
+// 小红书登录状态检查API
+app.get('/agent/xiaohongshu/login/status', async (req, res) => {
+  try {
+    const userId = req.query.userId as string;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required',
+      });
+    }
+
+    console.log(`[XHS Login] Checking login status for user ${userId}`);
+
+    // 调用 MCP Router 检查登录状态
+    const axios = await import('axios');
+    const response = await axios.default.get(
+      `${MCP_ROUTER_URL}/api/xiaohongshu/login/status?userId=${userId}`
+    );
+
+    res.json({
+      success: true,
+      data: response.data
+    });
+  } catch (error: any) {
+    console.error('[XHS Login] Error checking login status:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to check login status',
     });
   }
 });
