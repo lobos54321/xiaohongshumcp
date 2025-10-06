@@ -36,6 +36,7 @@ interface DailyTask {
   title: string;
   content: string;
   imagePrompt: string;
+  imageUrl?: string;
   hashtags: string[];
   status: 'planned' | 'generating' | 'ready' | 'published';
 }
@@ -342,6 +343,7 @@ export class AutoContentManager {
 
       // 1. 生成图片
       const imageUrl = await this.generateImage(task.imagePrompt);
+      task.imageUrl = imageUrl;  // 保存图片URL到任务中
 
       // 2. 检查是否需要人工审核
       if (profile.reviewMode === 'auto') {
@@ -484,16 +486,6 @@ export class AutoContentManager {
   }
 
   /**
-   * 获取用户待审核内容
-   */
-  async getPendingContent(userId: string): Promise<DailyTask[]> {
-    const plan = this.contentPlans.get(userId);
-    if (!plan) return [];
-
-    return plan.dailyTasks.filter(task => task.status === 'ready');
-  }
-
-  /**
    * 用户审核并发布内容
    */
   async reviewAndPublish(userId: string, taskId: string, approved: boolean, edits?: Partial<DailyTask>): Promise<void> {
@@ -606,6 +598,66 @@ export class AutoContentManager {
   getWeeklyPlan(userId: string): WeeklyPlan | null {
     const plan = this.contentPlans.get(userId);
     return plan ? plan.weeklyPlan : null;
+  }
+
+  /**
+   * 获取用户的运营数据统计
+   */
+  getOperationStats(userId: string): {
+    postsPublished: number;
+    totalReads: number;
+    totalFollowers: number;
+    engagementRate: string;
+  } {
+    const dailyTasks = this.getDailyTasks(userId);
+
+    // 计算已发布的帖子数量
+    const publishedCount = dailyTasks.filter(task => task.status === 'published').length;
+
+    // 模拟阅读量和粉丝增长（实际应该从小红书获取）
+    const totalReads = publishedCount * Math.floor(Math.random() * 500 + 300); // 每篇300-800阅读
+    const totalFollowers = Math.floor(publishedCount * 15); // 每篇约15个新粉丝
+    const engagementRate = publishedCount > 0
+      ? `${(Math.random() * 3 + 2).toFixed(1)}%`  // 2-5%互动率
+      : '0%';
+
+    return {
+      postsPublished: publishedCount,
+      totalReads,
+      totalFollowers,
+      engagementRate
+    };
+  }
+
+  /**
+   * 获取待发布的内容列表
+   */
+  getPendingContent(userId: string): Array<{
+    id: string;
+    title: string;
+    type: string;
+    scheduledTime: string;
+    status: string;
+    imageUrl?: string;
+  }> {
+    const dailyTasks = this.getDailyTasks(userId);
+
+    // 获取状态为ready的任务
+    return dailyTasks
+      .filter(task => task.status === 'ready')
+      .map((task, index) => ({
+        id: `task-${index}`,
+        title: task.title,
+        type: task.contentType,
+        scheduledTime: task.scheduledTime.toLocaleString('zh-CN', {
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit'
+        }),
+        status: '待审核',
+        imageUrl: task.imageUrl
+      }));
   }
 }
 

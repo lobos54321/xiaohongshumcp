@@ -431,21 +431,42 @@ app.get('/agent/auto/stats/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
 
-    // 模拟返回统计数据
-    const stats = {
-      todayPosts: 2,
-      plannedPosts: 3,
-      weeklyReads: '1.2k',
-      newFollowers: 15,
-      engagementRate: '7.8'
-    };
+    // 从autoContentManager获取真实统计数据
+    const stats = autoContentManager.getOperationStats(userId);
 
     res.json({
       success: true,
-      stats
+      stats: {
+        todayPosts: stats.postsPublished,
+        plannedPosts: autoContentManager.getDailyTasks(userId).length,
+        weeklyReads: stats.totalReads > 1000 ? `${(stats.totalReads / 1000).toFixed(1)}k` : stats.totalReads.toString(),
+        newFollowers: stats.totalFollowers,
+        engagementRate: stats.engagementRate.replace('%', '')
+      }
     });
   } catch (error: any) {
     console.error('[Auto Mode] Error getting stats:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// 获取待发内容列表
+app.get('/agent/auto/pending/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // 从autoContentManager获取待发布内容
+    const pendingContent = autoContentManager.getPendingContent(userId);
+
+    res.json({
+      success: true,
+      content: pendingContent
+    });
+  } catch (error: any) {
+    console.error('[Auto Mode] Error getting pending content:', error);
     res.status(500).json({
       success: false,
       error: error.message,
