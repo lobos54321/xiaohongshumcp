@@ -1,12 +1,10 @@
 # 使用Node.js 18作为基础镜像
 FROM node:18-slim
 
-# 安装必要的系统依赖（包括Go编译器）
+# 安装必要的系统依赖
 RUN apt-get update && apt-get install -y \
     wget \
     ca-certificates \
-    git \
-    golang-go \
     && rm -rf /var/lib/apt/lists/*
 
 # 设置工作目录
@@ -24,14 +22,14 @@ RUN cd playwright-service/claude-agent-service && npm install
 # 复制源代码
 COPY . .
 
-# 编译Linux版本的xiaohongshu-mcp二进制
-RUN cd /tmp && \
-    git clone https://github.com/xpzouying/xiaohongshu-mcp.git && \
-    cd xiaohongshu-mcp && \
-    go build -o /app/playwright-service/mcp-router/xiaohongshu-mcp . && \
+# 下载预编译的Linux版本xiaohongshu-mcp二进制
+RUN mkdir -p playwright-service/mcp-router && \
+    cd /tmp && \
+    wget https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz && \
+    tar xzf xiaohongshu-mcp-linux-amd64.tar.gz && \
+    mv xiaohongshu-mcp-linux-amd64 /app/playwright-service/mcp-router/xiaohongshu-mcp && \
     chmod +x /app/playwright-service/mcp-router/xiaohongshu-mcp && \
-    cd / && \
-    rm -rf /tmp/xiaohongshu-mcp
+    rm -f xiaohongshu-mcp-linux-amd64.tar.gz xiaohongshu-login-linux-amd64
 
 # 编译TypeScript
 RUN cd playwright-service/mcp-router && npm run build
