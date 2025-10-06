@@ -19,6 +19,8 @@ BINARY_PATHS=(
     "playwright-service/mcp-router/xiaohongshu-mcp"
     "/usr/local/bin/xiaohongshu-mcp"
     "./xiaohongshu-mcp"
+    "playwright-service/claude-agent-service/bin/xiaohongshu-mcp-linux-amd64"
+    "playwright-service/claude-agent-service/bin/bin/xiaohongshu-mcp-linux-amd64"
 )
 
 BINARY_FOUND=""
@@ -38,7 +40,23 @@ if [ -z "$BINARY_FOUND" ]; then
     echo "Current working directory: $(pwd)"
     echo "Directory contents:"
     find . -name "*xiaohongshu*" -type f 2>/dev/null || echo "No xiaohongshu files found"
-    exit 1
+
+    # 尝试手动下载
+    echo "🔧 Attempting to download binary manually..."
+    mkdir -p playwright-service/mcp-router
+    cd /tmp
+    wget -v https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz
+    if [ $? -eq 0 ]; then
+        tar -xzf xiaohongshu-mcp-linux-amd64.tar.gz
+        cp xiaohongshu-mcp-linux-amd64 /src/playwright-service/mcp-router/xiaohongshu-mcp
+        chmod +x /src/playwright-service/mcp-router/xiaohongshu-mcp
+        BINARY_FOUND="playwright-service/mcp-router/xiaohongshu-mcp"
+        echo "✅ Manual download successful"
+        cd /src
+    else
+        echo "❌ Manual download failed"
+        exit 1
+    fi
 fi
 
 echo "✅ xiaohongshu-mcp binary found"
