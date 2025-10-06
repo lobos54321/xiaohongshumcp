@@ -37,6 +37,17 @@ export class XiaohongshuMCPProcessManager {
      */
     async startProcess(userId) {
         const port = this.allocatePort();
+        // 检查二进制文件是否存在
+        if (!fs.existsSync(this.mcpBinary)) {
+            throw new Error(`xiaohongshu-mcp binary not found at: ${this.mcpBinary}. Please ensure the Linux binary is installed.`);
+        }
+        // 检查二进制文件是否可执行
+        try {
+            fs.accessSync(this.mcpBinary, fs.constants.X_OK);
+        }
+        catch (error) {
+            throw new Error(`xiaohongshu-mcp binary at ${this.mcpBinary} is not executable. Run: chmod +x ${this.mcpBinary}`);
+        }
         // 为每个用户创建独立的工作目录
         // xiaohongshu-mcp 会在工作目录下创建 cookies.json
         const workDir = path.join(this.cookieDir, userId);

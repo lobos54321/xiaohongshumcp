@@ -550,13 +550,31 @@ app.post('/agent/xiaohongshu/login', async (req, res) => {
             });
         }
         console.log(`[XHS Login] Starting xiaohongshu-mcp browser for user ${userId}`);
-        const { exec } = await import('child_process');
         // xiaohongshu-mcp二进制文件的完整路径
         const mcpBinaryPath = path.join(__dirname, '../../mcp-router/xiaohongshu-mcp');
+        // 检查二进制文件是否存在
+        const fs = await import('fs');
+        if (!fs.existsSync(mcpBinaryPath)) {
+            return res.status(503).json({
+                success: false,
+                error: 'xiaohongshu-mcp binary not found. This feature requires the Linux binary to be installed.',
+                help: 'Please install the xiaohongshu-mcp Linux binary or use manual login mode.'
+            });
+        }
+        // 检查二进制文件是否可执行
+        try {
+            fs.accessSync(mcpBinaryPath, fs.constants.X_OK);
+        }
+        catch (error) {
+            return res.status(503).json({
+                success: false,
+                error: 'xiaohongshu-mcp binary is not executable',
+                help: `Run: chmod +x ${mcpBinaryPath}`
+            });
+        }
         // 用户Cookie目录
         const userCookieDir = path.join(__dirname, '../../mcp-router/cookies', userId);
         // 确保用户目录存在
-        const fs = await import('fs');
         if (!fs.existsSync(userCookieDir)) {
             fs.mkdirSync(userCookieDir, { recursive: true });
         }
