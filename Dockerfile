@@ -20,11 +20,17 @@ COPY playwright-service/claude-agent-service/package*.json ./playwright-service/
 RUN cd playwright-service/mcp-router && npm install
 RUN cd playwright-service/claude-agent-service && npm install
 
-# 复制TypeScript源代码
-COPY playwright-service/mcp-router/src ./playwright-service/mcp-router/src
-COPY playwright-service/mcp-router/tsconfig.json ./playwright-service/mcp-router/
-COPY playwright-service/claude-agent-service/src ./playwright-service/claude-agent-service/src
-COPY playwright-service/claude-agent-service/tsconfig.json ./playwright-service/claude-agent-service/
+# 复制源代码
+COPY . .
+
+# 下载预编译的Linux版本xiaohongshu-mcp二进制
+RUN mkdir -p playwright-service/mcp-router && \
+    cd /tmp && \
+    wget https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz && \
+    tar xzf xiaohongshu-mcp-linux-amd64.tar.gz && \
+    mv xiaohongshu-mcp-linux-amd64 /app/playwright-service/mcp-router/xiaohongshu-mcp && \
+    chmod +x /app/playwright-service/mcp-router/xiaohongshu-mcp && \
+    rm -f xiaohongshu-mcp-linux-amd64.tar.gz xiaohongshu-login-linux-amd64
 
 # 编译TypeScript
 RUN cd playwright-service/mcp-router && npm run build
