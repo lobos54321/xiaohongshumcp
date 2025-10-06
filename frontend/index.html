@@ -271,7 +271,7 @@
 
         // 获取登录二维码
         async function getLoginQR() {
-            currentUser = `user_${Date.now()}`;
+            currentUser = 'demo-user';  // 使用固定的demo-user ID
 
             try {
                 const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/login`, {
