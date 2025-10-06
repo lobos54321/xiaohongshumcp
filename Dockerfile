@@ -19,8 +19,11 @@ COPY playwright-service/claude-agent-service/package*.json ./playwright-service/
 RUN cd playwright-service/mcp-router && npm install
 RUN cd playwright-service/claude-agent-service && npm install
 
-# 复制源代码
-COPY . .
+# 复制TypeScript源代码
+COPY playwright-service/mcp-router/src ./playwright-service/mcp-router/src
+COPY playwright-service/mcp-router/tsconfig.json ./playwright-service/mcp-router/
+COPY playwright-service/claude-agent-service/src ./playwright-service/claude-agent-service/src
+COPY playwright-service/claude-agent-service/tsconfig.json ./playwright-service/claude-agent-service/
 
 # 下载预编译的Linux版本xiaohongshu-mcp二进制
 RUN mkdir -p playwright-service/mcp-router && \
@@ -35,11 +38,9 @@ RUN mkdir -p playwright-service/mcp-router && \
 RUN cd playwright-service/mcp-router && npm run build
 RUN cd playwright-service/claude-agent-service && npm run build
 
-# 复制启动脚本
+# 复制启动脚本和前端文件
 COPY start.sh ./
 RUN chmod +x start.sh
-
-# 复制前端文件
 COPY frontend ./frontend
 
 # 暴露端口
