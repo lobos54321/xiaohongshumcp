@@ -2,7 +2,7 @@
  * 浮窗登录服务 - 创建一个小的浮窗浏览器用于小红书登录
  */
 
-import { BrowserContext, chromium, Page } from 'playwright';
+import { BrowserContext, chromium, Page, Frame, Response } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -110,7 +110,7 @@ export class FloatingLoginService {
     if (!this.page) return;
 
     // 监听页面变化，检测登录状态
-    this.page.on('framenavigated', async (frame) => {
+    this.page.on('framenavigated', async (frame: Frame) => {
       if (frame === this.page?.mainFrame()) {
         const url = frame.url();
         console.log(`[FloatingLogin] Page navigated to: ${url}`);
@@ -123,7 +123,7 @@ export class FloatingLoginService {
     });
 
     // 监听网络请求，检测登录API调用
-    this.page.on('response', async (response) => {
+    this.page.on('response', async (response: Response) => {
       const url = response.url();
       if (url.includes('/api/sns/red/v1/auth/') ||
           url.includes('/api/sns/red/login') ||
@@ -174,7 +174,7 @@ export class FloatingLoginService {
       const cookies = await this.context.cookies();
 
       // 过滤小红书相关的Cookie
-      const xhsCookies = cookies.filter(cookie =>
+      const xhsCookies = cookies.filter((cookie: any) =>
         cookie.domain.includes('xiaohongshu.com') ||
         cookie.domain.includes('.xiaohongshu.com')
       );
