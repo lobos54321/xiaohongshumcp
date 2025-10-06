@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🚀 Starting Xiaohongshu AI Automation System v2.1.1..."
+echo "🚀 Starting Xiaohongshu AI Automation System v2.1.1 (build 2)..."
 
 # 检查必要的文件
 echo "📦 Checking dist files..."
