@@ -30,6 +30,10 @@ export declare class ClaudeAgentHTTP {
      */
     private callMCPTool;
     /**
+     * 检查用户登录状态
+     */
+    private checkLoginStatus;
+    /**
      * 处理智能请求
      */
     processRequest(request: AgentRequest): Promise<AgentResponse>;

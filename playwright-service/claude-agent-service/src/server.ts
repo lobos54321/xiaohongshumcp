@@ -132,7 +132,60 @@ app.post('/agent/chat', async (req, res) => {
   }
 });
 
-// 便捷API：小红书内容创作
+// 便捷API：生成内容供预览（不发布）
+app.post('/agent/xiaohongshu/generate-preview', async (req, res) => {
+  try {
+    const { userId, topic, style, length } = req.body;
+
+    if (!userId || !topic) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId and topic are required',
+      });
+    }
+
+    console.log(`[Preview] Generating content for topic: ${topic}`);
+
+    const prompt = `请帮我创作一篇关于"${topic}"的小红书帖子内容。
+${style ? `风格要求：${style}` : ''}
+${length ? `字数要求：${length}字左右` : ''}
+
+要求：
+1. 生成${length || 500}字左右的文案
+2. 使用generate_image工具生成3张配图
+3. 只返回内容和图片，不要发布
+
+请按以下格式返回JSON：
+{
+  "title": "标题",
+  "content": "正文内容",
+  "tags": ["标签1", "标签2"]
+}`;
+
+    const result = await agent.processRequest({ userId, prompt });
+
+    // 从工具调用中提取图片信息
+    const imageToolCall = result.toolCalls.find((tc: any) => tc.name === 'generate_image');
+    const images = imageToolCall ? imageToolCall.result?.images || [] : [];
+
+    res.json({
+      success: true,
+      data: {
+        content: result.content,
+        images: images,
+        toolCalls: result.toolCalls
+      }
+    });
+  } catch (error: any) {
+    console.error('[Server] Error generating preview:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// 便捷API：小红书内容创作（直接发布）
 app.post('/agent/xiaohongshu/create-post', async (req, res) => {
   try {
     const { userId, topic, style, length } = req.body;
@@ -431,7 +484,7 @@ app.post('/agent/auto/resume/:userId', async (req, res) => {
   }
 });
 
-// 图片生成API
+// 图片生成API (单张)
 app.post('/agent/image/generate', async (req, res) => {
   try {
     const { prompt, style, aspectRatio, negativePrompt } = req.body;
@@ -472,6 +525,59 @@ app.post('/agent/image/generate', async (req, res) => {
   }
 });
 
+// 批量图片生成API
+app.post('/agent/image/generate-batch', async (req, res) => {
+  try {
+    const { prompt, style, aspectRatio, count } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({
+        success: false,
+        error: 'prompt is required',
+      });
+    }
+
+    const imageCount = Math.min(Math.max(count || 3, 1), 9); // 默认3张，最多9张
+    console.log(`[Image] Generating ${imageCount} images with prompt: ${prompt}`);
+
+    // 为每张图片创建略微不同的请求
+    const requests = Array.from({ length: imageCount }, (_, i) => ({
+      prompt: i === 0 ? prompt : `${prompt}, variation ${i + 1}`,
+      style: style || 'realistic',
+      aspectRatio: aspectRatio || '1:1'
+    }));
+
+    const results = await imageService.generateBatchImages(requests);
+
+    // 提取图片路径和URL
+    const images = results.map(r => ({
+      url: r.url,
+      localPath: r.localPath,
+      source: r.source
+    }));
+
+    const totalCost = results.reduce((sum, r) => sum + (r.cost || 0), 0);
+
+    res.json({
+      success: true,
+      data: {
+        images,
+        count: images.length,
+        totalCost,
+        // 返回本地路径数组，供xiaohongshu-mcp使用
+        localPaths: images.map(img => img.localPath).filter(p => p) as string[],
+        urls: images.map(img => img.url)
+      }
+    });
+  } catch (error: any) {
+    console.error('[Image] Error generating batch images:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 // 小红书登录API
 app.post('/agent/xiaohongshu/login', async (req, res) => {
   try {
@@ -486,27 +592,40 @@ app.post('/agent/xiaohongshu/login', async (req, res) => {
 
     console.log(`[XHS Login] Starting xiaohongshu-mcp browser for user ${userId}`);
 
-    // 直接启动xiaohongshu-mcp浏览器进程
+    const { exec } = await import('child_process');
+
+    // xiaohongshu-mcp二进制文件的完整路径
+    const mcpBinaryPath = path.join(__dirname, '../../mcp-router/xiaohongshu-mcp');
+
+    // 用户Cookie目录
+    const userCookieDir = path.join(__dirname, '../../mcp-router/cookies', userId);
+
+    // 确保用户目录存在
+    const fs = await import('fs');
+    if (!fs.existsSync(userCookieDir)) {
+      fs.mkdirSync(userCookieDir, { recursive: true });
+    }
+
+    // 直接在后台运行xiaohongshu-mcp，让浏览器窗口弹出
     const { spawn } = await import('child_process');
 
-    const childProcess = spawn('xiaohongshu-mcp', [], {
-      detached: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
+    const childProcess = spawn(mcpBinaryPath, [], {
+      cwd: userCookieDir,
+      detached: false, // 不分离进程
+      stdio: 'inherit' // 继承stdio，让浏览器窗口能正常显示
     });
 
-    // 让进程在后台运行
-    childProcess.unref();
-
-    console.log(`[XHS Login] Xiaohongshu MCP process started with PID: ${childProcess.pid}`);
+    console.log(`[XHS Login] Xiaohongshu MCP browser started with PID: ${childProcess.pid}`);
 
     res.json({
       success: true,
-      message: '小红书登录浏览器已启动，请在浏览器窗口中扫描二维码登录',
+      message: '小红书登录浏览器已启动',
       data: {
         userId,
+        cookieDir: userCookieDir,
         processId: childProcess.pid,
         status: 'browser_started',
-        instruction: '1. 浏览器窗口应该已经打开\n2. 访问小红书登录页面\n3. 扫描二维码完成登录'
+        instruction: '1. 浏览器窗口应该已经打开\n2. 扫描二维码完成登录\n3. 登录成功后关闭浏览器窗口'
       }
     });
   } catch (error: any) {

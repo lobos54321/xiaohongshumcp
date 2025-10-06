@@ -30,8 +30,22 @@ export interface AgentResponse {
   duration: number;
 }
 
-// MCP工具定义
+// MCP工具定义 + 图片生成工具
 const MCP_TOOLS: Tool[] = [
+  {
+    name: 'generate_image',
+    description: '使用AI生成适合小红书发布的配图。当用户需要发布内容但没有图片时使用。可以生成多张图片。',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        prompt: { type: 'string', description: '图片描述，例如：一杯拿铁咖啡在木桌上' },
+        style: { type: 'string', enum: ['realistic', 'cartoon', 'painting', 'sketch'], description: '图片风格' },
+        aspectRatio: { type: 'string', enum: ['1:1', '9:16', '16:9'], description: '图片比例，默认1:1' },
+        count: { type: 'number', description: '生成图片数量，默认3张，最多9张', minimum: 1, maximum: 9 }
+      },
+      required: ['prompt']
+    }
+  },
   {
     name: 'xiaohongshu_check_login',
     description: '检查小红书账号登录状态',
@@ -165,6 +179,19 @@ export class ClaudeAgentHTTP {
    */
   private async callMCPTool(toolName: string, args: any): Promise<any> {
     try {
+      // 特殊处理：图片生成工具
+      if (toolName === 'generate_image') {
+        const count = Math.min(Math.max(args.count || 3, 1), 9); // 默认3张，最多9张
+        const response = await axios.post('http://localhost:4000/agent/image/generate-batch', {
+          prompt: args.prompt,
+          style: args.style || 'realistic',
+          aspectRatio: args.aspectRatio || '1:1',
+          count: count
+        });
+        return response.data.data;
+      }
+
+      // 其他工具：调用MCP Router
       const { userId, ...otherArgs } = args;
 
       const response = await axios.post(`${this.config.mcpRouterURL}/mcp/call`, {
@@ -181,6 +208,30 @@ export class ClaudeAgentHTTP {
   }
 
   /**
+   * 检查用户登录状态
+   */
+  private async checkLoginStatus(userId: string): Promise<{ isLoggedIn: boolean; username?: string }> {
+    try {
+      const response = await axios.post(`${this.config.mcpRouterURL}/mcp/call`, {
+        userId,
+        toolName: 'xiaohongshu_check_login',
+        arguments: {}
+      });
+
+      if (response.data.success && response.data.data?.data) {
+        return {
+          isLoggedIn: response.data.data.data.is_logged_in || false,
+          username: response.data.data.data.username
+        };
+      }
+      return { isLoggedIn: false };
+    } catch (error) {
+      console.error('[ClaudeAgentHTTP] Failed to check login status:', error);
+      return { isLoggedIn: false };
+    }
+  }
+
+  /**
    * 处理智能请求
    */
   async processRequest(request: AgentRequest): Promise<AgentResponse> {
@@ -188,6 +239,23 @@ export class ClaudeAgentHTTP {
     const { userId, prompt, systemPrompt } = request;
 
     console.log(`[ClaudeAgentHTTP] Processing request for user ${userId}`);
+
+    // 🔐 自动检查登录状态
+    const loginStatus = await this.checkLoginStatus(userId);
+    if (!loginStatus.isLoggedIn) {
+      console.log(`[ClaudeAgentHTTP] User ${userId} is not logged in, returning login prompt`);
+      return {
+        content: '⚠️ 检测到您还未登录小红书账号。\n\n请点击右上角的"🔑 小红书登录"按钮，扫描二维码完成登录后再试。\n\n登录后，我就可以帮您发布内容、搜索分析等操作了！',
+        toolCalls: [],
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0
+        },
+        duration: Date.now() - startTime
+      };
+    }
+
+    console.log(`[ClaudeAgentHTTP] User ${userId} is logged in as ${loginStatus.username}`);
 
     // 构建系统提示
     const defaultSystemPrompt = `你是一个小红书自动化运营助手。

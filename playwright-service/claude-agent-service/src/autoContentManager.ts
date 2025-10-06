@@ -120,8 +120,18 @@ export class AutoContentManager {
 
     try {
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
-      const strategy = JSON.parse(responseText);
-      console.log('📋 内容策略制定完成:', strategy);
+      const rawStrategy = JSON.parse(responseText);
+      console.log('📋 内容策略制定完成:', rawStrategy);
+
+      // 转换Claude返回的嵌套对象格式为数组格式
+      const strategy: ContentStrategy = {
+        keyThemes: Object.values(rawStrategy.core_themes || rawStrategy['核心内容主题'] || {}),
+        contentTypes: Object.values(rawStrategy.content_types || rawStrategy['内容类型'] || {}),
+        optimalTimes: Object.values(rawStrategy.best_posting_time || rawStrategy['最佳发布时间'] || {}),
+        hashtags: rawStrategy.hot_hashtags || Object.values(rawStrategy['热度话题标签'] || {}),
+        trendingTopics: Object.values(rawStrategy.trending_topics || rawStrategy['当前热门趋势'] || {})
+      };
+
       return strategy;
     } catch (error) {
       console.error('策略解析失败:', error);
