@@ -100,31 +100,63 @@ export class AutoContentManager {
           keyThemes: ['产品特色展示', '用户体验分享', '行业知识科普', '优惠活动推广', '互动话题讨论'],
           contentTypes: ['图文教程', '产品测评', '用户故事', 'Vlog探店', '知识科普', '互动问答', '活动预告', '幕后花絮'],
           optimalTimes: ['9:00-10:00', '12:30-13:30', '20:00-21:30'],
+          hashtags: ['演示模式', userProfile.productName, '小红书运营'],
           trendingTopics: ['热门话题1', '热门话题2', '热门话题3']
         };
 
+        const now = new Date();
         const demoWeeklyPlan: WeeklyPlan = {
           days: [
-            { day: '周一', theme: '产品特色', contentType: '图文教程', description: `介绍${userProfile.productName}的核心功能` },
-            { day: '周二', theme: '用户体验', contentType: '用户故事', description: '分享真实用户的使用心得' },
-            { day: '周三', theme: '知识科普', contentType: '知识科普', description: '行业相关的专业知识' },
-            { day: '周四', theme: '产品测评', contentType: '产品测评', description: '详细测评产品优势' },
-            { day: '周五', theme: '互动话题', contentType: '互动问答', description: '与粉丝互动的话题讨论' },
-            { day: '周六', theme: '探店体验', contentType: 'Vlog探店', description: '实地探访展示' },
-            { day: '周日', theme: '活动推广', contentType: '活动预告', description: '下周活动预告' }
+            {
+              date: new Date(now.getTime() + 0 * 24 * 3600000),
+              posts: [
+                { theme: '产品特色', type: '图文教程', scheduledTime: new Date(now.getTime() + 0 * 24 * 3600000 + 9 * 3600000) }
+              ]
+            },
+            {
+              date: new Date(now.getTime() + 1 * 24 * 3600000),
+              posts: [
+                { theme: '用户体验', type: '用户故事', scheduledTime: new Date(now.getTime() + 1 * 24 * 3600000 + 12.5 * 3600000) }
+              ]
+            },
+            {
+              date: new Date(now.getTime() + 2 * 24 * 3600000),
+              posts: [
+                { theme: '知识科普', type: '知识科普', scheduledTime: new Date(now.getTime() + 2 * 24 * 3600000 + 20 * 3600000) }
+              ]
+            }
           ]
         };
 
-        const demoDailyTasks: DailyTask[] = demoWeeklyPlan.days.slice(0, 3).map((plan, index) => ({
-          taskId: `demo-task-${index + 1}`,
-          scheduledTime: new Date(Date.now() + (index + 1) * 3600000),
-          contentType: plan.contentType,
-          title: `${plan.theme} - ${plan.description}`,
-          content: `这是${userProfile.productName}的${plan.description}。演示模式下的内容，请配置 ANTHROPIC_API_KEY 以获取 AI 生成的真实内容。`,
-          imagePrompt: `${userProfile.productName}, ${plan.theme}, 小红书风格`,
-          hashtags: ['演示模式', userProfile.productName, plan.theme],
-          status: 'planned'
-        }));
+        const demoDailyTasks: DailyTask[] = [
+          {
+            scheduledTime: new Date(now.getTime() + 9 * 3600000),
+            contentType: '图文教程',
+            title: `产品特色 - 介绍${userProfile.productName}的核心功能`,
+            content: `这是${userProfile.productName}的核心功能介绍。演示模式下的内容，请配置 ANTHROPIC_API_KEY 以获取 AI 生成的真实内容。`,
+            imagePrompt: `${userProfile.productName}, 产品特色, 小红书风格`,
+            hashtags: ['演示模式', userProfile.productName, '产品特色'],
+            status: 'planned'
+          },
+          {
+            scheduledTime: new Date(now.getTime() + 1 * 24 * 3600000 + 12.5 * 3600000),
+            contentType: '用户故事',
+            title: `用户体验 - 分享真实用户的使用心得`,
+            content: `这是真实用户的使用心得分享。演示模式下的内容，请配置 ANTHROPIC_API_KEY 以获取 AI 生成的真实内容。`,
+            imagePrompt: `${userProfile.productName}, 用户体验, 小红书风格`,
+            hashtags: ['演示模式', userProfile.productName, '用户体验'],
+            status: 'planned'
+          },
+          {
+            scheduledTime: new Date(now.getTime() + 2 * 24 * 3600000 + 20 * 3600000),
+            contentType: '知识科普',
+            title: `知识科普 - 行业相关的专业知识`,
+            content: `这是行业相关的专业知识科普。演示模式下的内容，请配置 ANTHROPIC_API_KEY 以获取 AI 生成的真实内容。`,
+            imagePrompt: `${userProfile.productName}, 知识科普, 小红书风格`,
+            hashtags: ['演示模式', userProfile.productName, '知识科普'],
+            status: 'planned'
+          }
+        ];
 
         this.contentPlans.set(userProfile.userId, {
           strategy: demoStrategy,
