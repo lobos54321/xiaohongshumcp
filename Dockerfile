@@ -27,16 +27,25 @@ COPY playwright-service/claude-agent-service/src ./playwright-service/claude-age
 COPY playwright-service/claude-agent-service/tsconfig.json ./playwright-service/claude-agent-service/
 
 # 下载预编译的Linux版本xiaohongshu-mcp二进制
-RUN mkdir -p playwright-service/mcp-router && \
+RUN echo "📦 Downloading xiaohongshu-mcp binary..." && \
+    mkdir -p playwright-service/mcp-router && \
     cd /tmp && \
-    wget https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz && \
-    tar xzf xiaohongshu-mcp-linux-amd64.tar.gz && \
+    wget -v https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz && \
+    echo "📦 Downloaded archive, extracting..." && \
+    tar -xzf xiaohongshu-mcp-linux-amd64.tar.gz && \
+    echo "📦 Archive contents:" && \
     ls -la && \
+    echo "📦 Copying binary to target location..." && \
     cp xiaohongshu-mcp-linux-amd64 /app/playwright-service/mcp-router/xiaohongshu-mcp && \
     chmod +x /app/playwright-service/mcp-router/xiaohongshu-mcp && \
+    echo "📦 Verifying binary installation:" && \
     ls -la /app/playwright-service/mcp-router/ && \
+    echo "📦 Testing binary execution:" && \
+    /app/playwright-service/mcp-router/xiaohongshu-mcp --version || echo "Binary test failed but continuing..." && \
+    echo "📦 Cleaning up..." && \
     cd /tmp && \
-    rm -f xiaohongshu-mcp-linux-amd64.tar.gz xiaohongshu-mcp-linux-amd64 xiaohongshu-login-linux-amd64
+    rm -f xiaohongshu-mcp-linux-amd64.tar.gz xiaohongshu-mcp-linux-amd64 xiaohongshu-login-linux-amd64 && \
+    echo "✅ Binary installation complete"
 
 # 编译TypeScript
 RUN cd playwright-service/mcp-router && npm run build
