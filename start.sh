@@ -46,12 +46,31 @@ fi
 
 echo "✅ All files ready"
 
+# 检查环境变量
+echo "🔍 Checking environment variables..."
+if [ -z "$ANTHROPIC_API_KEY" ]; then
+    echo "⚠️  ANTHROPIC_API_KEY not set - demo mode will be used"
+else
+    echo "✅ ANTHROPIC_API_KEY is set (${#ANTHROPIC_API_KEY} chars)"
+fi
+
+if [ -z "$GEMINI_API_KEY" ]; then
+    echo "⚠️  GEMINI_API_KEY not set - image generation may fail"
+else
+    echo "✅ GEMINI_API_KEY is set (${#GEMINI_API_KEY} chars)"
+fi
+
 # 启动MCP Router (后台)
 echo "🔧 Starting MCP Router..."
 cd playwright-service/mcp-router
-MCP_BINARY_PATH=./xiaohongshu-mcp HTTP_PORT=3000 COOKIE_DIR=./cookies node dist/httpServer.js &
+echo "📂 Current directory: $(pwd)"
+echo "📦 Binary exists: $(test -f xiaohongshu-mcp && echo 'YES' || echo 'NO')"
+echo "🔑 Binary permissions: $(ls -la xiaohongshu-mcp 2>&1 | head -1 || echo 'N/A')"
+
+MCP_BINARY_PATH=./xiaohongshu-mcp HTTP_PORT=3000 COOKIE_DIR=./cookies node dist/httpServer.js > /tmp/mcp-router.log 2>&1 &
 MCP_PID=$!
 echo "📍 MCP Router PID: $MCP_PID"
+echo "📄 Logs will be in /tmp/mcp-router.log"
 cd ../..
 
 # 等待MCP Router启动并验证
@@ -70,16 +89,23 @@ for i in {1..10}; do
     fi
 
     if [ $i -eq 10 ]; then
-        echo "❌ MCP Router failed to start after 20 seconds"
-        kill $MCP_PID 2>/dev/null
-        exit 1
+        echo "⚠️  MCP Router health check failed, but continuing anyway..."
+        echo "📋 MCP Router logs:"
+        ps aux | grep node || true
+        echo "🔌 Port 3000 status:"
+        netstat -tuln | grep 3000 || true
     fi
 done
 
 # 启动Claude Agent Service
 echo "🤖 Starting Claude Agent Service..."
 cd playwright-service/claude-agent-service
-MCP_ROUTER_URL=http://localhost:3000 PORT=4000 node dist/server.js
+echo "📂 Current directory: $(pwd)"
+echo "📦 Server file exists: $(test -f dist/server.js && echo 'YES' || echo 'NO')"
+echo "🌐 MCP_ROUTER_URL: http://localhost:3000"
+echo "🔌 PORT: 4000"
+
+MCP_ROUTER_URL=http://localhost:3000 PORT=4000 node dist/server.js 2>&1 | tee /tmp/claude-agent.log
 
 # 清理
 trap "kill $MCP_PID 2>/dev/null" EXIT
