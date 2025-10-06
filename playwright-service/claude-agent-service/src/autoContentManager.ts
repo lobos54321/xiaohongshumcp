@@ -173,25 +173,57 @@ export class AutoContentManager {
       const rawPlan = JSON.parse(responseText);
       console.log('📅 周计划生成完成:', rawPlan);
 
-      // 转换Claude返回的嵌套对象格式为数组格式
-      const days = Array.isArray(rawPlan.days)
-        ? rawPlan.days
-        : Object.values(rawPlan.days || rawPlan['每日计划'] || {});
+      // 处理各种可能的返回格式
+      let daysData: any[] = [];
+
+      if (Array.isArray(rawPlan.days)) {
+        daysData = rawPlan.days;
+      } else if (rawPlan.weekly_plan) {
+        // 格式: {weekly_plan: {Monday: [...], Tuesday: [...]}}
+        daysData = Object.entries(rawPlan.weekly_plan).map(([dayName, posts]: [string, any]) => ({
+          date: this.getDateFromDayName(dayName),
+          posts: posts
+        }));
+      } else if (rawPlan.days) {
+        daysData = Object.values(rawPlan.days);
+      } else if (rawPlan['每日计划']) {
+        daysData = Object.values(rawPlan['每日计划']);
+      }
 
       const weeklyPlan: WeeklyPlan = {
-        days: days.map((day: any) => ({
-          date: new Date(day.date || day['日期']),
-          posts: Array.isArray(day.posts)
-            ? day.posts
+        days: daysData.map((day: any, index: number) => ({
+          date: day.date ? new Date(day.date) : new Date(Date.now() + index * 24 * 60 * 60 * 1000),
+          posts: Array.isArray(day.posts || day)
+            ? (day.posts || day)
             : Object.values(day.posts || day['发布内容'] || {})
         }))
       };
 
+      console.log(`📊 周计划已生成，共 ${weeklyPlan.days.length} 天的计划`);
       return weeklyPlan;
     } catch (error) {
       console.error('周计划解析失败:', error);
       return this.getDefaultWeeklyPlan();
     }
+  }
+
+  /**
+   * 将星期名转换为日期
+   */
+  private getDateFromDayName(dayName: string): Date {
+    const today = new Date();
+    const dayMap: {[key: string]: number} = {
+      'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4,
+      'Friday': 5, 'Saturday': 6, 'Sunday': 0
+    };
+
+    const targetDay = dayMap[dayName];
+    const currentDay = today.getDay();
+    const daysUntilTarget = (targetDay - currentDay + 7) % 7;
+
+    const date = new Date(today);
+    date.setDate(today.getDate() + daysUntilTarget);
+    return date;
   }
 
   /**
