@@ -1,9 +1,9 @@
 {
-  "dockerfile": "Dockerfile",
+  "dockerfile": "Dockerfile.minimal",
   "ports": [
     {
       "id": "web",
-      "port": 4000,
+      "port": 8080,
       "type": "HTTP"
     }
   ]
