@@ -54,10 +54,10 @@ echo "📂 Current directory: $(pwd)"
 echo "📦 Binary exists: $(test -f xiaohongshu-mcp && echo 'YES' || echo 'NO')"
 echo "🔑 Binary permissions: $(ls -la xiaohongshu-mcp 2>&1 | head -1 || echo 'N/A')"
 
-# 检查是否是Zeabur环境（生产环境且PORT=3000）
-if [ "$NODE_ENV" = "production" ] && [ "$PORT" = "3000" ]; then
-    echo "🌐 Zeabur部署模式 - 启动HTTP服务在端口3000"
-    MCP_BINARY_PATH=./xiaohongshu-mcp HTTP_PORT=3000 COOKIE_DIR=./cookies node dist/httpServer.js
+# 检查是否是Zeabur环境（生产环境且PORT=8080）
+if [ "$NODE_ENV" = "production" ] && [ "$PORT" = "8080" ]; then
+    echo "🌐 Zeabur部署模式 - 启动HTTP服务在端口8080"
+    MCP_BINARY_PATH=./xiaohongshu-mcp HTTP_PORT=8080 COOKIE_DIR=./cookies node dist/httpServer.js
 else
     echo "🔧 开发模式 - 启动完整系统"
     MCP_BINARY_PATH=./xiaohongshu-mcp HTTP_PORT=3000 COOKIE_DIR=./cookies node dist/httpServer.js > /tmp/mcp-router.log 2>&1 &
