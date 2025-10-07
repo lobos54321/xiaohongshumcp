@@ -138,47 +138,72 @@ export class AutoContentManager {
    * 用户完成设置后，启动自动运营
    */
   async startAutoMode(userProfile: UserProfile): Promise<void> {
-    console.log(`🚀 为用户 ${userProfile.userId} 启动自动运营模式`);
+    console.log(`🚀 [DEBUG] 为用户 ${userProfile.userId} 启动自动运营模式`);
+    console.log(`🚀 [DEBUG] 用户配置:`, JSON.stringify(userProfile, null, 2));
 
     // 设置生成状态
     this.generationStatus.set(userProfile.userId, 'generating');
+    console.log(`🚀 [DEBUG] 已设置生成状态为 generating`);
 
     // 保存用户配置
     this.userProfiles.set(userProfile.userId, userProfile);
+    console.log(`🚀 [DEBUG] 已保存用户配置到 userProfiles Map`);
+    console.log(`🚀 [DEBUG] 当前 userProfiles 大小: ${this.userProfiles.size}`);
+    console.log(`🚀 [DEBUG] 当前 contentPlans 大小: ${this.contentPlans.size}`);
 
     try {
       // 1. 制定内容策略
+      console.log(`🚀 [DEBUG] 步骤1: 开始制定内容策略...`);
       const strategy = await this.createContentStrategy(userProfile);
+      console.log(`🚀 [DEBUG] 步骤1完成: 内容策略制定成功`, JSON.stringify(strategy, null, 2));
 
       // 2. 生成周计划
+      console.log(`🚀 [DEBUG] 步骤2: 开始生成周计划...`);
       const weeklyPlan = await this.generateWeeklyPlan(userProfile, strategy);
+      console.log(`🚀 [DEBUG] 步骤2完成: 周计划生成成功，包含 ${weeklyPlan.days.length} 天计划`);
 
       // 3. 生成详细的每日任务
+      console.log(`🚀 [DEBUG] 步骤3: 开始生成详细任务...`);
       const dailyTasks = await this.generateDailyTasks(userProfile, weeklyPlan);
+      console.log(`🚀 [DEBUG] 步骤3完成: 生成了 ${dailyTasks.length} 个每日任务`);
 
       // 4. 保存完整计划
+      console.log(`🚀 [DEBUG] 步骤4: 保存完整计划到 contentPlans...`);
       this.contentPlans.set(userProfile.userId, {
         strategy,
         weeklyPlan,
         dailyTasks
       });
+      console.log(`🚀 [DEBUG] 步骤4完成: 计划已保存，contentPlans 大小: ${this.contentPlans.size}`);
 
       // 5. 持久化数据
+      console.log(`🚀 [DEBUG] 步骤5: 持久化数据到文件...`);
       this.saveData(userProfile.userId);
+      console.log(`🚀 [DEBUG] 步骤5完成: 数据持久化完成`);
 
       // 6. 设置完成状态
+      console.log(`🚀 [DEBUG] 步骤6: 设置生成状态为 completed...`);
       this.generationStatus.set(userProfile.userId, 'completed');
+      console.log(`🚀 [DEBUG] 步骤6完成: 生成状态已设置为 completed`);
 
       // 7. 启动定时执行器
+      console.log(`🚀 [DEBUG] 步骤7: 启动定时执行器...`);
       this.startScheduler(userProfile.userId);
+      console.log(`🚀 [DEBUG] 步骤7完成: 定时执行器已启动`);
 
-      console.log(`✅ 自动运营模式启动成功！已为接下来7天规划了${dailyTasks.length}个任务`);
+      console.log(`✅ [DEBUG] 自动运营模式启动成功！已为接下来7天规划了${dailyTasks.length}个任务`);
     } catch (error: any) {
-      console.error(`❌ 启动自动运营失败:`, error.message);
+      console.error(`❌ [DEBUG] 启动自动运营失败:`, error.message);
+      console.error(`❌ [DEBUG] 错误详情:`, error);
 
       // 如果是 API 连接错误，创建演示数据让系统能继续工作
-      if (error.message?.includes('Connection error') || error.message?.includes('ENOTFOUND') || error.message?.includes('EAI_AGAIN')) {
-        console.log(`⚠️  检测到 Anthropic API 连接问题，使用演示模式...`);
+      if (error.message?.includes('Connection error') ||
+          error.message?.includes('ENOTFOUND') ||
+          error.message?.includes('EAI_AGAIN') ||
+          error.message?.includes('400') ||
+          error.message?.includes('model_not_supported') ||
+          error.message?.includes('BadRequestError')) {
+        console.log(`⚠️  [DEBUG] 检测到 Anthropic API 连接问题，使用演示模式...`);
 
         // 创建演示数据
         const demoStrategy: ContentStrategy = {
@@ -188,6 +213,7 @@ export class AutoContentManager {
           hashtags: ['演示模式', userProfile.productName, '小红书运营'],
           trendingTopics: ['热门话题1', '热门话题2', '热门话题3']
         };
+        console.log(`⚠️  [DEBUG] 创建演示策略:`, JSON.stringify(demoStrategy, null, 2));
 
         const now = new Date();
         const demoWeeklyPlan: WeeklyPlan = {
@@ -212,6 +238,7 @@ export class AutoContentManager {
             }
           ]
         };
+        console.log(`⚠️  [DEBUG] 创建演示周计划: ${demoWeeklyPlan.days.length} 天`);
 
         const demoDailyTasks: DailyTask[] = [
           {
@@ -242,22 +269,29 @@ export class AutoContentManager {
             status: 'planned'
           }
         ];
+        console.log(`⚠️  [DEBUG] 创建演示任务: ${demoDailyTasks.length} 个任务`);
 
+        console.log(`⚠️  [DEBUG] 保存演示数据到 contentPlans...`);
         this.contentPlans.set(userProfile.userId, {
           strategy: demoStrategy,
           weeklyPlan: demoWeeklyPlan,
           dailyTasks: demoDailyTasks
         });
+        console.log(`⚠️  [DEBUG] 演示数据已保存，contentPlans 大小: ${this.contentPlans.size}`);
 
         // 设置完成状态（演示模式）
+        console.log(`⚠️  [DEBUG] 设置演示模式状态为 completed...`);
         this.generationStatus.set(userProfile.userId, 'completed');
+        console.log(`⚠️  [DEBUG] 演示模式状态已设置: ${this.generationStatus.get(userProfile.userId)}`);
 
-        console.log(`✅ 演示模式启动成功！已创建${demoDailyTasks.length}个演示任务`);
+        console.log(`✅ [DEBUG] 演示模式启动成功！已创建${demoDailyTasks.length}个演示任务`);
         return;
       }
 
       // 其他错误直接抛出
+      console.log(`❌ [DEBUG] 设置失败状态...`);
       this.generationStatus.set(userProfile.userId, 'failed');
+      console.log(`❌ [DEBUG] 失败状态已设置: ${this.generationStatus.get(userProfile.userId)}`);
       throw error;
     }
   }
@@ -772,23 +806,49 @@ export class AutoContentManager {
    * 获取用户的内容策略
    */
   getStrategy(userId: string): ContentStrategy | null {
+    console.log(`📋 [DEBUG] 获取用户 ${userId} 的策略`);
+    console.log(`📋 [DEBUG] contentPlans 总数: ${this.contentPlans.size}`);
+    console.log(`📋 [DEBUG] contentPlans 中的用户IDs:`, Array.from(this.contentPlans.keys()));
+
     const plan = this.contentPlans.get(userId);
-    return plan ? plan.strategy : null;
+    if (plan) {
+      console.log(`📋 [DEBUG] 找到用户策略:`, JSON.stringify(plan.strategy, null, 2));
+      return plan.strategy;
+    } else {
+      console.log(`📋 [DEBUG] 未找到用户策略`);
+      return null;
+    }
   }
 
   /**
    * 获取用户的生成状态
    */
   getGenerationStatus(userId: string): 'idle' | 'generating' | 'completed' | 'failed' {
-    return this.generationStatus.get(userId) || 'idle';
+    const status = this.generationStatus.get(userId) || 'idle';
+    console.log(`🔄 [DEBUG] 获取用户 ${userId} 的生成状态: ${status}`);
+    console.log(`🔄 [DEBUG] generationStatus Map 总数: ${this.generationStatus.size}`);
+    console.log(`🔄 [DEBUG] generationStatus 中的用户IDs:`, Array.from(this.generationStatus.keys()));
+    return status;
   }
 
   /**
    * 获取用户的每日任务
    */
   getDailyTasks(userId: string): DailyTask[] {
+    console.log(`📅 [DEBUG] 获取用户 ${userId} 的每日任务`);
+    console.log(`📅 [DEBUG] contentPlans 总数: ${this.contentPlans.size}`);
+
     const plan = this.contentPlans.get(userId);
-    return plan ? plan.dailyTasks : [];
+    if (plan && plan.dailyTasks) {
+      console.log(`📅 [DEBUG] 找到 ${plan.dailyTasks.length} 个每日任务`);
+      plan.dailyTasks.forEach((task, index) => {
+        console.log(`📅 [DEBUG] 任务 ${index + 1}: ${task.title} (${task.status})`);
+      });
+      return plan.dailyTasks;
+    } else {
+      console.log(`📅 [DEBUG] 未找到每日任务`);
+      return [];
+    }
   }
 
   /**

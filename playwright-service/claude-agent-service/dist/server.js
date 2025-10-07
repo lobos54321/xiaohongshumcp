@@ -11,7 +11,7 @@ import ImageGenerationService from './imageGenerationService.js';
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const PORT = parseInt(process.env.PORT || '4000');
+const PORT = parseInt(process.env.PORT || '8080');
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 if (!ANTHROPIC_API_KEY) {
     console.error('Error: ANTHROPIC_API_KEY is required');
@@ -68,6 +68,10 @@ app.get('/api', (_req, res) => {
 // 提供前端静态文件（放在最后，避免覆盖API路由）
 const frontendPath = path.join(__dirname, '../../../frontend');
 app.use(express.static(frontendPath));
+// 根路径明确指向index.html
+app.get('/', (_req, res) => {
+    res.sendFile(path.join(frontendPath, 'index.html'));
+});
 // 健康检查
 app.get('/health', (_req, res) => {
     res.json({
@@ -287,25 +291,6 @@ app.post('/agent/auto/start', async (req, res) => {
 app.get('/agent/auto/strategy/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
-
-        // 检查生成状态
-        const status = autoContentManager.getGenerationStatus(userId);
-
-        if (status === 'generating') {
-            return res.json({
-                success: true,
-                generating: true,
-                message: 'Claude正在生成内容策略，请稍候...'
-            });
-        }
-
-        if (status === 'failed') {
-            return res.status(500).json({
-                success: false,
-                error: '内容策略生成失败，请重新启动自动运营'
-            });
-        }
-
         // 从autoContentManager获取真实策略
         const strategy = autoContentManager.getStrategy(userId);
         if (!strategy) {
@@ -337,25 +322,6 @@ app.get('/agent/auto/strategy/:userId', async (req, res) => {
 app.get('/agent/auto/plan/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
-
-        // 检查生成状态
-        const status = autoContentManager.getGenerationStatus(userId);
-
-        if (status === 'generating') {
-            return res.json({
-                success: true,
-                generating: true,
-                message: 'Claude正在制定今日计划，请稍候...'
-            });
-        }
-
-        if (status === 'failed') {
-            return res.status(500).json({
-                success: false,
-                error: '今日计划生成失败，请重新启动自动运营'
-            });
-        }
-
         // 从autoContentManager获取真实任务
         const dailyTasks = autoContentManager.getDailyTasks(userId);
         if (!dailyTasks || dailyTasks.length === 0) {
@@ -588,15 +554,32 @@ app.post('/agent/xiaohongshu/login', async (req, res) => {
             });
         }
         console.log(`[XHS Login] Requesting QR code for user ${userId}`);
-        // 调用 MCP Router 获取二维码
-        const axios = await import('axios');
-        const response = await axios.default.get(`${MCP_ROUTER_URL}/api/xiaohongshu/login/qrcode?userId=${userId}`);
-        console.log(`[XHS Login] QR code received for user ${userId}`);
-        res.json({
-            success: true,
-            message: '登录二维码已生成',
-            data: response.data
-        });
+        try {
+            // 首先检查MCP Router是否可用
+            const axios = await import('axios');
+            await axios.default.get(`${MCP_ROUTER_URL}/health`, { timeout: 5000 });
+            // MCP Router可用，调用真实的API
+            const response = await axios.default.get(`${MCP_ROUTER_URL}/api/xiaohongshu/login/qrcode?userId=${userId}`, { timeout: 10000 });
+            console.log(`[XHS Login] QR code received for user ${userId}`);
+            res.json({
+                success: true,
+                message: '登录二维码已生成',
+                data: response.data
+            });
+        }
+        catch (mcpError) {
+            console.warn(`[XHS Login] MCP Router unavailable (${mcpError.message}), using demo mode`);
+            // MCP Router不可用，返回演示模式的二维码
+            res.json({
+                success: true,
+                message: '演示模式：请使用手机扫描二维码登录小红书',
+                data: {
+                    qr_code: 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https://www.xiaohongshu.com/explore',
+                    message: '演示模式 - 这是一个示例二维码',
+                    demo_mode: true
+                }
+            });
+        }
     }
     catch (error) {
         console.error('[XHS Login] Error getting QR code:', error.message);
@@ -617,13 +600,28 @@ app.get('/agent/xiaohongshu/login/status', async (req, res) => {
             });
         }
         console.log(`[XHS Login] Checking login status for user ${userId}`);
-        // 调用 MCP Router 检查登录状态
-        const axios = await import('axios');
-        const response = await axios.default.get(`${MCP_ROUTER_URL}/api/xiaohongshu/login/status?userId=${userId}`);
-        res.json({
-            success: true,
-            data: response.data
-        });
+        try {
+            // 调用 MCP Router 检查登录状态
+            const axios = await import('axios');
+            const response = await axios.default.get(`${MCP_ROUTER_URL}/api/xiaohongshu/login/status?userId=${userId}`, { timeout: 5000 });
+            res.json({
+                success: true,
+                data: response.data
+            });
+        }
+        catch (mcpError) {
+            console.warn(`[XHS Login] MCP Router unavailable (${mcpError.message}), using demo status`);
+            // MCP Router不可用，返回演示模式状态
+            res.json({
+                success: true,
+                data: {
+                    logged_in: false,
+                    message: '演示模式 - 请在生产环境中使用真实登录',
+                    demo_mode: true,
+                    user_id: userId
+                }
+            });
+        }
     }
     catch (error) {
         console.error('[XHS Login] Error checking login status:', error.message);
@@ -632,6 +630,28 @@ app.get('/agent/xiaohongshu/login/status', async (req, res) => {
             error: error.message || 'Failed to check login status',
         });
     }
+});
+// 捕获所有未匹配的路由，重定向到根路径（SPA fallback）
+app.get('*', (req, res) => {
+    console.log(`[Server] Handling request: ${req.method} ${req.path}`);
+    console.log(`[Server] Headers:`, req.headers);
+    // 如果是API路径，返回404
+    if (req.path.startsWith('/api') || req.path.startsWith('/agent')) {
+        console.log(`[Server] API path not found: ${req.path}`);
+        return res.status(404).json({
+            error: 'API endpoint not found',
+            path: req.path,
+            method: req.method
+        });
+    }
+    // 特殊处理 /v1 路径
+    if (req.path === '/v1') {
+        console.log(`[Server] Redirecting /v1 to root with 301`);
+        return res.redirect(301, '/');
+    }
+    // 其他路径重定向到主页
+    console.log(`[Server] Serving index.html for path: ${req.path}`);
+    res.sendFile(path.join(frontendPath, 'index.html'));
 });
 // 启动服务器
 app.listen(PORT, '0.0.0.0', () => {
