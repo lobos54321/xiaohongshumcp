@@ -9,7 +9,7 @@ RUN apk add --no-cache \
     ca-certificates
 
 # 设置工作目录
-WORKDIR /app
+WORKDIR /src
 
 # 复制所有源代码
 COPY . .
@@ -19,8 +19,8 @@ RUN mkdir -p /tmp/binary && \
     cd /tmp/binary && \
     wget https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz && \
     tar xzf xiaohongshu-mcp-linux-amd64.tar.gz && \
-    mv xiaohongshu-mcp-linux-amd64 /app/playwright-service/mcp-router/xiaohongshu-mcp && \
-    chmod +x /app/playwright-service/mcp-router/xiaohongshu-mcp && \
+    mv xiaohongshu-mcp-linux-amd64 /src/playwright-service/mcp-router/xiaohongshu-mcp && \
+    chmod +x /src/playwright-service/mcp-router/xiaohongshu-mcp && \
     rm -rf /tmp/binary
 
 # 安装根目录依赖并构建
@@ -38,7 +38,7 @@ RUN cd playwright-service/claude-agent-service && \
     cp -r playwright-service/claude-agent-service/node_modules/* ./node_modules/ 2>/dev/null || true
 
 # 设置 NODE_PATH 来确保模块解析
-ENV NODE_PATH=/app/node_modules:/app/playwright-service/mcp-router/node_modules:/app/playwright-service/claude-agent-service/node_modules
+ENV NODE_PATH=/src/node_modules:/src/playwright-service/mcp-router/node_modules:/src/playwright-service/claude-agent-service/node_modules
 
 # 暴露端口
 EXPOSE 8080
