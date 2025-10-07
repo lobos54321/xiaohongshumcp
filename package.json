@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "bash start.sh",
-    "build": "cd playwright-service/mcp-router && npm install && ./node_modules/.bin/tsc && cd ../claude-agent-service && npm install && ./node_modules/.bin/tsc",
+    "build": "echo 'Skipping TypeScript build - using pre-built files'",
     "dev:mcp": "cd playwright-service/mcp-router && npm run start:http",
     "dev:claude": "cd playwright-service/claude-agent-service && npm start"
   },
