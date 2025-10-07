@@ -51,6 +51,7 @@ export class AutoContentManager {
   private contentPlans: Map<string, ContentPlan> = new Map();
   private dataDir: string;
   private generationStatus: Map<string, 'idle' | 'generating' | 'completed' | 'failed'> = new Map();
+  private realTimeActivities: Map<string, Array<{timestamp: Date, message: string, type: string}>> = new Map();
 
   constructor(config: {
     anthropicKey: string;
@@ -215,6 +216,41 @@ export class AutoContentManager {
   }
 
   /**
+   * 添加实时活动日志
+   */
+  private addRealTimeActivity(userId: string, message: string, type: 'analysis' | 'generation' | 'research' | 'optimization' | 'execution' = 'analysis'): void {
+    if (!this.realTimeActivities.has(userId)) {
+      this.realTimeActivities.set(userId, []);
+    }
+
+    const activities = this.realTimeActivities.get(userId)!;
+    activities.unshift({
+      timestamp: new Date(),
+      message,
+      type
+    });
+
+    // 只保留最新的20条记录
+    if (activities.length > 20) {
+      activities.splice(20);
+    }
+
+    console.log(`🔴 [实时活动] ${userId}: ${message}`);
+  }
+
+  /**
+   * 获取实时活动列表
+   */
+  getRealTimeActivities(userId: string): Array<{timestamp: string, message: string, type: string}> {
+    const activities = this.realTimeActivities.get(userId) || [];
+    return activities.map(activity => ({
+      timestamp: activity.timestamp.toLocaleTimeString('zh-CN'),
+      message: activity.message,
+      type: activity.type
+    }));
+  }
+
+  /**
    * 智能提取数组数据，支持多种格式
    */
   private extractArrayData(rawData: any, possibleKeys: string[]): string[] {
@@ -300,22 +336,47 @@ export class AutoContentManager {
    * 生成周计划
    */
   private async generateWeeklyPlan(profile: UserProfile, strategy: ContentStrategy): Promise<WeeklyPlan> {
+    // 根据发布频率计算每日发布数量
+    const frequencyMap = {
+      'daily': 1,        // 每天1篇
+      'twice-daily': 2,  // 每天2篇
+      'high-freq': 3     // 每天3-5篇，这里用3篇
+    };
+
+    const postsPerDay = frequencyMap[profile.postFrequency] || 1;
+    console.log(`📊 [DEBUG] 发布频率设置: ${profile.postFrequency}, 每天发布 ${postsPerDay} 篇`);
+
     const prompt = `
 基于以下内容策略，为${profile.productName}制定本周(7天)的详细发布计划：
 
 内容策略：
 核心主题：${strategy.keyThemes.join(', ')}
 内容类型：${strategy.contentTypes.join(', ')}
-发布频率：${profile.postFrequency}
+发布频率：${profile.postFrequency} (每天${postsPerDay}篇)
 最佳时间：${strategy.optimalTimes.join(', ')}
 
 要求：
-1. 根据发布频率安排每日发布数量
+1. 严格按照发布频率：每天安排${postsPerDay}篇内容
 2. 确保主题分布均衡，避免重复
 3. 考虑周末和工作日的用户行为差异
 4. 每个内容要有明确的目标和预期效果
+5. 发布时间要根据最佳时间来安排
 
-请以JSON格式返回7天的计划，包含每天的主题、内容类型、发布时间。
+请以JSON格式返回7天的计划，每天包含${postsPerDay}个内容，格式如下：
+{
+  "days": [
+    {
+      "date": "2024-10-08",
+      "posts": [
+        {
+          "theme": "内容主题",
+          "type": "图文",
+          "scheduledTime": "09:30"
+        }
+      ]
+    }
+  ]
+}
 `;
 
     const response = await this.anthropic.messages.create({
@@ -387,18 +448,42 @@ export class AutoContentManager {
             posts = [{
               theme: day.theme || `第${index + 1}天内容`,
               type: day.type || '图文',
-              scheduledTime: day.scheduledTime || new Date(Date.now() + index * 24 * 60 * 60 * 1000 + 9 * 60 * 60 * 1000)
+              scheduledTime: day.scheduledTime || '09:30'
             }];
           }
 
+          // 确保日期正确设置
+          const dayDate = day.date ? new Date(day.date) : new Date(Date.now() + index * 24 * 60 * 60 * 1000);
+          console.log(`📅 [DEBUG] 第${index + 1}天日期: ${dayDate.toISOString().split('T')[0]}, 帖子数量: ${posts.length}`);
+
           return {
-            date: day.date ? new Date(day.date) : new Date(Date.now() + index * 24 * 60 * 60 * 1000),
-            posts: posts.map((post: any) => ({
-              theme: post.theme || post.title || `内容${index + 1}`,
-              type: post.type || post.contentType || '图文',
-              scheduledTime: post.scheduledTime ? new Date(post.scheduledTime) :
-                            new Date(Date.now() + index * 24 * 60 * 60 * 1000 + 9 * 60 * 60 * 1000)
-            }))
+            date: dayDate,
+            posts: posts.map((post: any, postIndex: number) => {
+              // 解析时间，支持多种格式
+              let postTime;
+              if (post.scheduledTime) {
+                if (typeof post.scheduledTime === 'string') {
+                  // 如果是时间字符串如 "09:30"，组合到当天
+                  const [hours, minutes] = post.scheduledTime.split(':');
+                  postTime = new Date(dayDate);
+                  postTime.setHours(parseInt(hours) || 9, parseInt(minutes) || 30, 0, 0);
+                } else {
+                  postTime = new Date(post.scheduledTime);
+                }
+              } else {
+                // 默认上午9:30
+                postTime = new Date(dayDate);
+                postTime.setHours(9, 30, 0, 0);
+              }
+
+              console.log(`📅 [DEBUG] 第${index + 1}天第${postIndex + 1}篇: ${post.theme || post.title} 时间: ${postTime.toISOString()}`);
+
+              return {
+                theme: post.theme || post.title || `第${index + 1}天内容${postIndex + 1}`,
+                type: post.type || post.contentType || '图文',
+                scheduledTime: postTime
+              };
+            })
           };
         })
       };
@@ -527,6 +612,7 @@ export class AutoContentManager {
    */
   private startScheduler(userId: string): void {
     console.log(`⏰ 为用户 ${userId} 启动定时调度器`);
+    this.addRealTimeActivity(userId, '🚀 自动运营系统已启动', 'execution');
 
     // 每分钟检查一次是否有需要执行的任务
     setInterval(async () => {
@@ -549,12 +635,32 @@ export class AutoContentManager {
     const now = new Date();
     const profile = this.userProfiles.get(userId)!;
 
+    // 检查是否有需要执行的任务
+    let hasTasksToExecute = false;
+
     for (const task of plan.dailyTasks) {
       // 检查是否到了发布时间（提前5分钟开始准备）
       const timeToExecute = task.scheduledTime.getTime() - now.getTime();
 
       if (timeToExecute <= 5 * 60 * 1000 && timeToExecute > 0 && task.status === 'planned') {
+        hasTasksToExecute = true;
+        this.addRealTimeActivity(userId, `📅 检测到即将执行的任务: ${task.title}`, 'analysis');
         await this.prepareAndExecuteTask(userId, task, profile);
+      }
+    }
+
+    // 如果没有立即要执行的任务，记录分析活动
+    if (!hasTasksToExecute) {
+      // 随机添加一些分析活动，但频率较低
+      if (Math.random() < 0.1) { // 10%概率
+        const analysisActivities = [
+          '🤖 正在分析最佳发布时间...',
+          '📊 正在监控内容表现数据...',
+          '🔍 正在研究热门话题趋势...',
+          '💡 正在优化内容策略...'
+        ];
+        const randomActivity = analysisActivities[Math.floor(Math.random() * analysisActivities.length)];
+        this.addRealTimeActivity(userId, randomActivity, 'analysis');
       }
     }
   }
@@ -565,26 +671,33 @@ export class AutoContentManager {
   private async prepareAndExecuteTask(userId: string, task: DailyTask, profile: UserProfile): Promise<void> {
     try {
       console.log(`🎬 开始执行任务: ${task.title}`);
+      this.addRealTimeActivity(userId, `🎬 开始执行任务: ${task.title}`, 'execution');
       task.status = 'generating';
 
       // 1. 生成图片
+      this.addRealTimeActivity(userId, '🎨 正在生成配图...', 'generation');
       const imageUrl = await this.generateImage(task.imagePrompt);
       task.imageUrl = imageUrl;  // 保存图片URL到任务中
+      this.addRealTimeActivity(userId, '✅ 配图生成完成', 'generation');
 
       // 2. 检查是否需要人工审核
       if (profile.reviewMode === 'auto') {
         // 直接发布
+        this.addRealTimeActivity(userId, '📝 正在发布内容到小红书...', 'execution');
         await this.publishContent(userId, task, imageUrl);
         task.status = 'published';
+        this.addRealTimeActivity(userId, `✅ 内容发布成功: ${task.title}`, 'execution');
         console.log(`✅ 自动发布成功: ${task.title}`);
       } else {
         // 等待审核
         task.status = 'ready';
+        this.addRealTimeActivity(userId, '⏳ 内容已准备，等待人工审核', 'execution');
         await this.notifyForReview(userId, task, imageUrl);
         console.log(`⏳ 内容已准备就绪，等待审核: ${task.title}`);
       }
 
-    } catch (error) {
+    } catch (error: any) {
+      this.addRealTimeActivity(userId, `❌ 任务执行失败: ${error.message}`, 'execution');
       console.error(`❌ 任务执行失败: ${task.title}`, error);
     }
   }

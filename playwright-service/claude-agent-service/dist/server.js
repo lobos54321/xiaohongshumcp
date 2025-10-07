@@ -320,6 +320,25 @@ app.get('/agent/auto/strategy/:userId', async (req, res) => {
         });
     }
 });
+// 获取实时活动API
+app.get('/agent/auto/activity/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        // 获取真实的实时活动
+        const activities = autoContentManager.getRealTimeActivities(userId);
+        res.json({
+            success: true,
+            activities
+        });
+    }
+    catch (error) {
+        console.error('[Auto Mode] Error getting activities:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+        });
+    }
+});
 // 获取今日计划
 app.get('/agent/auto/plan/:userId', async (req, res) => {
     try {

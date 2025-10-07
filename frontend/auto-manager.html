@@ -530,31 +530,72 @@
                     `已运行 ${hours}小时${minutes}分`;
             }, 60000);
 
-            // 模拟活动流
-            simulateActivity();
+            // 启动真实活动流
+            loadRealTimeActivities();
 
             // 定期检查和执行任务
             setInterval(executeScheduledTasks, 60000); // 每分钟检查一次
         }
 
-        // 模拟实时活动
-        function simulateActivity() {
-            const activities = [
-                '🤖 Claude正在分析热门话题...',
-                '📝 正在生成新的内容创意...',
-                '🎨 正在制作配图...',
-                '📊 正在分析最佳发布时间...',
-                '🔍 正在研究竞品内容...',
-                '💡 发现新的营销机会...',
-                '📈 正在优化内容策略...'
-            ];
+        // 加载真实活动数据
+        function loadRealTimeActivities() {
+            // 立即加载一次
+            updateRealTimeActivities();
 
+            // 每10秒更新一次真实活动
             setInterval(() => {
                 if (autoModeEnabled) {
-                    const activity = activities[Math.floor(Math.random() * activities.length)];
-                    addActivityLog(activity);
+                    updateRealTimeActivities();
                 }
-            }, 5000);
+            }, 10000);
+        }
+
+        // 更新真实活动数据
+        async function updateRealTimeActivities() {
+            try {
+                console.log('[Activity DEBUG] 请求实时活动数据...');
+                const activityUrl = `${CLAUDE_API}/agent/auto/activity/${currentUser}`;
+                const activityRes = await fetch(activityUrl);
+                const activityData = await activityRes.json();
+
+                if (activityData.success && activityData.activities) {
+                    console.log('[Activity DEBUG] 获取到活动数据:', activityData.activities.length, '条');
+                    displayRealTimeActivities(activityData.activities);
+                } else {
+                    console.error('[Activity DEBUG] 活动数据失败:', activityData.error);
+                }
+            } catch (error) {
+                console.error('[Activity DEBUG] 活动请求失败:', error);
+            }
+        }
+
+        // 显示真实活动数据
+        function displayRealTimeActivities(activities) {
+            const feed = document.getElementById('activityFeed');
+
+            // 清除现有内容
+            feed.innerHTML = '';
+
+            if (activities && activities.length > 0) {
+                // 显示真实活动
+                activities.forEach(activity => {
+                    const activityDiv = document.createElement('div');
+                    activityDiv.className = 'flex items-center justify-between p-3 bg-gray-50 rounded-lg mb-2';
+                    activityDiv.innerHTML = `
+                        <span class="text-sm">${activity.message}</span>
+                        <span class="text-xs text-gray-500">${activity.timestamp}</span>
+                    `;
+                    feed.appendChild(activityDiv);
+                });
+            } else {
+                // 显示无活动提示
+                feed.innerHTML = `
+                    <div class="text-center py-4 text-gray-500">
+                        <div>🚀 系统正在运行中</div>
+                        <div class="text-xs mt-1">等待执行任务或分析数据...</div>
+                    </div>
+                `;
+            }
         }
 
         // 添加活动日志
