@@ -1,0 +1,85 @@
+# 完整功能Dockerfile - 包含MCP Router用于真实数据
+FROM node:18-alpine
+
+WORKDIR /app
+
+# 安装必要工具
+RUN apk add --no-cache wget curl bash
+
+# 复制package.json文件
+COPY playwright-service/mcp-router/package*.json ./mcp-router/
+COPY playwright-service/claude-agent-service/package*.json ./claude-agent-service/
+
+# 安装依赖
+RUN cd mcp-router && npm install --production
+RUN cd claude-agent-service && npm install --production
+
+# 下载xiaohongshu-mcp二进制文件
+RUN mkdir -p /tmp/binary && \
+    cd /tmp/binary && \
+    wget https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz && \
+    tar xzf xiaohongshu-mcp-linux-amd64.tar.gz && \
+    mv xiaohongshu-mcp-linux-amd64 /app/mcp-router/xiaohongshu-mcp && \
+    chmod +x /app/mcp-router/xiaohongshu-mcp && \
+    rm -rf /tmp/binary
+
+# 复制源代码
+COPY playwright-service/mcp-router/src ./mcp-router/src
+COPY playwright-service/mcp-router/tsconfig.json ./mcp-router/
+COPY playwright-service/claude-agent-service/src ./claude-agent-service/src
+COPY playwright-service/claude-agent-service/tsconfig.json ./claude-agent-service/
+COPY frontend ./frontend
+
+# 编译TypeScript
+RUN cd mcp-router && npm run build
+RUN cd claude-agent-service && npm run build
+
+# 创建cookies目录
+RUN mkdir -p /app/mcp-router/cookies
+
+# 创建启动脚本
+RUN echo '#!/bin/bash\n\
+set -e\n\
+echo "🚀 Starting Xiaohongshu Automation with Real Data Support..."\n\
+\n\
+# 启动MCP Router\n\
+echo "🔧 Starting MCP Router..."\n\
+cd /app/mcp-router\n\
+MCP_BINARY_PATH=./xiaohongshu-mcp HTTP_PORT=3000 COOKIE_DIR=./cookies node dist/httpServer.js &\n\
+MCP_PID=$!\n\
+echo "📍 MCP Router PID: $MCP_PID"\n\
+\n\
+# 等待MCP Router启动\n\
+echo "⏳ Waiting for MCP Router..."\n\
+for i in {1..30}; do\n\
+    if curl -f http://localhost:3000/health >/dev/null 2>&1; then\n\
+        echo "✅ MCP Router is ready"\n\
+        break\n\
+    fi\n\
+    sleep 2\n\
+    if [ $i -eq 30 ]; then\n\
+        echo "⚠️  MCP Router failed to start, but continuing..."\n\
+    fi\n\
+done\n\
+\n\
+# 启动Claude Agent Service\n\
+echo "🤖 Starting Claude Agent Service..."\n\
+cd /app/claude-agent-service\n\
+MCP_ROUTER_URL=http://localhost:3000 PORT=8080 node dist/server.js\n\
+' > /app/start-production.sh
+
+RUN chmod +x /app/start-production.sh
+
+# 暴露端口
+EXPOSE 8080
+
+# 设置环境变量
+ENV NODE_ENV=production
+ENV PORT=8080
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# 启动完整系统
+CMD ["/app/start-production.sh"]

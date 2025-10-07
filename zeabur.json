@@ -1,5 +1,5 @@
 {
-  "dockerfile": "Dockerfile.ultra",
+  "dockerfile": "Dockerfile.production",
   "ports": [
     {
       "id": "web",
