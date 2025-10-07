@@ -86,32 +86,6 @@ app.get('/', (_req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
-// 捕获所有未匹配的路由，重定向到根路径（SPA fallback）
-app.get('*', (req, res) => {
-  console.log(`[Server] Handling request: ${req.method} ${req.path}`);
-  console.log(`[Server] Headers:`, req.headers);
-
-  // 如果是API路径，返回404
-  if (req.path.startsWith('/api') || req.path.startsWith('/agent')) {
-    console.log(`[Server] API path not found: ${req.path}`);
-    return res.status(404).json({
-      error: 'API endpoint not found',
-      path: req.path,
-      method: req.method
-    });
-  }
-
-  // 特殊处理 /v1 路径
-  if (req.path === '/v1') {
-    console.log(`[Server] Redirecting /v1 to root with 301`);
-    return res.redirect(301, '/');
-  }
-
-  // 其他路径重定向到主页
-  console.log(`[Server] Serving index.html for path: ${req.path}`);
-  res.sendFile(path.join(frontendPath, 'index.html'));
-});
-
 // 健康检查
 app.get('/health', (_req, res) => {
   res.json({
@@ -751,6 +725,32 @@ app.get('/agent/xiaohongshu/login/status', async (req, res) => {
       error: error.message || 'Failed to check login status',
     });
   }
+});
+
+// 捕获所有未匹配的路由，重定向到根路径（SPA fallback）
+app.get('*', (req, res) => {
+  console.log(`[Server] Handling request: ${req.method} ${req.path}`);
+  console.log(`[Server] Headers:`, req.headers);
+
+  // 如果是API路径，返回404
+  if (req.path.startsWith('/api') || req.path.startsWith('/agent')) {
+    console.log(`[Server] API path not found: ${req.path}`);
+    return res.status(404).json({
+      error: 'API endpoint not found',
+      path: req.path,
+      method: req.method
+    });
+  }
+
+  // 特殊处理 /v1 路径
+  if (req.path === '/v1') {
+    console.log(`[Server] Redirecting /v1 to root with 301`);
+    return res.redirect(301, '/');
+  }
+
+  // 其他路径重定向到主页
+  console.log(`[Server] Serving index.html for path: ${req.path}`);
+  res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
 // 启动服务器
