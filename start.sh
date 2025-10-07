@@ -14,34 +14,21 @@ if [ ! -f "playwright-service/claude-agent-service/dist/server.js" ]; then
     cd playwright-service/claude-agent-service && npm run build && cd ../..
 fi
 
-# 检查预包含的二进制文件
-if [ -f "playwright-service/mcp-router/bin/xiaohongshu-mcp" ]; then
-    echo "✅ Found pre-included Linux binary"
+# 检查二进制文件（Dockerfile应该已经下载了）
+if [ -f "playwright-service/mcp-router/xiaohongshu-mcp" ]; then
+    echo "✅ Found binary from Dockerfile"
+    chmod +x playwright-service/mcp-router/xiaohongshu-mcp
+elif [ -f "playwright-service/mcp-router/bin/xiaohongshu-mcp" ]; then
+    echo "✅ Found binary in bin/"
     cp playwright-service/mcp-router/bin/xiaohongshu-mcp playwright-service/mcp-router/xiaohongshu-mcp
     chmod +x playwright-service/mcp-router/xiaohongshu-mcp
 else
-    echo "🔧 Pre-included binary not found, downloading..."
+    echo "❌ Binary not found and download not supported in this environment"
+    echo "⚠️  MCP Router will not be available, but Claude Agent will still work in demo mode"
+    # Create a dummy binary to prevent errors
     mkdir -p playwright-service/mcp-router
-    cd /tmp
-
-    echo "📥 Downloading from GitHub releases..."
-    wget -q https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz
-
-    if [ $? -eq 0 ]; then
-        echo "📦 Extracting binary..."
-        tar -xzf xiaohongshu-mcp-linux-amd64.tar.gz
-
-        # 使用当前工作目录路径
-        WORKING_DIR=$(pwd | sed 's|/tmp|/src|')
-        cp xiaohongshu-mcp-linux-amd64 ${WORKING_DIR}/playwright-service/mcp-router/xiaohongshu-mcp
-        chmod +x ${WORKING_DIR}/playwright-service/mcp-router/xiaohongshu-mcp
-
-        echo "✅ Binary installed successfully"
-        cd ${WORKING_DIR}
-    else
-        echo "❌ Failed to download binary"
-        exit 1
-    fi
+    echo '#!/bin/bash\necho "MCP binary not available"\nexit 1' > playwright-service/mcp-router/xiaohongshu-mcp
+    chmod +x playwright-service/mcp-router/xiaohongshu-mcp
 fi
 
 echo "✅ All files ready"
