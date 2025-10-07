@@ -21,16 +21,16 @@ RUN cd claude-agent-service && npm run build
 # Create simple startup script
 RUN echo '#!/bin/bash\n\
 set -e\n\
-echo "🚀 Starting Claude Agent Service (Demo Mode)..."\n\
+echo "🚀 Starting Claude Agent Service..."\n\
 echo "📊 Environment: NODE_ENV=$NODE_ENV, PORT=$PORT"\n\
 \n\
 cd /app/claude-agent-service\n\
 echo "📂 Working directory: $(pwd)"\n\
 echo "📦 Files: $(ls -la dist/)"\n\
 \n\
-# Start in demo mode with fallbacks\n\
+# Start with environment-provided API key\n\
 echo "🤖 Starting Claude Agent Service on port $PORT..."\n\
-MCP_ROUTER_URL=http://localhost:3000 ANTHROPIC_API_KEY=demo-key PORT=$PORT node dist/server.js\n\
+MCP_ROUTER_URL=http://localhost:3000 PORT=$PORT node dist/server.js\n\
 ' > /app/start-simple.sh
 
 RUN chmod +x /app/start-simple.sh

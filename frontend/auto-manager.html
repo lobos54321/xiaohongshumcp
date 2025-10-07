@@ -259,7 +259,14 @@
 
         // 获取真实的用户ID
         function getRealUserId() {
-            // 检查是否已有用户ID
+            // 强制清理任何旧的测试用户ID
+            const existingUserId = localStorage.getItem('xiaohongshu_userId');
+            if (existingUserId && existingUserId.startsWith('test-user')) {
+                console.log('🧹 清理旧的测试用户ID:', existingUserId);
+                localStorage.removeItem('xiaohongshu_userId');
+            }
+
+            // 检查是否已有真实用户ID
             let userId = localStorage.getItem('xiaohongshu_userId');
 
             if (!userId) {
@@ -269,9 +276,9 @@
                 userId = `user_${timestamp}_${random}`;
 
                 localStorage.setItem('xiaohongshu_userId', userId);
-                console.log('🔑 生成新的用户ID:', userId);
+                console.log('🔑 生成新的真实用户ID:', userId);
             } else {
-                console.log('🔑 使用已有用户ID:', userId);
+                console.log('🔑 使用已有真实用户ID:', userId);
             }
 
             return userId;
