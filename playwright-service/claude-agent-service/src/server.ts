@@ -81,6 +81,27 @@ app.get('/api', (_req, res) => {
 const frontendPath = path.join(__dirname, '../../../frontend');
 app.use(express.static(frontendPath));
 
+// 根路径明确指向index.html
+app.get('/', (_req, res) => {
+  res.sendFile(path.join(frontendPath, 'index.html'));
+});
+
+// 捕获所有未匹配的路由，重定向到根路径（SPA fallback）
+app.get('*', (req, res) => {
+  // 如果是API路径，返回404
+  if (req.path.startsWith('/api') || req.path.startsWith('/agent')) {
+    return res.status(404).json({
+      error: 'API endpoint not found',
+      path: req.path,
+      method: req.method
+    });
+  }
+
+  // 其他路径重定向到主页
+  console.log(`[Server] Redirecting ${req.path} to index.html`);
+  res.sendFile(path.join(frontendPath, 'index.html'));
+});
+
 // 健康检查
 app.get('/health', (_req, res) => {
   res.json({
