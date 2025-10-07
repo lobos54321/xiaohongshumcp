@@ -43,7 +43,7 @@ RUN set -e && \
     ls -lh /app/playwright-service/mcp-router/xiaohongshu-mcp && \
     rm /tmp/xiaohongshu-mcp.tar.gz
 
-# 创建Zeabur专用启动脚本
+# 创建Zeabur专用启动脚本（修复版）
 RUN echo '#!/bin/bash\n\
 set -e\n\
 echo "🚀 Starting Xiaohongshu Automation for Zeabur..."\n\
@@ -56,13 +56,11 @@ echo "  USER: $(whoami)"\n\
 \n\
 cd /app/playwright-service/mcp-router\n\
 echo "📂 Working directory: $(pwd)"\n\
-echo "📦 Files in directory:"\n\
-ls -la\n\
+\n\
 echo "📦 Binary check:"\n\
 if [ -f xiaohongshu-mcp ]; then\n\
-    echo "  ✅ Binary exists"\n\
-    echo "  📋 Binary info: $(ls -lh xiaohongshu-mcp)"\n\
-    echo "  🔍 Binary test: $(./xiaohongshu-mcp --help 2>&1 | head -2 || echo \"Binary test failed\")"\n\
+    echo "  ✅ Binary exists: $(ls -lh xiaohongshu-mcp | awk \"{print \\$5}\"")"\n\
+    echo "  🔍 Binary is executable: $(test -x xiaohongshu-mcp && echo YES || echo NO)"\n\
 else\n\
     echo "  ❌ Binary missing!"\n\
     exit 1\n\
@@ -70,18 +68,40 @@ fi\n\
 \n\
 echo "📦 dist directory check:"\n\
 if [ -f dist/httpServer.js ]; then\n\
-    echo "  ✅ httpServer.js exists"\n\
+    echo "  ✅ httpServer.js exists: $(ls -lh dist/httpServer.js | awk \"{print \\$5}\"")"\n\
 else\n\
     echo "  ❌ httpServer.js missing!"\n\
     exit 1\n\
 fi\n\
 \n\
+# 创建cookies目录\n\
+mkdir -p ./cookies\n\
+echo "📁 Created cookies directory"\n\
+\n\
 echo "🌐 Zeabur Production Mode - Starting HTTP service on port 3000..."\n\
-echo "🔧 Command: MCP_BINARY_PATH=./xiaohongshu-mcp HTTP_PORT=3000 COOKIE_DIR=./cookies node dist/httpServer.js"\n\
+echo "🔧 Command: node dist/httpServer.js"\n\
 export MCP_BINARY_PATH=./xiaohongshu-mcp\n\
 export HTTP_PORT=3000\n\
 export COOKIE_DIR=./cookies\n\
-exec node dist/httpServer.js' > /app/start-zeabur-debug.sh && \
+\n\
+# 启动服务，但不使用exec以便捕获错误\n\
+echo "▶️  Starting Node.js process..."\n\
+node dist/httpServer.js &\n\
+NODE_PID=$!\n\
+echo "📍 Node.js PID: $NODE_PID"\n\
+\n\
+# 等待服务启动\n\
+echo "⏳ Waiting for service to start..."\n\
+sleep 5\n\
+\n\
+# 检查进程是否还在运行\n\
+if kill -0 $NODE_PID 2>/dev/null; then\n\
+    echo "✅ Service is running, waiting for connections..."\n\
+    wait $NODE_PID\n\
+else\n\
+    echo "❌ Service crashed during startup!"\n\
+    exit 1\n\
+fi' > /app/start-zeabur-debug.sh && \
     chmod +x /app/start-zeabur-debug.sh
 
 # 暴露端口
