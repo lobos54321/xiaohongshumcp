@@ -47,6 +47,7 @@ export class AutoContentManager {
   private mcpClient: any;
   private userProfiles: Map<string, UserProfile> = new Map();
   private contentPlans: Map<string, ContentPlan> = new Map();
+  private dataDir: string;
 
   constructor(config: {
     anthropicKey: string;
@@ -56,6 +57,85 @@ export class AutoContentManager {
     this.anthropic = new Anthropic({ apiKey: config.anthropicKey });
     this.imageService = config.imageService;
     this.mcpClient = config.mcpClient;
+
+    // 创建数据存储目录
+    this.dataDir = './data';
+    this.ensureDataDir();
+    this.loadPersistedData();
+  }
+
+  private ensureDataDir(): void {
+    const fs = require('fs');
+    if (!fs.existsSync(this.dataDir)) {
+      fs.mkdirSync(this.dataDir, { recursive: true });
+    }
+  }
+
+  private saveData(userId: string): void {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+
+      const userProfile = this.userProfiles.get(userId);
+      const contentPlan = this.contentPlans.get(userId);
+
+      if (userProfile || contentPlan) {
+        const data = {
+          userProfile,
+          contentPlan,
+          savedAt: new Date().toISOString()
+        };
+
+        const filePath = path.join(this.dataDir, `${userId}.json`);
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+        console.log(`💾 数据已保存: ${filePath}`);
+      }
+    } catch (error: any) {
+      console.error(`❌ 保存数据失败:`, error.message);
+    }
+  }
+
+  private loadPersistedData(): void {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+
+      if (!fs.existsSync(this.dataDir)) return;
+
+      const files = fs.readdirSync(this.dataDir).filter((f: string) => f.endsWith('.json'));
+
+      for (const file of files) {
+        try {
+          const filePath = path.join(this.dataDir, file);
+          const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+          const userId = file.replace('.json', '');
+
+          if (data.userProfile) {
+            this.userProfiles.set(userId, data.userProfile);
+          }
+
+          if (data.contentPlan) {
+            // 恢复Date对象
+            if (data.contentPlan.dailyTasks) {
+              data.contentPlan.dailyTasks.forEach((task: any) => {
+                if (task.scheduledTime) {
+                  task.scheduledTime = new Date(task.scheduledTime);
+                }
+              });
+            }
+            this.contentPlans.set(userId, data.contentPlan);
+          }
+
+          console.log(`📂 已恢复用户数据: ${userId}`);
+        } catch (error) {
+          console.error(`❌ 恢复数据失败 ${file}:`, error);
+        }
+      }
+
+      console.log(`✅ 已恢复 ${files.length} 个用户的数据`);
+    } catch (error: any) {
+      console.error(`❌ 加载持久化数据失败:`, error.message);
+    }
   }
 
   /**
@@ -84,7 +164,10 @@ export class AutoContentManager {
         dailyTasks
       });
 
-      // 5. 启动定时执行器
+      // 5. 持久化数据
+      this.saveData(userProfile.userId);
+
+      // 6. 启动定时执行器
       this.startScheduler(userProfile.userId);
 
       console.log(`✅ 自动运营模式启动成功！已为接下来7天规划了${dailyTasks.length}个任务`);
@@ -363,19 +446,38 @@ export class AutoContentManager {
 
     try {
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
-      const taskDetails = JSON.parse(responseText);
+      console.log('Claude响应原文:', responseText);
+
+      // 清理响应文本，移除可能的控制字符和非JSON内容
+      let cleanedText = responseText.trim();
+
+      // 查找JSON块的开始和结束
+      const jsonStart = cleanedText.indexOf('{');
+      const jsonEnd = cleanedText.lastIndexOf('}') + 1;
+
+      if (jsonStart !== -1 && jsonEnd > jsonStart) {
+        cleanedText = cleanedText.substring(jsonStart, jsonEnd);
+      }
+
+      // 移除控制字符
+      cleanedText = cleanedText.replace(/[\x00-\x1F\x7F]/g, '');
+
+      console.log('清理后的JSON:', cleanedText);
+
+      const taskDetails = JSON.parse(cleanedText);
 
       return {
         scheduledTime: new Date(post.scheduledTime),
         contentType: post.type,
-        title: taskDetails.title,
-        content: taskDetails.content,
-        imagePrompt: taskDetails.imagePrompt,
-        hashtags: taskDetails.hashtags,
+        title: taskDetails.title || '默认标题',
+        content: taskDetails.content || '默认内容',
+        imagePrompt: taskDetails.imagePrompt || '默认图片描述',
+        hashtags: Array.isArray(taskDetails.hashtags) ? taskDetails.hashtags : ['默认标签'],
         status: 'planned'
       };
     } catch (error) {
       console.error('任务创建失败:', error);
+      console.error('原始响应:', response.content[0].type === 'text' ? response.content[0].text : '');
       return this.getDefaultTask(post);
     }
   }
