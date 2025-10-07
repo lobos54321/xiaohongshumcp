@@ -65,9 +65,6 @@ export class AutoContentManager {
     this.dataDir = './data';
     this.ensureDataDir();
     this.loadPersistedData();
-
-    // 初始化演示数据
-    this.initializeDemoData();
   }
 
   private ensureDataDir(): void {
@@ -138,111 +135,6 @@ export class AutoContentManager {
   }
 
   /**
-   * 初始化演示数据 - 确保test-user-789有演示数据可用
-   */
-  private initializeDemoData(): void {
-    const demoUserId = 'test-user-789';
-
-    // 如果已有数据，不重复初始化
-    if (this.contentPlans.has(demoUserId)) {
-      console.log(`📋 [DEMO] 用户 ${demoUserId} 已有数据，跳过初始化`);
-      return;
-    }
-
-    console.log(`📋 [DEMO] 为用户 ${demoUserId} 初始化演示数据...`);
-
-    // 创建演示用户配置
-    const demoProfile: UserProfile = {
-      userId: demoUserId,
-      productName: '演示产品',
-      targetAudience: '演示用户群体',
-      marketingGoal: 'brand',
-      postFrequency: 'daily',
-      brandStyle: 'warm',
-      reviewMode: 'auto'
-    };
-
-    // 创建演示策略
-    const demoStrategy: ContentStrategy = {
-      keyThemes: ['产品特色展示', '用户体验分享', '行业知识科普', '优惠活动推广', '互动话题讨论'],
-      contentTypes: ['图文教程', '产品测评', '用户故事', 'Vlog探店', '知识科普', '互动问答', '活动预告', '幕后花絮'],
-      optimalTimes: ['9:00-10:00', '12:30-13:30', '20:00-21:30'],
-      hashtags: ['演示模式', '演示产品', '小红书运营'],
-      trendingTopics: ['演示热门话题1', '演示热门话题2', '演示热门话题3']
-    };
-
-    // 创建演示周计划
-    const now = new Date();
-    const demoWeeklyPlan: WeeklyPlan = {
-      days: [
-        {
-          date: new Date(now.getTime() + 0 * 24 * 3600000),
-          posts: [
-            { theme: '产品特色', type: '图文教程', scheduledTime: new Date(now.getTime() + 0 * 24 * 3600000 + 9 * 3600000) }
-          ]
-        },
-        {
-          date: new Date(now.getTime() + 1 * 24 * 3600000),
-          posts: [
-            { theme: '用户体验', type: '用户故事', scheduledTime: new Date(now.getTime() + 1 * 24 * 3600000 + 12.5 * 3600000) }
-          ]
-        },
-        {
-          date: new Date(now.getTime() + 2 * 24 * 3600000),
-          posts: [
-            { theme: '知识科普', type: '知识科普', scheduledTime: new Date(now.getTime() + 2 * 24 * 3600000 + 20 * 3600000) }
-          ]
-        }
-      ]
-    };
-
-    // 创建演示每日任务
-    const demoDailyTasks: DailyTask[] = [
-      {
-        scheduledTime: new Date(now.getTime() + 9 * 3600000),
-        contentType: '图文教程',
-        title: `产品特色 - 介绍${demoProfile.productName}的核心功能`,
-        content: `这是${demoProfile.productName}的核心功能介绍。演示模式下的内容，请配置 ANTHROPIC_API_KEY 以获取 AI 生成的真实内容。`,
-        imagePrompt: `${demoProfile.productName}, 产品特色, 小红书风格`,
-        hashtags: ['演示模式', demoProfile.productName, '产品特色'],
-        status: 'published'  // 设置为已发布状态
-      },
-      {
-        scheduledTime: new Date(now.getTime() + 1 * 24 * 3600000 + 12.5 * 3600000),
-        contentType: '用户故事',
-        title: `用户体验 - 分享真实用户的使用心得`,
-        content: `这是真实用户的使用心得分享。演示模式下的内容，请配置 ANTHROPIC_API_KEY 以获取 AI 生成的真实内容。`,
-        imagePrompt: `${demoProfile.productName}, 用户体验, 小红书风格`,
-        hashtags: ['演示模式', demoProfile.productName, '用户体验'],
-        status: 'ready'  // 设置为待发布状态
-      },
-      {
-        scheduledTime: new Date(now.getTime() + 2 * 24 * 3600000 + 20 * 3600000),
-        contentType: '知识科普',
-        title: `知识科普 - 行业相关的专业知识`,
-        content: `这是行业相关的专业知识科普。演示模式下的内容，请配置 ANTHROPIC_API_KEY 以获取 AI 生成的真实内容。`,
-        imagePrompt: `${demoProfile.productName}, 知识科普, 小红书风格`,
-        hashtags: ['演示模式', demoProfile.productName, '知识科普'],
-        status: 'planned'  // 设置为计划状态
-      }
-    ];
-
-    // 保存数据
-    this.userProfiles.set(demoUserId, demoProfile);
-    this.contentPlans.set(demoUserId, {
-      strategy: demoStrategy,
-      weeklyPlan: demoWeeklyPlan,
-      dailyTasks: demoDailyTasks
-    });
-    this.generationStatus.set(demoUserId, 'completed');
-
-    // 持久化数据
-    this.saveData(demoUserId);
-
-    console.log(`✅ [DEMO] 演示数据初始化完成: ${demoDailyTasks.length} 个任务`);
-  }
-
-  /**
    * 用户完成设置后，启动自动运营
    */
   async startAutoMode(userProfile: UserProfile): Promise<void> {
@@ -304,102 +196,20 @@ export class AutoContentManager {
       console.error(`❌ [DEBUG] 启动自动运营失败:`, error.message);
       console.error(`❌ [DEBUG] 错误详情:`, error);
 
-      // 如果是 API 连接错误，创建演示数据让系统能继续工作
-      if (error.message?.includes('Connection error') ||
-          error.message?.includes('ENOTFOUND') ||
-          error.message?.includes('EAI_AGAIN') ||
-          error.message?.includes('400') ||
-          error.message?.includes('model_not_supported') ||
-          error.message?.includes('BadRequestError')) {
-        console.log(`⚠️  [DEBUG] 检测到 Anthropic API 连接问题，使用演示模式...`);
-
-        // 创建演示数据
-        const demoStrategy: ContentStrategy = {
-          keyThemes: ['产品特色展示', '用户体验分享', '行业知识科普', '优惠活动推广', '互动话题讨论'],
-          contentTypes: ['图文教程', '产品测评', '用户故事', 'Vlog探店', '知识科普', '互动问答', '活动预告', '幕后花絮'],
-          optimalTimes: ['9:00-10:00', '12:30-13:30', '20:00-21:30'],
-          hashtags: ['演示模式', userProfile.productName, '小红书运营'],
-          trendingTopics: ['热门话题1', '热门话题2', '热门话题3']
-        };
-        console.log(`⚠️  [DEBUG] 创建演示策略:`, JSON.stringify(demoStrategy, null, 2));
-
-        const now = new Date();
-        const demoWeeklyPlan: WeeklyPlan = {
-          days: [
-            {
-              date: new Date(now.getTime() + 0 * 24 * 3600000),
-              posts: [
-                { theme: '产品特色', type: '图文教程', scheduledTime: new Date(now.getTime() + 0 * 24 * 3600000 + 9 * 3600000) }
-              ]
-            },
-            {
-              date: new Date(now.getTime() + 1 * 24 * 3600000),
-              posts: [
-                { theme: '用户体验', type: '用户故事', scheduledTime: new Date(now.getTime() + 1 * 24 * 3600000 + 12.5 * 3600000) }
-              ]
-            },
-            {
-              date: new Date(now.getTime() + 2 * 24 * 3600000),
-              posts: [
-                { theme: '知识科普', type: '知识科普', scheduledTime: new Date(now.getTime() + 2 * 24 * 3600000 + 20 * 3600000) }
-              ]
-            }
-          ]
-        };
-        console.log(`⚠️  [DEBUG] 创建演示周计划: ${demoWeeklyPlan.days.length} 天`);
-
-        const demoDailyTasks: DailyTask[] = [
-          {
-            scheduledTime: new Date(now.getTime() + 9 * 3600000),
-            contentType: '图文教程',
-            title: `产品特色 - 介绍${userProfile.productName}的核心功能`,
-            content: `这是${userProfile.productName}的核心功能介绍。演示模式下的内容，请配置 ANTHROPIC_API_KEY 以获取 AI 生成的真实内容。`,
-            imagePrompt: `${userProfile.productName}, 产品特色, 小红书风格`,
-            hashtags: ['演示模式', userProfile.productName, '产品特色'],
-            status: 'planned'
-          },
-          {
-            scheduledTime: new Date(now.getTime() + 1 * 24 * 3600000 + 12.5 * 3600000),
-            contentType: '用户故事',
-            title: `用户体验 - 分享真实用户的使用心得`,
-            content: `这是真实用户的使用心得分享。演示模式下的内容，请配置 ANTHROPIC_API_KEY 以获取 AI 生成的真实内容。`,
-            imagePrompt: `${userProfile.productName}, 用户体验, 小红书风格`,
-            hashtags: ['演示模式', userProfile.productName, '用户体验'],
-            status: 'planned'
-          },
-          {
-            scheduledTime: new Date(now.getTime() + 2 * 24 * 3600000 + 20 * 3600000),
-            contentType: '知识科普',
-            title: `知识科普 - 行业相关的专业知识`,
-            content: `这是行业相关的专业知识科普。演示模式下的内容，请配置 ANTHROPIC_API_KEY 以获取 AI 生成的真实内容。`,
-            imagePrompt: `${userProfile.productName}, 知识科普, 小红书风格`,
-            hashtags: ['演示模式', userProfile.productName, '知识科普'],
-            status: 'planned'
-          }
-        ];
-        console.log(`⚠️  [DEBUG] 创建演示任务: ${demoDailyTasks.length} 个任务`);
-
-        console.log(`⚠️  [DEBUG] 保存演示数据到 contentPlans...`);
-        this.contentPlans.set(userProfile.userId, {
-          strategy: demoStrategy,
-          weeklyPlan: demoWeeklyPlan,
-          dailyTasks: demoDailyTasks
-        });
-        console.log(`⚠️  [DEBUG] 演示数据已保存，contentPlans 大小: ${this.contentPlans.size}`);
-
-        // 设置完成状态（演示模式）
-        console.log(`⚠️  [DEBUG] 设置演示模式状态为 completed...`);
-        this.generationStatus.set(userProfile.userId, 'completed');
-        console.log(`⚠️  [DEBUG] 演示模式状态已设置: ${this.generationStatus.get(userProfile.userId)}`);
-
-        console.log(`✅ [DEBUG] 演示模式启动成功！已创建${demoDailyTasks.length}个演示任务`);
-        return;
-      }
-
-      // 其他错误直接抛出
+      // 设置失败状态并抛出错误，不再使用演示模式
       console.log(`❌ [DEBUG] 设置失败状态...`);
       this.generationStatus.set(userProfile.userId, 'failed');
       console.log(`❌ [DEBUG] 失败状态已设置: ${this.generationStatus.get(userProfile.userId)}`);
+
+      // 提供更有用的错误信息
+      if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
+        throw new Error('Invalid Anthropic API key. Please check your ANTHROPIC_API_KEY environment variable.');
+      } else if (error.message?.includes('model_not_supported')) {
+        throw new Error('The specified Claude model is not supported. Please check your CLAUDE_MODEL configuration.');
+      } else if (error.message?.includes('Connection error') || error.message?.includes('ENOTFOUND')) {
+        throw new Error('Unable to connect to Anthropic API. Please check your internet connection and API key.');
+      }
+
       throw error;
     }
   }
@@ -429,7 +239,7 @@ export class AutoContentManager {
 `;
 
     const response = await this.anthropic.messages.create({
-      model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022',
+      model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20240620',
       max_tokens: 2000,
       messages: [{ role: 'user', content: prompt }]
     });
@@ -479,7 +289,7 @@ export class AutoContentManager {
 `;
 
     const response = await this.anthropic.messages.create({
-      model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022',
+      model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20240620',
       max_tokens: 3000,
       messages: [{ role: 'user', content: prompt }]
     });
@@ -587,7 +397,7 @@ export class AutoContentManager {
 `;
 
     const response = await this.anthropic.messages.create({
-      model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022',
+      model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20240620',
       max_tokens: 1500,
       messages: [{ role: 'user', content: prompt }]
     });

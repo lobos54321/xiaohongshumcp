@@ -13,8 +13,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PORT = parseInt(process.env.PORT || '8080');
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-if (!ANTHROPIC_API_KEY) {
-    console.error('Error: ANTHROPIC_API_KEY is required');
+if (!ANTHROPIC_API_KEY || ANTHROPIC_API_KEY === 'demo-key') {
+    console.error('Error: A valid ANTHROPIC_API_KEY is required');
+    console.error('Please set a real Anthropic API key in your environment variables.');
+    console.error('Example: export ANTHROPIC_API_KEY=sk-ant-...');
     process.exit(1);
 }
 const MCP_ROUTER_URL = process.env.MCP_ROUTER_URL || 'http://localhost:3000';

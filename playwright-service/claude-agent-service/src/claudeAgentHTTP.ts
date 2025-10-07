@@ -297,7 +297,7 @@ ${MCP_TOOLS.map(t => `- ${t.name}: ${t.description}`).join('\n')}
       console.log(`[ClaudeAgentHTTP] Iteration ${iteration + 1}`);
 
       const response = await this.anthropic.messages.create({
-        model: this.config.model || 'claude-3-5-sonnet-20241022',
+        model: this.config.model || 'claude-3-5-sonnet-20240620',
         max_tokens: this.config.maxTokens || 4096,
         system: systemPrompt || defaultSystemPrompt,
         messages,

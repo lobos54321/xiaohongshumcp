@@ -259,15 +259,22 @@
 
         // 获取真实的用户ID
         function getRealUserId() {
-            // 强制使用固定的测试用户ID，确保与后端演示数据一致
-            const testUserId = 'test-user-789';
+            // 检查是否已有用户ID
+            let userId = localStorage.getItem('xiaohongshu_userId');
 
-            // 清除可能存在的旧用户ID
-            localStorage.removeItem('xiaohongshu_userId');
-            localStorage.setItem('xiaohongshu_userId', testUserId);
+            if (!userId) {
+                // 生成真实的用户ID - 基于时间戳和随机数
+                const timestamp = Date.now();
+                const random = Math.random().toString(36).substr(2, 9);
+                userId = `user_${timestamp}_${random}`;
 
-            console.log('🔑 强制使用测试用户ID:', testUserId);
-            return testUserId;
+                localStorage.setItem('xiaohongshu_userId', userId);
+                console.log('🔑 生成新的用户ID:', userId);
+            } else {
+                console.log('🔑 使用已有用户ID:', userId);
+            }
+
+            return userId;
         }
 
         let currentUser = getRealUserId();
