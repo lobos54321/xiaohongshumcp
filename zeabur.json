@@ -1,5 +1,5 @@
 {
-  "dockerfile": "Dockerfile.zeabur",
+  "dockerfile": "Dockerfile.test",
   "ports": [
     {
       "id": "web",
