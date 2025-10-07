@@ -43,7 +43,7 @@ RUN set -e && \
     ls -lh /app/playwright-service/mcp-router/xiaohongshu-mcp && \
     rm /tmp/xiaohongshu-mcp.tar.gz
 
-# 创建调试启动脚本
+# 创建Zeabur专用启动脚本
 RUN echo '#!/bin/bash\n\
 set -e\n\
 echo "🚀 Starting Xiaohongshu Automation for Zeabur..."\n\
@@ -76,7 +76,7 @@ else\n\
     exit 1\n\
 fi\n\
 \n\
-echo "🌐 Starting HTTP service on port 3000..."\n\
+echo "🌐 Zeabur Production Mode - Starting HTTP service on port 3000..."\n\
 echo "🔧 Command: MCP_BINARY_PATH=./xiaohongshu-mcp HTTP_PORT=3000 COOKIE_DIR=./cookies node dist/httpServer.js"\n\
 export MCP_BINARY_PATH=./xiaohongshu-mcp\n\
 export HTTP_PORT=3000\n\
