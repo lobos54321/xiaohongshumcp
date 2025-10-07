@@ -1,12 +1,12 @@
-# 🚀 Zeabur 部署指南 - 小红书智能自动化系统
+# 🚀 Zeabur 单体部署指南 - 小红书智能自动化系统
 
-本文档详细说明如何将小红书智能自动化系统部署到Zeabur平台。
+本文档说明如何将小红书智能自动化系统一键部署到Zeabur平台。
 
 ## 📋 部署概览
 
-系统包含两个独立的服务：
-1. **Claude Agent Service** (主服务) - 端口8080
-2. **MCP Router** (工具路由) - 端口3000
+系统采用**单体架构**设计，所有服务在同一个容器中运行：
+- **生产环境**: 所有服务运行在端口8080
+- **开发环境**: MCP Router(3000) + Claude Agent(4000)
 
 ## 🔧 部署前准备
 
@@ -25,48 +25,26 @@
 3. **Unsplash Access Key** (可选，图片备用)
    - 如果没有可留空
 
-## 📦 部署步骤
+## 📦 **超简单部署步骤 - 一键部署**
 
-### 第一步：部署MCP Router服务
+### 🎯 一键部署（推荐）
 
-1. 在Zeabur创建新项目
-2. 添加GitHub服务，选择仓库路径：`playwright-service/mcp-router`
-3. 设置环境变量：
+1. **访问Zeabur控制台** → 创建新项目
+2. **添加GitHub服务**:
+   - 选择仓库: `xiaohongshumcp`
+   - **根目录部署** (不需要选择子目录)
+   - Zeabur会自动识别根目录的配置文件
+3. **设置环境变量**:
    ```env
    NODE_ENV=production
-   BASE_PORT=18060
-   HTTP_PORT=3000
-   MAX_PROCESSES=20
-   CLEANUP_TIMEOUT=600000
-   ```
-4. 部署并等待启动完成
-5. **记录MCP Router的内部服务名**（通常为 `mcp-router`）
-
-### 第二步：部署Claude Agent Service
-
-1. 在同一个Zeabur项目中添加第二个服务
-2. 选择仓库路径：`playwright-service/claude-agent-service`
-3. 设置关键环境变量：
-   ```env
-   # 必需的API密钥
    ANTHROPIC_API_KEY=your_claude_api_key_here
    GEMINI_API_KEY=your_gemini_api_key_here
-
-   # 服务配置
-   NODE_ENV=production
-   PORT=8080
    CLAUDE_MODEL=claude-3-5-sonnet-20241022
-   MAX_TOKENS=4096
-
-   # MCP Router连接（替换为实际的服务名）
-   MCP_ROUTER_URL=http://mcp-router:3000
    ```
+4. **等待自动部署完成**
+5. **配置域名** → 测试访问
 
-### 第三步：配置域名和访问
-
-1. 为Claude Agent Service配置自定义域名
-2. 确保域名指向正确的服务端口（8080）
-3. 访问 `https://your-domain.com` 测试前端界面
+就这么简单！🎉
 
 ## ⚙️ 环境变量详解
 
