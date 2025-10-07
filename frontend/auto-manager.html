@@ -473,6 +473,12 @@
                 return;
             }
 
+            // 显示加载状态
+            const button = document.querySelector('#step2 button');
+            const originalText = button.textContent;
+            button.disabled = true;
+            button.innerHTML = '<div class="loading inline-block mr-2"></div>正在启动自动运营...';
+
             try {
                 // 调用真正的自动运营API
                 const response = await fetch(`${CLAUDE_API}/agent/auto/start`, {
@@ -483,20 +489,27 @@
 
                 const data = await response.json();
                 if (data.success) {
-                    // 切换到自动运营界面
-                    document.getElementById('setupWizard').classList.add('hidden');
-                    document.getElementById('autoManagerDashboard').classList.remove('hidden');
+                    // 显示成功状态
+                    button.innerHTML = '✅ 启动成功，正在跳转...';
 
-                    autoModeEnabled = true;
-                    startAutoMode(config);
+                    setTimeout(() => {
+                        // 切换到自动运营界面
+                        document.getElementById('setupWizard').classList.add('hidden');
+                        document.getElementById('autoManagerDashboard').classList.remove('hidden');
 
-                    // 开始加载真实数据
-                    loadRealData();
+                        autoModeEnabled = true;
+                        startAutoMode(config);
+
+                        // 开始加载真实数据
+                        loadRealData();
+                    }, 1000);
                 } else {
-                    alert(`启动失败: ${data.error}`);
+                    throw new Error(data.error || '启动失败');
                 }
             } catch (error) {
                 console.error('启动自动运营失败:', error);
+                button.disabled = false;
+                button.textContent = originalText;
                 alert(`启动失败: ${error.message}`);
             }
         }
@@ -575,7 +588,7 @@
                 updateStats(null);     // 显示加载状态
 
                 // 等待一下，让后端有时间处理
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                await new Promise(resolve => setTimeout(resolve, 1000));
 
                 // 加载策略
                 console.log('[Auto] 请求策略数据...');
