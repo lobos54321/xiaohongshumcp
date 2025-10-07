@@ -1,0 +1,100 @@
+# 使用Node.js 18作为基础镜像
+FROM node:18-slim
+
+# 安装必要的系统依赖
+RUN apt-get update && apt-get install -y \
+    wget \
+    curl \
+    ca-certificates \
+    python3 \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# 设置工作目录
+WORKDIR /app
+
+# 复制package.json文件
+COPY package*.json ./
+COPY playwright-service/mcp-router/package*.json ./playwright-service/mcp-router/
+COPY playwright-service/claude-agent-service/package*.json ./playwright-service/claude-agent-service/
+
+# 安装依赖
+RUN cd playwright-service/mcp-router && npm install --production
+RUN cd playwright-service/claude-agent-service && npm install --production
+
+# 复制源代码
+COPY . .
+
+# 编译TypeScript
+RUN cd playwright-service/mcp-router && npm run build
+RUN cd playwright-service/claude-agent-service && npm run build
+
+# 下载二进制文件（带错误处理）
+RUN set -e && \
+    mkdir -p playwright-service/mcp-router && \
+    echo "Downloading xiaohongshu-mcp binary..." && \
+    wget -v -O /tmp/xiaohongshu-mcp.tar.gz https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz && \
+    echo "Download completed, extracting..." && \
+    cd /tmp && tar xzf xiaohongshu-mcp.tar.gz && \
+    echo "Moving binary to destination..." && \
+    mv xiaohongshu-mcp-linux-amd64 /app/playwright-service/mcp-router/xiaohongshu-mcp && \
+    chmod +x /app/playwright-service/mcp-router/xiaohongshu-mcp && \
+    echo "Binary installed successfully:" && \
+    ls -lh /app/playwright-service/mcp-router/xiaohongshu-mcp && \
+    rm /tmp/xiaohongshu-mcp.tar.gz
+
+# 创建调试启动脚本
+RUN echo '#!/bin/bash\n\
+set -e\n\
+echo "🚀 Starting Xiaohongshu Automation for Zeabur..."\n\
+echo "📊 Environment:"\n\
+echo "  NODE_ENV: $NODE_ENV"\n\
+echo "  PORT: $PORT"\n\
+echo "  HTTP_PORT: $HTTP_PORT"\n\
+echo "  PWD: $(pwd)"\n\
+echo "  USER: $(whoami)"\n\
+\n\
+cd /app/playwright-service/mcp-router\n\
+echo "📂 Working directory: $(pwd)"\n\
+echo "📦 Files in directory:"\n\
+ls -la\n\
+echo "📦 Binary check:"\n\
+if [ -f xiaohongshu-mcp ]; then\n\
+    echo "  ✅ Binary exists"\n\
+    echo "  📋 Binary info: $(ls -lh xiaohongshu-mcp)"\n\
+    echo "  🔍 Binary test: $(./xiaohongshu-mcp --help 2>&1 | head -2 || echo \"Binary test failed\")"\n\
+else\n\
+    echo "  ❌ Binary missing!"\n\
+    exit 1\n\
+fi\n\
+\n\
+echo "📦 dist directory check:"\n\
+if [ -f dist/httpServer.js ]; then\n\
+    echo "  ✅ httpServer.js exists"\n\
+else\n\
+    echo "  ❌ httpServer.js missing!"\n\
+    exit 1\n\
+fi\n\
+\n\
+echo "🌐 Starting HTTP service on port 3000..."\n\
+echo "🔧 Command: MCP_BINARY_PATH=./xiaohongshu-mcp HTTP_PORT=3000 COOKIE_DIR=./cookies node dist/httpServer.js"\n\
+export MCP_BINARY_PATH=./xiaohongshu-mcp\n\
+export HTTP_PORT=3000\n\
+export COOKIE_DIR=./cookies\n\
+exec node dist/httpServer.js' > /app/start-zeabur-debug.sh && \
+    chmod +x /app/start-zeabur-debug.sh
+
+# 暴露端口
+EXPOSE 3000
+
+# 设置环境变量
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HTTP_PORT=3000
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
+# 启动应用
+CMD ["/app/start-zeabur-debug.sh"]
