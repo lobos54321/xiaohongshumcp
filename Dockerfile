@@ -16,7 +16,8 @@ COPY package*.json ./
 COPY playwright-service/mcp-router/package*.json ./playwright-service/mcp-router/
 COPY playwright-service/claude-agent-service/package*.json ./playwright-service/claude-agent-service/
 
-# 安装依赖
+# 安装依赖（包括开发依赖，构建时需要）
+RUN npm install
 RUN cd playwright-service/mcp-router && npm install
 RUN cd playwright-service/claude-agent-service && npm install
 
@@ -35,8 +36,8 @@ RUN mkdir -p /tmp/binary && \
 COPY . .
 
 # 编译TypeScript
-RUN cd playwright-service/mcp-router && npm run build
-RUN cd playwright-service/claude-agent-service && npm run build
+RUN cd playwright-service/mcp-router && npx tsc
+RUN cd playwright-service/claude-agent-service && npx tsc
 
 # 暴露端口 - 使用8080端口
 EXPOSE 8080
