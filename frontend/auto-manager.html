@@ -236,8 +236,35 @@
             ? 'http://localhost:4000'
             : window.location.origin;
 
-        // 使用固定的demo-user，与登录页面保持一致
-        let currentUser = 'demo-user';
+        // 获取真实的用户ID
+        function getRealUserId() {
+            // 1. 优先从URL参数获取
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('userId')) {
+                return urlParams.get('userId');
+            }
+
+            // 2. 从localStorage获取（如果之前保存过）
+            const savedUserId = localStorage.getItem('xiaohongshu_userId');
+            if (savedUserId) {
+                return savedUserId;
+            }
+
+            // 3. 提示用户输入真实的userId
+            const userId = prompt('请输入您的用户ID（不要使用demo-user）:', '');
+            if (userId && userId !== 'demo-user') {
+                localStorage.setItem('xiaohongshu_userId', userId);
+                return userId;
+            }
+
+            // 4. 生成一个基于时间戳的临时ID
+            const tempId = 'user_' + Date.now();
+            localStorage.setItem('xiaohongshu_userId', tempId);
+            return tempId;
+        }
+
+        let currentUser = getRealUserId();
+        console.log('🔑 当前用户ID:', currentUser);
         let autoModeEnabled = false;
 
         // 页面加载时自动检查登录状态

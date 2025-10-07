@@ -30,7 +30,7 @@
                 <div class="flex items-center space-x-6">
                     <div class="flex items-center">
                         <span class="mr-2">👤 用户ID:</span>
-                        <input type="text" id="userId" value="demo-user" class="bg-white/20 px-3 py-1 rounded text-sm w-32">
+                        <input type="text" id="userId" value="" placeholder="请输入您的真实用户ID" class="bg-white/20 px-3 py-1 rounded text-sm w-40">
                     </div>
                     <div id="loginStatusBadge" class="flex items-center">
                         <span id="loginDot" class="w-2 h-2 rounded-full bg-gray-400 mr-2"></span>
@@ -263,7 +263,32 @@
         }
 
         function getUserId() {
-            return document.getElementById('userId').value;
+            let userId = document.getElementById('userId').value.trim();
+
+            // 如果输入框为空，尝试从localStorage获取
+            if (!userId) {
+                userId = localStorage.getItem('xiaohongshu_userId') || '';
+                if (userId) {
+                    document.getElementById('userId').value = userId;
+                }
+            }
+
+            // 如果仍然为空，提示用户输入
+            if (!userId) {
+                userId = prompt('请输入您的真实用户ID:', '');
+                if (userId && userId !== 'demo-user') {
+                    document.getElementById('userId').value = userId;
+                    localStorage.setItem('xiaohongshu_userId', userId);
+                } else {
+                    alert('请输入有效的用户ID');
+                    return null;
+                }
+            } else {
+                // 保存到localStorage
+                localStorage.setItem('xiaohongshu_userId', userId);
+            }
+
+            return userId;
         }
 
         // 检查登录状态
@@ -555,6 +580,12 @@
         // 页面加载时检查登录状态
         window.onload = async () => {
             console.log('小红书AI运营助手已就绪');
+
+            // 初始化用户ID
+            const savedUserId = localStorage.getItem('xiaohongshu_userId');
+            if (savedUserId) {
+                document.getElementById('userId').value = savedUserId;
+            }
 
             // 自动检查登录状态
             const isLoggedIn = await checkLoginStatus();

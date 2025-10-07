@@ -271,7 +271,29 @@
 
         // 获取登录二维码
         async function getLoginQR() {
-            currentUser = 'demo-user';  // 使用固定的demo-user ID
+            // 获取真实的用户ID
+            function getRealUserId() {
+                // 1. 从localStorage获取（如果之前保存过）
+                const savedUserId = localStorage.getItem('xiaohongshu_userId');
+                if (savedUserId && savedUserId !== 'demo-user') {
+                    return savedUserId;
+                }
+
+                // 2. 提示用户输入真实的userId
+                const userId = prompt('请输入您的用户ID（不要使用demo-user）:', '');
+                if (userId && userId !== 'demo-user') {
+                    localStorage.setItem('xiaohongshu_userId', userId);
+                    return userId;
+                }
+
+                // 3. 生成一个基于时间戳的临时ID
+                const tempId = 'user_' + Date.now();
+                localStorage.setItem('xiaohongshu_userId', tempId);
+                return tempId;
+            }
+
+            currentUser = getRealUserId();
+            console.log('🔑 当前用户ID:', currentUser);
 
             try {
                 const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/login`, {
