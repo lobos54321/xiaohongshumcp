@@ -5,7 +5,8 @@
   "main": "start.sh",
   "type": "module",
   "scripts": {
-    "start": "bash start.sh",
+    "start": "node zeabur-start.js",
+    "dev": "bash start.sh",
     "build": "echo 'Skipping TypeScript build - using pre-built files'",
     "dev:mcp": "cd playwright-service/mcp-router && npm run start:http",
     "dev:claude": "cd playwright-service/claude-agent-service && npm start"
