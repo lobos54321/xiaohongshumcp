@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "bash start.sh",
-    "build": "cd playwright-service/mcp-router && npm install && npx tsc && cd ../claude-agent-service && npm install && npx tsc",
+    "build": "cd playwright-service/mcp-router && npm install && ./node_modules/.bin/tsc && cd ../claude-agent-service && npm install && ./node_modules/.bin/tsc",
     "dev:mcp": "cd playwright-service/mcp-router && npm run start:http",
     "dev:claude": "cd playwright-service/claude-agent-service && npm start"
   },
