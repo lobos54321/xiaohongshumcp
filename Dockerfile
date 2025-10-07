@@ -35,9 +35,9 @@ RUN mkdir -p /tmp/binary && \
 # 复制源代码（包括预构建的dist目录）
 COPY . .
 
-# 安装运行时依赖
-RUN cd playwright-service/mcp-router && npm install --only=production
-RUN cd playwright-service/claude-agent-service && npm install --only=production
+# 安装运行时依赖（包括所有dependencies）
+RUN cd playwright-service/mcp-router && npm install
+RUN cd playwright-service/claude-agent-service && npm install
 
 # 暴露端口 - 使用8080端口
 EXPOSE 8080
