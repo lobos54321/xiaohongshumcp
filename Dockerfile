@@ -20,26 +20,23 @@ COPY playwright-service/claude-agent-service/package*.json ./playwright-service/
 RUN cd playwright-service/mcp-router && npm install
 RUN cd playwright-service/claude-agent-service && npm install
 
-# 复制源代码
-COPY . .
-
-# 下载预编译的Linux版本xiaohongshu-mcp二进制
-RUN mkdir -p playwright-service/mcp-router && \
-    cd /tmp && \
+# 下载预编译的Linux版本xiaohongshu-mcp二进制（在复制源代码之前）
+RUN mkdir -p /tmp/binary && \
+    cd /tmp/binary && \
     wget https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz && \
     tar xzf xiaohongshu-mcp-linux-amd64.tar.gz && \
+    mkdir -p /app/playwright-service/mcp-router && \
     mv xiaohongshu-mcp-linux-amd64 /app/playwright-service/mcp-router/xiaohongshu-mcp && \
     chmod +x /app/playwright-service/mcp-router/xiaohongshu-mcp && \
-    rm -f xiaohongshu-mcp-linux-amd64.tar.gz xiaohongshu-login-linux-amd64
+    ls -lh /app/playwright-service/mcp-router/xiaohongshu-mcp && \
+    rm -rf /tmp/binary
+
+# 复制源代码（会跳过二进制文件，因为.dockerignore）
+COPY . .
 
 # 编译TypeScript
 RUN cd playwright-service/mcp-router && npm run build
 RUN cd playwright-service/claude-agent-service && npm run build
-
-# 复制启动脚本和前端文件
-COPY start.sh ./
-RUN chmod +x start.sh
-COPY frontend ./frontend
 
 # 暴露端口
 EXPOSE 4000
