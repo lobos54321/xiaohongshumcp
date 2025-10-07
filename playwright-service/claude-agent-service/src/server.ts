@@ -15,6 +15,7 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// 端口配置 - 支持Zeabur动态端口分配
 const PORT = parseInt(process.env.PORT || '8080');
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
@@ -25,6 +26,7 @@ if (!ANTHROPIC_API_KEY || ANTHROPIC_API_KEY === 'demo-key') {
   process.exit(1);
 }
 
+// MCP Router URL配置 - 支持生产环境和本地开发
 const MCP_ROUTER_URL = process.env.MCP_ROUTER_URL || 'http://localhost:3000';
 
 // 创建图片生成服务

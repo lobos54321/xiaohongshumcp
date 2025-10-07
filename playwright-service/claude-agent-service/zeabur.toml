@@ -1,0 +1,28 @@
+# Zeabur部署配置
+# 这个文件告诉Zeabur如何构建和部署你的应用
+
+[source]
+# 设置构建上下文为当前目录
+root = "."
+
+[build]
+# 指定启动命令
+command = "npm run build && npm start"
+
+[deploy]
+# 指定端口
+port = 8080
+
+# 健康检查
+health_check = "/health"
+
+[runtime]
+# 指定Node.js版本
+version = "20"
+
+[env]
+# 这些环境变量需要在Zeabur控制台中手动设置
+# ANTHROPIC_API_KEY
+# GEMINI_API_KEY
+# CLAUDE_MODEL
+# MCP_ROUTER_URL
