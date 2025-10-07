@@ -1,6 +1,62 @@
+# Zeabur deployment ignore file
+
+# Go files (not needed for Node.js service)
 *.go
 go.mod
 go.sum
 cmd/
 internal/
 pkg/
+
+# Documentation
+*.md
+docs/
+ZEABUR_ENV_SETUP.md
+
+# Development files
+.env*
+.git/
+.gitignore
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Test files
+test/
+tests/
+*.test.js
+*.spec.js
+
+# Other Dockerfiles (only use zeabur-simple)
+Dockerfile
+Dockerfile.debug
+Dockerfile.minimal
+Dockerfile.production
+Dockerfile.ultra
+Dockerfile.zeabur
+
+# MCP Router (not needed for demo mode)
+playwright-service/mcp-router/
+
+# Build artifacts that will be rebuilt
+playwright-service/claude-agent-service/dist/
+playwright-service/claude-agent-service/node_modules/
+
+# Temporary files
+tmp/
+temp/

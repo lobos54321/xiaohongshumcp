@@ -1,0 +1,50 @@
+# Simplified Zeabur Dockerfile - Claude Agent Service Only
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install essential tools
+RUN apk add --no-cache curl bash
+
+# Copy Claude Agent Service files
+COPY playwright-service/claude-agent-service/package*.json ./claude-agent-service/
+RUN cd claude-agent-service && npm install --production
+
+# Copy source and frontend files
+COPY playwright-service/claude-agent-service/src ./claude-agent-service/src
+COPY playwright-service/claude-agent-service/tsconfig.json ./claude-agent-service/
+COPY frontend ./frontend
+
+# Build TypeScript
+RUN cd claude-agent-service && npm run build
+
+# Create simple startup script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+echo "🚀 Starting Claude Agent Service (Demo Mode)..."\n\
+echo "📊 Environment: NODE_ENV=$NODE_ENV, PORT=$PORT"\n\
+\n\
+cd /app/claude-agent-service\n\
+echo "📂 Working directory: $(pwd)"\n\
+echo "📦 Files: $(ls -la dist/)"\n\
+\n\
+# Start in demo mode with fallbacks\n\
+echo "🤖 Starting Claude Agent Service on port $PORT..."\n\
+MCP_ROUTER_URL=http://localhost:3000 ANTHROPIC_API_KEY=demo-key PORT=$PORT node dist/server.js\n\
+' > /app/start-simple.sh
+
+RUN chmod +x /app/start-simple.sh
+
+# Expose port
+EXPOSE 8080
+
+# Environment variables
+ENV NODE_ENV=production
+ENV PORT=8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Start service
+CMD ["/app/start-simple.sh"]
