@@ -597,11 +597,16 @@
                     const strategyData = await strategyRes.json();
                     console.log('[Auto] 策略数据响应:', strategyData);
 
-                    if (strategyData.success && strategyData.strategy) {
-                        updateStrategy(strategyData.strategy);
+                    if (strategyData.success) {
+                        if (strategyData.generating) {
+                            // 仍在生成中，显示生成状态
+                            console.log('[Auto] 策略仍在生成中...');
+                        } else if (strategyData.strategy) {
+                            updateStrategy(strategyData.strategy);
+                        }
                     } else {
                         console.error('[Auto] 策略数据失败:', strategyData.error);
-                        // 保持显示加载状态
+                        // 保持显示加载状态，将在后续重试中更新
                     }
                 } catch (error) {
                     console.error('[Auto] 策略请求失败:', error);
@@ -614,11 +619,16 @@
                     const planData = await planRes.json();
                     console.log('[Auto] 今日计划响应:', planData);
 
-                    if (planData.success && planData.plan) {
-                        updateTodayPlan(planData.plan);
+                    if (planData.success) {
+                        if (planData.generating) {
+                            // 仍在生成中，显示生成状态
+                            console.log('[Auto] 计划仍在生成中...');
+                        } else if (planData.plan) {
+                            updateTodayPlan(planData.plan);
+                        }
                     } else {
                         console.error('[Auto] 计划数据失败:', planData.error);
-                        // 保持显示加载状态
+                        // 保持显示加载状态，将在后续重试中更新
                     }
                 } catch (error) {
                     console.error('[Auto] 计划请求失败:', error);
@@ -644,8 +654,14 @@
                         try {
                             const planRes = await fetch(`${CLAUDE_API}/agent/auto/plan/${currentUser}`);
                             const planData = await planRes.json();
-                            if (planData.success && planData.plan) {
+                            if (planData.success && planData.plan && !planData.generating) {
                                 updateTodayPlan(planData.plan);
+                            }
+
+                            const strategyRes = await fetch(`${CLAUDE_API}/agent/auto/strategy/${currentUser}`);
+                            const strategyData = await strategyRes.json();
+                            if (strategyData.success && strategyData.strategy && !strategyData.generating) {
+                                updateStrategy(strategyData.strategy);
                             }
 
                             const statsRes = await fetch(`${CLAUDE_API}/agent/auto/stats/${currentUser}`);

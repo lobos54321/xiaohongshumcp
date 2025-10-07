@@ -287,6 +287,25 @@ app.post('/agent/auto/start', async (req, res) => {
 app.get('/agent/auto/strategy/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
+
+        // 检查生成状态
+        const status = autoContentManager.getGenerationStatus(userId);
+
+        if (status === 'generating') {
+            return res.json({
+                success: true,
+                generating: true,
+                message: 'Claude正在生成内容策略，请稍候...'
+            });
+        }
+
+        if (status === 'failed') {
+            return res.status(500).json({
+                success: false,
+                error: '内容策略生成失败，请重新启动自动运营'
+            });
+        }
+
         // 从autoContentManager获取真实策略
         const strategy = autoContentManager.getStrategy(userId);
         if (!strategy) {
@@ -318,6 +337,25 @@ app.get('/agent/auto/strategy/:userId', async (req, res) => {
 app.get('/agent/auto/plan/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
+
+        // 检查生成状态
+        const status = autoContentManager.getGenerationStatus(userId);
+
+        if (status === 'generating') {
+            return res.json({
+                success: true,
+                generating: true,
+                message: 'Claude正在制定今日计划，请稍候...'
+            });
+        }
+
+        if (status === 'failed') {
+            return res.status(500).json({
+                success: false,
+                error: '今日计划生成失败，请重新启动自动运营'
+            });
+        }
+
         // 从autoContentManager获取真实任务
         const dailyTasks = autoContentManager.getDailyTasks(userId);
         if (!dailyTasks || dailyTasks.length === 0) {

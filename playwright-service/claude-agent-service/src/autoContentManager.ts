@@ -50,6 +50,7 @@ export class AutoContentManager {
   private userProfiles: Map<string, UserProfile> = new Map();
   private contentPlans: Map<string, ContentPlan> = new Map();
   private dataDir: string;
+  private generationStatus: Map<string, 'idle' | 'generating' | 'completed' | 'failed'> = new Map();
 
   constructor(config: {
     anthropicKey: string;
@@ -139,6 +140,9 @@ export class AutoContentManager {
   async startAutoMode(userProfile: UserProfile): Promise<void> {
     console.log(`🚀 为用户 ${userProfile.userId} 启动自动运营模式`);
 
+    // 设置生成状态
+    this.generationStatus.set(userProfile.userId, 'generating');
+
     // 保存用户配置
     this.userProfiles.set(userProfile.userId, userProfile);
 
@@ -162,7 +166,10 @@ export class AutoContentManager {
       // 5. 持久化数据
       this.saveData(userProfile.userId);
 
-      // 6. 启动定时执行器
+      // 6. 设置完成状态
+      this.generationStatus.set(userProfile.userId, 'completed');
+
+      // 7. 启动定时执行器
       this.startScheduler(userProfile.userId);
 
       console.log(`✅ 自动运营模式启动成功！已为接下来7天规划了${dailyTasks.length}个任务`);
@@ -242,11 +249,15 @@ export class AutoContentManager {
           dailyTasks: demoDailyTasks
         });
 
+        // 设置完成状态（演示模式）
+        this.generationStatus.set(userProfile.userId, 'completed');
+
         console.log(`✅ 演示模式启动成功！已创建${demoDailyTasks.length}个演示任务`);
         return;
       }
 
       // 其他错误直接抛出
+      this.generationStatus.set(userProfile.userId, 'failed');
       throw error;
     }
   }
@@ -763,6 +774,13 @@ export class AutoContentManager {
   getStrategy(userId: string): ContentStrategy | null {
     const plan = this.contentPlans.get(userId);
     return plan ? plan.strategy : null;
+  }
+
+  /**
+   * 获取用户的生成状态
+   */
+  getGenerationStatus(userId: string): 'idle' | 'generating' | 'completed' | 'failed' {
+    return this.generationStatus.get(userId) || 'idle';
   }
 
   /**
