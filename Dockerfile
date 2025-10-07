@@ -38,12 +38,13 @@ COPY . .
 RUN cd playwright-service/mcp-router && npm run build
 RUN cd playwright-service/claude-agent-service && npm run build
 
-# 暴露端口
-EXPOSE 4000
+# 暴露端口 - Zeabur需要端口3000
+EXPOSE 3000
 
 # 设置环境变量
 ENV NODE_ENV=production
-ENV PORT=4000
+ENV PORT=3000
+ENV HTTP_PORT=3000
 
 # 启动应用
 CMD ["bash", "start.sh"]
