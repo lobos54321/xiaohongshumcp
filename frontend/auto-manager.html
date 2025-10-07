@@ -271,17 +271,10 @@
                 return savedUserId;
             }
 
-            // 3. 提示用户输入真实的userId
-            const userId = prompt('请输入您的用户ID（不要使用demo-user）:', '');
-            if (userId && userId !== 'demo-user') {
-                localStorage.setItem('xiaohongshu_userId', userId);
-                return userId;
-            }
-
-            // 4. 生成一个基于时间戳的临时ID
-            const tempId = 'user_' + Date.now();
-            localStorage.setItem('xiaohongshu_userId', tempId);
-            return tempId;
+            // 3. 使用固定的测试用户ID，方便调试
+            const testUserId = 'test-user-789';
+            localStorage.setItem('xiaohongshu_userId', testUserId);
+            return testUserId;
         }
 
         let currentUser = getRealUserId();
@@ -580,7 +573,8 @@
         // 加载真实数据
         async function loadRealData() {
             try {
-                console.log('[Auto] 开始加载真实数据...');
+                console.log('[Frontend DEBUG] 开始加载真实数据...');
+                console.log('[Frontend DEBUG] 当前用户ID:', currentUser);
 
                 // 先显示加载状态
                 updateStrategy(null);  // 显示加载状态
@@ -591,66 +585,91 @@
                 await new Promise(resolve => setTimeout(resolve, 1000));
 
                 // 加载策略
-                console.log('[Auto] 请求策略数据...');
+                console.log('[Frontend DEBUG] 请求策略数据...');
                 try {
-                    const strategyRes = await fetch(`${CLAUDE_API}/agent/auto/strategy/${currentUser}`);
+                    const strategyUrl = `${CLAUDE_API}/agent/auto/strategy/${currentUser}`;
+                    console.log('[Frontend DEBUG] 策略请求URL:', strategyUrl);
+
+                    const strategyRes = await fetch(strategyUrl);
+                    console.log('[Frontend DEBUG] 策略响应状态:', strategyRes.status);
+
                     const strategyData = await strategyRes.json();
-                    console.log('[Auto] 策略数据响应:', strategyData);
+                    console.log('[Frontend DEBUG] 策略数据响应:', JSON.stringify(strategyData, null, 2));
 
                     if (strategyData.success) {
                         if (strategyData.generating) {
                             // 仍在生成中，显示生成状态
-                            console.log('[Auto] 策略仍在生成中...');
+                            console.log('[Frontend DEBUG] 策略仍在生成中...');
                         } else if (strategyData.strategy) {
+                            console.log('[Frontend DEBUG] 策略数据获取成功，更新界面');
                             updateStrategy(strategyData.strategy);
+                        } else {
+                            console.log('[Frontend DEBUG] 策略响应成功但没有数据');
                         }
                     } else {
-                        console.error('[Auto] 策略数据失败:', strategyData.error);
+                        console.error('[Frontend DEBUG] 策略数据失败:', strategyData.error);
                         // 保持显示加载状态，将在后续重试中更新
                     }
                 } catch (error) {
-                    console.error('[Auto] 策略请求失败:', error);
+                    console.error('[Frontend DEBUG] 策略请求失败:', error);
                 }
 
                 // 加载今日计划
-                console.log('[Auto] 请求今日计划...');
+                console.log('[Frontend DEBUG] 请求今日计划...');
                 try {
-                    const planRes = await fetch(`${CLAUDE_API}/agent/auto/plan/${currentUser}`);
+                    const planUrl = `${CLAUDE_API}/agent/auto/plan/${currentUser}`;
+                    console.log('[Frontend DEBUG] 计划请求URL:', planUrl);
+
+                    const planRes = await fetch(planUrl);
+                    console.log('[Frontend DEBUG] 计划响应状态:', planRes.status);
+
                     const planData = await planRes.json();
-                    console.log('[Auto] 今日计划响应:', planData);
+                    console.log('[Frontend DEBUG] 计划数据响应:', JSON.stringify(planData, null, 2));
 
                     if (planData.success) {
                         if (planData.generating) {
                             // 仍在生成中，显示生成状态
-                            console.log('[Auto] 计划仍在生成中...');
+                            console.log('[Frontend DEBUG] 计划仍在生成中...');
                         } else if (planData.plan) {
+                            console.log('[Frontend DEBUG] 计划数据获取成功，更新界面');
                             updateTodayPlan(planData.plan);
+                        } else {
+                            console.log('[Frontend DEBUG] 计划响应成功但没有数据');
                         }
                     } else {
-                        console.error('[Auto] 计划数据失败:', planData.error);
+                        console.error('[Frontend DEBUG] 计划数据失败:', planData.error);
                         // 保持显示加载状态，将在后续重试中更新
                     }
                 } catch (error) {
-                    console.error('[Auto] 计划请求失败:', error);
+                    console.error('[Frontend DEBUG] 计划请求失败:', error);
                 }
 
                 // 加载运营数据
-                console.log('[Auto] 请求运营数据...');
+                console.log('[Frontend DEBUG] 请求运营数据...');
                 try {
-                    const statsRes = await fetch(`${CLAUDE_API}/agent/auto/stats/${currentUser}`);
+                    const statsUrl = `${CLAUDE_API}/agent/auto/stats/${currentUser}`;
+                    console.log('[Frontend DEBUG] 统计请求URL:', statsUrl);
+
+                    const statsRes = await fetch(statsUrl);
+                    console.log('[Frontend DEBUG] 统计响应状态:', statsRes.status);
+
                     const statsData = await statsRes.json();
-                    console.log('[Auto] 运营数据响应:', statsData);
+                    console.log('[Frontend DEBUG] 统计数据响应:', JSON.stringify(statsData, null, 2));
 
                     if (statsData.success && statsData.stats) {
+                        console.log('[Frontend DEBUG] 统计数据获取成功，更新界面');
                         updateStats(statsData.stats);
+                    } else {
+                        console.error('[Frontend DEBUG] 统计数据失败:', statsData.error);
                     }
                 } catch (error) {
-                    console.error('[Auto] 统计请求失败:', error);
+                    console.error('[Frontend DEBUG] 统计请求失败:', error);
                 }
 
                 // 每30秒更新一次数据
                 setInterval(async () => {
                     if (autoModeEnabled) {
+                        console.log('[Frontend DEBUG] 定时更新数据...');
                         try {
                             const planRes = await fetch(`${CLAUDE_API}/agent/auto/plan/${currentUser}`);
                             const planData = await planRes.json();
@@ -670,12 +689,12 @@
                                 updateStats(statsData.stats);
                             }
                         } catch (error) {
-                            console.error('定时更新数据失败:', error);
+                            console.error('[Frontend DEBUG] 定时更新数据失败:', error);
                         }
                     }
                 }, 30000);
             } catch (error) {
-                console.error('加载数据失败:', error);
+                console.error('[Frontend DEBUG] 加载数据失败:', error);
                 // 显示错误状态但不弹窗
                 document.getElementById('aiStrategy').innerHTML = `
                     <div class="bg-red-50 p-3 rounded-lg">
