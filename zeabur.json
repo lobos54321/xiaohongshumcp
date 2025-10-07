@@ -1,3 +1,10 @@
 {
-  "dockerfile": "Dockerfile"
+  "dockerfile": "Dockerfile",
+  "ports": [
+    {
+      "id": "web",
+      "port": 4000,
+      "type": "HTTP"
+    }
+  ]
 }
