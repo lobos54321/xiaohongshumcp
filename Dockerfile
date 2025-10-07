@@ -48,4 +48,4 @@ ENV NODE_ENV=production
 ENV PORT=8080
 
 # 启动应用
-CMD ["bash", "start.sh"]
+CMD ["node", "zeabur-start.js"]
