@@ -18,8 +18,6 @@ COPY playwright-service/claude-agent-service/package*.json ./playwright-service/
 
 # 安装依赖（包括开发依赖，构建时需要）
 RUN npm install
-RUN cd playwright-service/mcp-router && npm install
-RUN cd playwright-service/claude-agent-service && npm install
 
 # 下载预编译的Linux版本xiaohongshu-mcp二进制（在复制源代码之前）
 RUN mkdir -p /tmp/binary && \
@@ -35,9 +33,9 @@ RUN mkdir -p /tmp/binary && \
 # 复制源代码（包括预构建的dist目录）
 COPY . .
 
-# 安装运行时依赖（包括所有dependencies）
-RUN cd playwright-service/mcp-router && npm install
-RUN cd playwright-service/claude-agent-service && npm install
+# 确保工作目录中的依赖都被正确安装
+RUN cd playwright-service/mcp-router && npm install && ls -la node_modules/express || echo "Express not found in mcp-router"
+RUN cd playwright-service/claude-agent-service && npm install && ls -la node_modules/express || echo "Express not found in claude-agent"
 
 # 暴露端口 - 使用8080端口
 EXPOSE 8080
