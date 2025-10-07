@@ -1,9 +1,9 @@
 {
-  "dockerfile": "Dockerfile.debug",
+  "dockerfile": "Dockerfile",
   "ports": [
     {
       "id": "web",
-      "port": 8080,
+      "port": 4000,
       "type": "HTTP"
     }
   ]
