@@ -5,6 +5,8 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import ImageGenerationService from './imageGenerationService.js';
+import * as fs from 'fs';
+import * as path from 'path';
 
 interface UserProfile {
   userId: string;
@@ -65,7 +67,6 @@ export class AutoContentManager {
   }
 
   private ensureDataDir(): void {
-    const fs = require('fs');
     if (!fs.existsSync(this.dataDir)) {
       fs.mkdirSync(this.dataDir, { recursive: true });
     }
@@ -73,9 +74,6 @@ export class AutoContentManager {
 
   private saveData(userId: string): void {
     try {
-      const fs = require('fs');
-      const path = require('path');
-
       const userProfile = this.userProfiles.get(userId);
       const contentPlan = this.contentPlans.get(userId);
 
@@ -97,9 +95,6 @@ export class AutoContentManager {
 
   private loadPersistedData(): void {
     try {
-      const fs = require('fs');
-      const path = require('path');
-
       if (!fs.existsSync(this.dataDir)) return;
 
       const files = fs.readdirSync(this.dataDir).filter((f: string) => f.endsWith('.json'));
