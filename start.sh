@@ -82,9 +82,13 @@ else
         fi
 
         if [ $i -eq 10 ]; then
-            echo "⚠️  MCP Router health check failed, but continuing anyway..."
-            echo "📋 MCP Router logs (last 20 lines):"
-            tail -20 /tmp/mcp-router.log 2>&1 || echo "No logs available"
+            echo "⚠️  MCP Router health check failed, checking what's wrong..."
+            echo "📋 MCP Router logs (last 30 lines):"
+            tail -30 /tmp/mcp-router.log 2>&1 || echo "No logs available"
+            echo "📡 Testing manual connection:"
+            curl -v http://localhost:3000/health 2>&1 || echo "Connection failed"
+            echo "🔍 Process status:"
+            ps aux | grep -E "(node|xiaohongshu)" | grep -v grep || echo "No processes found"
             echo "---"
         fi
     done
