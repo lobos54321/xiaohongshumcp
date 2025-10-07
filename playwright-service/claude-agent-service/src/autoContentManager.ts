@@ -215,6 +215,35 @@ export class AutoContentManager {
   }
 
   /**
+   * 智能提取数组数据，支持多种格式
+   */
+  private extractArrayData(rawData: any, possibleKeys: string[]): string[] {
+    console.log(`🔍 [DEBUG] 尝试提取数组数据，可能的键:`, possibleKeys);
+
+    for (const key of possibleKeys) {
+      const value = rawData[key];
+      console.log(`🔍 [DEBUG] 检查键 "${key}":`, value);
+
+      if (Array.isArray(value)) {
+        console.log(`✅ [DEBUG] 找到数组数据，键: "${key}", 长度: ${value.length}`);
+        return value;
+      }
+
+      if (value && typeof value === 'object') {
+        // 如果是对象，尝试提取其值
+        const objectValues = Object.values(value);
+        if (objectValues.length > 0 && typeof objectValues[0] === 'string') {
+          console.log(`✅ [DEBUG] 从对象提取值，键: "${key}", 长度: ${objectValues.length}`);
+          return objectValues as string[];
+        }
+      }
+    }
+
+    console.log(`⚠️ [DEBUG] 未找到匹配的数据，返回空数组`);
+    return [];
+  }
+
+  /**
    * 使用Claude制定内容策略
    */
   private async createContentStrategy(profile: UserProfile): Promise<ContentStrategy> {
@@ -247,17 +276,18 @@ export class AutoContentManager {
     try {
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
       const rawStrategy = JSON.parse(responseText);
-      console.log('📋 内容策略制定完成:', rawStrategy);
+      console.log('📋 [DEBUG] Claude原始策略数据:', JSON.stringify(rawStrategy, null, 2));
 
-      // 转换Claude返回的嵌套对象格式为数组格式
+      // 智能解析Claude返回的数据，支持多种格式
       const strategy: ContentStrategy = {
-        keyThemes: Object.values(rawStrategy.core_themes || rawStrategy['核心内容主题'] || {}),
-        contentTypes: Object.values(rawStrategy.content_types || rawStrategy['内容类型'] || {}),
-        optimalTimes: Object.values(rawStrategy.best_posting_time || rawStrategy['最佳发布时间'] || {}),
-        hashtags: rawStrategy.hot_hashtags || Object.values(rawStrategy['热度话题标签'] || {}),
-        trendingTopics: Object.values(rawStrategy.trending_topics || rawStrategy['当前热门趋势'] || {})
+        keyThemes: this.extractArrayData(rawStrategy, ['keyThemes', 'core_themes', '核心内容主题', '核心主题']),
+        contentTypes: this.extractArrayData(rawStrategy, ['contentTypes', 'content_types', '内容类型']),
+        optimalTimes: this.extractArrayData(rawStrategy, ['optimalTimes', 'best_posting_time', '最佳发布时间', 'optimal_times']),
+        hashtags: this.extractArrayData(rawStrategy, ['hashtags', 'hot_hashtags', '热度话题标签', '话题标签']),
+        trendingTopics: this.extractArrayData(rawStrategy, ['trendingTopics', 'trending_topics', '当前热门趋势', '热门趋势'])
       };
 
+      console.log('📋 [DEBUG] 解析后的策略数据:', JSON.stringify(strategy, null, 2));
       return strategy;
     } catch (error) {
       console.error('策略解析失败:', error);
@@ -297,35 +327,87 @@ export class AutoContentManager {
     try {
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
       const rawPlan = JSON.parse(responseText);
-      console.log('📅 周计划生成完成:', rawPlan);
+      console.log('📅 [DEBUG] Claude原始周计划数据:', JSON.stringify(rawPlan, null, 2));
 
       // 处理各种可能的返回格式
       let daysData: any[] = [];
 
+      // 智能解析不同的返回格式
       if (Array.isArray(rawPlan.days)) {
+        console.log('📅 [DEBUG] 使用 rawPlan.days 格式');
         daysData = rawPlan.days;
       } else if (rawPlan.weekly_plan) {
+        console.log('📅 [DEBUG] 使用 rawPlan.weekly_plan 格式');
         // 格式: {weekly_plan: {Monday: [...], Tuesday: [...]}}
         daysData = Object.entries(rawPlan.weekly_plan).map(([dayName, posts]: [string, any]) => ({
           date: this.getDateFromDayName(dayName),
-          posts: posts
+          posts: Array.isArray(posts) ? posts : Object.values(posts || {})
         }));
-      } else if (rawPlan.days) {
+      } else if (rawPlan.days && typeof rawPlan.days === 'object') {
+        console.log('📅 [DEBUG] 使用 rawPlan.days 对象格式');
         daysData = Object.values(rawPlan.days);
       } else if (rawPlan['每日计划']) {
+        console.log('📅 [DEBUG] 使用中文每日计划格式');
         daysData = Object.values(rawPlan['每日计划']);
+      } else if (Array.isArray(rawPlan)) {
+        console.log('📅 [DEBUG] 直接使用数组格式');
+        daysData = rawPlan;
+      } else {
+        console.log('📅 [DEBUG] 未识别格式，尝试生成默认数据');
+        // 生成默认的7天数据
+        const today = new Date();
+        for (let i = 0; i < 7; i++) {
+          const date = new Date(today.getTime() + i * 24 * 60 * 60 * 1000);
+          daysData.push({
+            date: date,
+            posts: [{
+              theme: `第${i + 1}天内容`,
+              type: '图文',
+              scheduledTime: new Date(date.getTime() + 9 * 60 * 60 * 1000) // 上午9点
+            }]
+          });
+        }
       }
 
       const weeklyPlan: WeeklyPlan = {
-        days: daysData.map((day: any, index: number) => ({
-          date: day.date ? new Date(day.date) : new Date(Date.now() + index * 24 * 60 * 60 * 1000),
-          posts: Array.isArray(day.posts || day)
-            ? (day.posts || day)
-            : Object.values(day.posts || day['发布内容'] || {})
-        }))
+        days: daysData.map((day: any, index: number) => {
+          let posts = [];
+
+          // 智能提取posts数据
+          if (Array.isArray(day.posts)) {
+            posts = day.posts;
+          } else if (day.posts && typeof day.posts === 'object') {
+            posts = Object.values(day.posts);
+          } else if (Array.isArray(day)) {
+            posts = day;
+          } else if (day['发布内容']) {
+            posts = Array.isArray(day['发布内容']) ? day['发布内容'] : Object.values(day['发布内容']);
+          } else {
+            // 默认生成一个帖子
+            posts = [{
+              theme: day.theme || `第${index + 1}天内容`,
+              type: day.type || '图文',
+              scheduledTime: day.scheduledTime || new Date(Date.now() + index * 24 * 60 * 60 * 1000 + 9 * 60 * 60 * 1000)
+            }];
+          }
+
+          return {
+            date: day.date ? new Date(day.date) : new Date(Date.now() + index * 24 * 60 * 60 * 1000),
+            posts: posts.map((post: any) => ({
+              theme: post.theme || post.title || `内容${index + 1}`,
+              type: post.type || post.contentType || '图文',
+              scheduledTime: post.scheduledTime ? new Date(post.scheduledTime) :
+                            new Date(Date.now() + index * 24 * 60 * 60 * 1000 + 9 * 60 * 60 * 1000)
+            }))
+          };
+        })
       };
 
-      console.log(`📊 周计划已生成，共 ${weeklyPlan.days.length} 天的计划`);
+      console.log(`📊 [DEBUG] 周计划已生成，共 ${weeklyPlan.days.length} 天的计划`);
+      weeklyPlan.days.forEach((day, index) => {
+        console.log(`📊 [DEBUG] 第${index + 1}天: ${day.posts.length} 个帖子`);
+      });
+
       return weeklyPlan;
     } catch (error) {
       console.error('周计划解析失败:', error);
