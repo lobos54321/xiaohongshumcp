@@ -5,7 +5,11 @@
 import express from 'express';
 import { XiaohongshuMCPProcessManager } from './processManager.js';
 import * as dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const MCP_BINARY = process.env.MCP_BINARY_PATH || './xiaohongshu-mcp';
 const COOKIE_DIR = process.env.COOKIE_DIR || './cookies';
 const HTTP_PORT = parseInt(process.env.HTTP_PORT || '3000');
@@ -14,6 +18,13 @@ const processManager = new XiaohongshuMCPProcessManager(MCP_BINARY, COOKIE_DIR);
 // 创建 Express 应用
 const app = express();
 app.use(express.json());
+// 静态文件服务 - 指向前端目录
+const frontendPath = path.resolve(__dirname, '../../../frontend');
+app.use('/', express.static(frontendPath));
+// 根路径处理 - 返回主页
+app.get('/', (_req, res) => {
+    res.sendFile(path.join(frontendPath, 'index.html'));
+});
 // 健康检查
 app.get('/health', (_req, res) => {
     res.json({
