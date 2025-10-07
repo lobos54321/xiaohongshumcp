@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 
 // Zeabur 专用启动脚本 - 解决模块路径问题
-const { spawn } = require('child_process');
-const path = require('path');
-const fs = require('fs');
+import { spawn } from 'child_process';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 console.log('🚀 Starting Xiaohongshu AI Automation System for Zeabur...');
 
@@ -39,29 +43,10 @@ for (const file of requiredFiles) {
   }
 }
 
-// 检查 express 模块
-console.log('🔍 Checking express module...');
-try {
-  require.resolve('express');
-  console.log('✅ express module found in root');
-} catch (e) {
-  console.log('❌ express not found in root, checking subdirectories...');
-
-  for (const modulePath of modulePaths) {
-    try {
-      require.resolve(path.join(modulePath, 'express'));
-      console.log(`✅ express found in ${modulePath}`);
-      break;
-    } catch (e) {
-      console.log(`❌ express not found in ${modulePath}`);
-    }
-  }
-}
-
 // 启动 MCP Router HTTP 服务器（生产模式）
 console.log('🌐 Starting MCP Router HTTP Server on port 8080...');
 
-const serverScript = path.join(process.cwd(), 'playwright-service/mcp-router/dist/httpServer.js');
+const serverScript = './dist/httpServer.js';
 
 const child = spawn('node', [serverScript], {
   stdio: 'inherit',
@@ -69,7 +54,7 @@ const child = spawn('node', [serverScript], {
     ...process.env,
     NODE_PATH: modulePaths.join(':')
   },
-  cwd: process.cwd()
+  cwd: path.join(process.cwd(), 'playwright-service/mcp-router')
 });
 
 child.on('error', (error) => {
