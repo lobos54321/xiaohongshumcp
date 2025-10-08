@@ -1,12 +1,21 @@
 # 使用Node.js 20作为基础镜像
 FROM node:20-alpine
 
-# 安装必要的系统依赖
+# 安装必要的系统依赖（包括Chrome浏览器依赖）
 RUN apk add --no-cache \
     wget \
     curl \
     bash \
-    ca-certificates
+    ca-certificates \
+    chromium \
+    nss \
+    freetype \
+    freetype-dev \
+    harfbuzz \
+    ttf-freefont \
+    glib \
+    glib-dev \
+    gobject-introspection-dev
 
 # 设置工作目录
 WORKDIR /app
