@@ -52,6 +52,7 @@ export class AutoContentManager {
   private dataDir: string;
   private generationStatus: Map<string, 'idle' | 'generating' | 'completed' | 'failed'> = new Map();
   private realTimeActivities: Map<string, Array<{timestamp: Date, message: string, type: string}>> = new Map();
+  private allowDemoMode: boolean;
 
   constructor(config: {
     anthropicKey: string;
@@ -61,6 +62,7 @@ export class AutoContentManager {
     this.anthropic = new Anthropic({ apiKey: config.anthropicKey });
     this.imageService = config.imageService;
     this.mcpClient = config.mcpClient;
+    this.allowDemoMode = process.env.ALLOW_DEMO_MODE !== 'false';
 
     // 创建数据存储目录
     this.dataDir = './data';
@@ -197,7 +199,7 @@ export class AutoContentManager {
       console.error(`❌ [DEBUG] 启动自动运营失败:`, error.message);
       console.error(`❌ [DEBUG] 错误详情:`, error);
 
-      if (this.shouldFallbackToDemo(error)) {
+      if (this.allowDemoMode && this.shouldFallbackToDemo(error)) {
         console.warn('⚠️ [DEBUG] 启动失败，使用演示模式数据以继续体验');
         this.useDemoPlan(userProfile);
         return;
