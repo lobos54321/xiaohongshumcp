@@ -9,9 +9,25 @@ if [ ! -f "playwright-service/mcp-router/dist/httpServer.js" ]; then
     cd playwright-service/mcp-router && npm run build && cd ../..
 fi
 
-if [ ! -f "playwright-service/claude-agent-service/dist/server.js" ]; then
-    echo "❌ Claude Agent dist not found, building..."
-    cd playwright-service/claude-agent-service && npm run build && cd ../..
+# Ensure all Claude Agent build artifacts exist, not just server.js
+CLAUDE_DIST_DIR="playwright-service/claude-agent-service/dist"
+CLAUDE_REQUIRED_FILES=(
+    "$CLAUDE_DIST_DIR/server.js"
+    "$CLAUDE_DIST_DIR/autoContentManager.js"
+    "$CLAUDE_DIST_DIR/imageGenerationService.js"
+)
+
+CLAUDE_BUILD_MISSING=false
+for required in "${CLAUDE_REQUIRED_FILES[@]}"; do
+    if [ ! -f "$required" ]; then
+        echo "❌ Missing Claude Agent build artifact: $required"
+        CLAUDE_BUILD_MISSING=true
+    fi
+done
+
+if [ "$CLAUDE_BUILD_MISSING" = true ]; then
+    echo "🔄 Rebuilding Claude Agent dist..."
+    (cd playwright-service/claude-agent-service && npm run build)
 fi
 
 # 检查二进制文件（Dockerfile应该已经下载了）
