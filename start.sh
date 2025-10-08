@@ -66,8 +66,8 @@ else
     echo "✅ GEMINI_API_KEY is set (${#GEMINI_API_KEY} chars)"
 fi
 
-APP_PORT_RAW="${PORT:-}"
-MCP_HTTP_PORT_RAW="${HTTP_PORT:-}"
+APP_PORT_RAW="${PORT:-${WEB_PORT:-}}"
+MCP_HTTP_PORT_RAW="${HTTP_PORT:-${WEB_PORT:-}}"
 
 if [[ "$APP_PORT_RAW" =~ ^[0-9]+$ ]]; then
     APP_PORT="$APP_PORT_RAW"
