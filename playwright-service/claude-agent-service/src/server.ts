@@ -3,6 +3,7 @@
  */
 
 import express from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -54,7 +55,7 @@ const app = express();
 app.use(express.json());
 
 // Basic CORS + preflight handler so browser fetch requests succeed in hosted envs
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   const allowOrigin = req.headers.origin || '*';
   res.header('Access-Control-Allow-Origin', allowOrigin);
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -69,7 +70,7 @@ app.use((req, res, next) => {
 });
 
 // API文档路由
-app.get('/api', (_req, res) => {
+app.get('/api', (_req: Request, res: Response) => {
   res.json({
     name: '小红书智能自动化系统',
     version: '2.0.0',
@@ -101,12 +102,12 @@ const frontendPath = path.join(__dirname, '../../../frontend');
 app.use(express.static(frontendPath));
 
 // 根路径明确指向index.html
-app.get('/', (_req, res) => {
+app.get('/', (_req: Request, res: Response) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
 // 健康检查
-app.get('/health', (_req, res) => {
+app.get('/health', (_req: Request, res: Response) => {
   res.json({
     status: 'healthy',
     service: 'claude-agent-service',
@@ -115,7 +116,7 @@ app.get('/health', (_req, res) => {
 });
 
 // 处理智能请求
-app.post('/agent/chat', async (req, res) => {
+app.post('/agent/chat', async (req: Request, res: Response) => {
   try {
     const { userId, prompt, systemPrompt } = req.body;
 
@@ -157,7 +158,7 @@ app.post('/agent/chat', async (req, res) => {
 });
 
 // 便捷API：生成内容供预览（不发布）
-app.post('/agent/xiaohongshu/generate-preview', async (req, res) => {
+app.post('/agent/xiaohongshu/generate-preview', async (req: Request, res: Response) => {
   try {
     const { userId, topic, style, length } = req.body;
 
@@ -210,7 +211,7 @@ ${length ? `字数要求：${length}字左右` : ''}
 });
 
 // 便捷API：小红书内容创作（直接发布）
-app.post('/agent/xiaohongshu/create-post', async (req, res) => {
+app.post('/agent/xiaohongshu/create-post', async (req: Request, res: Response) => {
   try {
     const { userId, topic, style, length } = req.body;
 
@@ -243,7 +244,7 @@ ${length ? `字数要求：${length}字左右` : ''}
 });
 
 // 便捷API：小红书内容搜索与分析
-app.post('/agent/xiaohongshu/research', async (req, res) => {
+app.post('/agent/xiaohongshu/research', async (req: Request, res: Response) => {
   try {
     const { userId, keyword, task } = req.body;
 
@@ -273,7 +274,7 @@ ${task ? `任务：${task}` : '请分析热门内容的特点和趋势'}`;
 });
 
 // 便捷API：批量发布任务
-app.post('/agent/xiaohongshu/batch-publish', async (req, res) => {
+app.post('/agent/xiaohongshu/batch-publish', async (req: Request, res: Response) => {
   try {
     const { userId, topics, schedule } = req.body;
 
@@ -306,7 +307,7 @@ ${schedule ? `发布计划：${schedule}` : '请立即全部发布'}`;
 
 // 自动运营模式API
 // 启动自动运营
-app.post('/agent/auto/start', async (req, res) => {
+app.post('/agent/auto/start', async (req: Request, res: Response) => {
   try {
     const {
       userId,
@@ -359,7 +360,7 @@ app.post('/agent/auto/start', async (req, res) => {
 });
 
 // 获取AI策略
-app.get('/agent/auto/strategy/:userId', async (req, res) => {
+app.get('/agent/auto/strategy/:userId', async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
 
@@ -393,7 +394,7 @@ app.get('/agent/auto/strategy/:userId', async (req, res) => {
 });
 
 // 获取实时活动API
-app.get('/agent/auto/activity/:userId', async (req, res) => {
+app.get('/agent/auto/activity/:userId', async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
 
@@ -414,7 +415,7 @@ app.get('/agent/auto/activity/:userId', async (req, res) => {
 });
 
 // 获取今日计划
-app.get('/agent/auto/plan/:userId', async (req, res) => {
+app.get('/agent/auto/plan/:userId', async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
 
@@ -472,7 +473,7 @@ app.get('/agent/auto/plan/:userId', async (req, res) => {
 });
 
 // 获取运营数据
-app.get('/agent/auto/stats/:userId', async (req, res) => {
+app.get('/agent/auto/stats/:userId', async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
 
@@ -499,7 +500,7 @@ app.get('/agent/auto/stats/:userId', async (req, res) => {
 });
 
 // 获取待发内容列表
-app.get('/agent/auto/pending/:userId', async (req, res) => {
+app.get('/agent/auto/pending/:userId', async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
 
@@ -520,7 +521,7 @@ app.get('/agent/auto/pending/:userId', async (req, res) => {
 });
 
 // 暂停自动运营
-app.post('/agent/auto/pause/:userId', async (req, res) => {
+app.post('/agent/auto/pause/:userId', async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
 
@@ -545,7 +546,7 @@ app.post('/agent/auto/pause/:userId', async (req, res) => {
 });
 
 // 恢复自动运营
-app.post('/agent/auto/resume/:userId', async (req, res) => {
+app.post('/agent/auto/resume/:userId', async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
 
@@ -570,7 +571,7 @@ app.post('/agent/auto/resume/:userId', async (req, res) => {
 });
 
 // 图片生成API (单张)
-app.post('/agent/image/generate', async (req, res) => {
+app.post('/agent/image/generate', async (req: Request, res: Response) => {
   try {
     const { prompt, style, aspectRatio, negativePrompt } = req.body;
 
@@ -611,7 +612,7 @@ app.post('/agent/image/generate', async (req, res) => {
 });
 
 // 批量图片生成API
-app.post('/agent/image/generate-batch', async (req, res) => {
+app.post('/agent/image/generate-batch', async (req: Request, res: Response) => {
   try {
     const { prompt, style, aspectRatio, count } = req.body;
 
@@ -664,7 +665,7 @@ app.post('/agent/image/generate-batch', async (req, res) => {
 });
 
 // 小红书登录API - 获取登录二维码
-app.post('/agent/xiaohongshu/login', async (req, res) => {
+app.post('/agent/xiaohongshu/login', async (req: Request, res: Response) => {
   try {
     const { userId } = req.body;
 
@@ -719,7 +720,7 @@ app.post('/agent/xiaohongshu/login', async (req, res) => {
 });
 
 // 小红书登录状态检查API
-app.get('/agent/xiaohongshu/login/status', async (req, res) => {
+app.get('/agent/xiaohongshu/login/status', async (req: Request, res: Response) => {
   try {
     const userId = req.query.userId as string;
 
@@ -768,7 +769,7 @@ app.get('/agent/xiaohongshu/login/status', async (req, res) => {
 });
 
 // 捕获所有未匹配的路由，重定向到根路径（SPA fallback）
-app.get('*', (req, res) => {
+app.get('*', (req: Request, res: Response) => {
   console.log(`[Server] Handling request: ${req.method} ${req.path}`);
   console.log(`[Server] Headers:`, req.headers);
 
