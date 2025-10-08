@@ -68,6 +68,16 @@ fi
 
 APP_PORT="${PORT:-4000}"
 MCP_HTTP_PORT="${HTTP_PORT:-3000}"
+
+if [ "$MCP_HTTP_PORT" = "$APP_PORT" ]; then
+    echo "⚠️  MCP HTTP port conflicts with app port ($APP_PORT). Adjusting MCP port to 3000."
+    MCP_HTTP_PORT=3000
+    if [ "$MCP_HTTP_PORT" = "$APP_PORT" ]; then
+        MCP_HTTP_PORT=$((APP_PORT + 1))
+        echo "ℹ️  Using fallback MCP port: $MCP_HTTP_PORT"
+    fi
+fi
+
 MCP_ROUTER_URL_EFFECTIVE="${MCP_ROUTER_URL:-http://127.0.0.1:${MCP_HTTP_PORT}}"
 
 echo "🌐 Network configuration:"
