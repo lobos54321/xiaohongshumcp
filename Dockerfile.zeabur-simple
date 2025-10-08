@@ -1,54 +1,43 @@
-# Simplified Zeabur Dockerfile - Claude Agent Service Only
-FROM node:18-alpine
+FROM node:18-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    bash \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install essential tools
-RUN apk add --no-cache curl bash
+# Copy package manifests first for better layer caching
+COPY package*.json ./
+COPY playwright-service/mcp-router/package*.json ./playwright-service/mcp-router/
+COPY playwright-service/claude-agent-service/package*.json ./playwright-service/claude-agent-service/
 
-# Copy Claude Agent Service files
-COPY playwright-service/claude-agent-service/package*.json ./claude-agent-service/
-RUN cd claude-agent-service && npm install --production
+# Install dependencies (include dev deps for TypeScript build)
+RUN cd playwright-service/mcp-router && npm install
+RUN cd playwright-service/claude-agent-service && npm install
 
-# Copy source and frontend files
-COPY playwright-service/claude-agent-service/src ./claude-agent-service/src
-COPY playwright-service/claude-agent-service/tsconfig.json ./claude-agent-service/
-COPY frontend ./frontend
+# Copy application source
+COPY . .
 
-# Build TypeScript
-RUN cd claude-agent-service && npm run build
+# Build TypeScript outputs to ensure dist is up to date
+RUN cd playwright-service/mcp-router && npm run build
+RUN cd playwright-service/claude-agent-service && npx tsc --project tsconfig.json
 
-# Create simple startup script
-RUN echo '#!/bin/bash\n\
-set -e\n\
-echo "🚀 Starting Claude Agent Service..."\n\
-echo "📊 Environment: NODE_ENV=$NODE_ENV, PORT=$PORT"\n\
-\n\
-cd /app/claude-agent-service\n\
-echo "📂 Working directory: $(pwd)"\n\
-echo "📦 Files: $(ls -la dist/)"\n\
-\n\
-# Start with environment-provided API key\n\
-echo "🤖 Starting Claude Agent Service on port $PORT..."\n\
-if [ -z "$MCP_ROUTER_URL" ]; then\n\
-  export MCP_ROUTER_URL="http://localhost:${HTTP_PORT:-3000}"\n\
-fi\n\
-PORT=${PORT:-8080}\n\
-MCP_ROUTER_URL=$MCP_ROUTER_URL PORT=$PORT node dist/server.js\n\
-' > /app/start-simple.sh
+# Ensure startup scripts are executable
+RUN chmod +x /app/start.sh
 
-RUN chmod +x /app/start-simple.sh
-
-# Expose port
-EXPOSE 8080
-
-# Environment variables
+# Default environment configuration (Zeabur will override PORT/WEB_PORT)
 ENV NODE_ENV=production
 ENV PORT=8080
+ENV HTTP_PORT=3000
 
-# Health check
+# Healthcheck hits the Express service once it is up
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+    CMD curl -f http://127.0.0.1:${PORT}/health || exit 1
 
-# Start service
-CMD ["/app/start-simple.sh"]
+# Expose application port (Zeabur reads this metadata)
+EXPOSE 8080
+
+CMD ["bash", "start.sh"]

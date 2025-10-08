@@ -6,7 +6,7 @@ echo "🚀 Starting Xiaohongshu AI Automation System v2.1.1 (binary-included)...
 echo "📦 Checking dist files..."
 if [ ! -f "playwright-service/mcp-router/dist/httpServer.js" ]; then
     echo "❌ MCP Router dist not found, building..."
-    cd playwright-service/mcp-router && npm run build && cd ../..
+    (cd playwright-service/mcp-router && npm run build)
 fi
 
 # Ensure all Claude Agent build artifacts exist, not just server.js
@@ -30,9 +30,9 @@ if [ "$CLAUDE_BUILD_MISSING" = true ]; then
     (cd playwright-service/claude-agent-service && npm run build)
 fi
 
-# 检查二进制文件（Dockerfile应该已经下载了）
+# 检查二进制文件
 if [ -f "playwright-service/mcp-router/xiaohongshu-mcp" ]; then
-    echo "✅ Found binary from Dockerfile"
+    echo "✅ Found binary from repository"
     chmod +x playwright-service/mcp-router/xiaohongshu-mcp
 elif [ -f "playwright-service/mcp-router/bin/xiaohongshu-mcp" ]; then
     echo "✅ Found binary in bin/"
@@ -40,16 +40,19 @@ elif [ -f "playwright-service/mcp-router/bin/xiaohongshu-mcp" ]; then
     chmod +x playwright-service/mcp-router/xiaohongshu-mcp
 else
     echo "❌ Binary not found and download not supported in this environment"
-    echo "⚠️  MCP Router will not be available, but Claude Agent will still work in demo mode"
-    # Create a dummy binary to prevent errors
+    echo "⚠️  MCP Router will run in mock mode"
     mkdir -p playwright-service/mcp-router
-    echo '#!/bin/bash\necho "MCP binary not available"\nexit 1' > playwright-service/mcp-router/xiaohongshu-mcp
+    cat > playwright-service/mcp-router/xiaohongshu-mcp <<'BIN'
+#!/bin/bash
+echo "MCP binary not available"
+exit 1
+BIN
     chmod +x playwright-service/mcp-router/xiaohongshu-mcp
 fi
 
 echo "✅ All files ready"
 
-# 检查环境变量
+# 环境变量检查
 echo "🔍 Checking environment variables..."
 if [ -z "$ANTHROPIC_API_KEY" ]; then
     echo "⚠️  ANTHROPIC_API_KEY not set - demo mode will be used"
@@ -63,6 +66,15 @@ else
     echo "✅ GEMINI_API_KEY is set (${#GEMINI_API_KEY} chars)"
 fi
 
+APP_PORT="${PORT:-4000}"
+MCP_HTTP_PORT="${HTTP_PORT:-3000}"
+MCP_ROUTER_URL_EFFECTIVE="${MCP_ROUTER_URL:-http://127.0.0.1:${MCP_HTTP_PORT}}"
+
+echo "🌐 Network configuration:"
+echo "  • APP_PORT: $APP_PORT"
+echo "  • MCP_HTTP_PORT: $MCP_HTTP_PORT"
+echo "  • MCP_ROUTER_URL: $MCP_ROUTER_URL_EFFECTIVE"
+
 # 启动MCP Router
 echo "🔧 Starting MCP Router..."
 cd playwright-service/mcp-router
@@ -70,55 +82,38 @@ echo "📂 Current directory: $(pwd)"
 echo "📦 Binary exists: $(test -f xiaohongshu-mcp && echo 'YES' || echo 'NO')"
 echo "🔑 Binary permissions: $(ls -la xiaohongshu-mcp 2>&1 | head -1 || echo 'N/A')"
 
-# 检查是否是Zeabur环境（生产环境且PORT=8080）
-if [ "$NODE_ENV" = "production" ] && [ "$PORT" = "8080" ]; then
-    echo "🌐 Zeabur部署模式 - 启动HTTP服务在端口8080"
-    MCP_BINARY_PATH=./xiaohongshu-mcp HTTP_PORT=8080 COOKIE_DIR=./cookies node dist/httpServer.js
-else
-    echo "🔧 开发模式 - 启动完整系统"
-    MCP_BINARY_PATH=./xiaohongshu-mcp HTTP_PORT=3000 COOKIE_DIR=./cookies node dist/httpServer.js > /tmp/mcp-router.log 2>&1 &
-    MCP_PID=$!
-    echo "📍 MCP Router PID: $MCP_PID"
-    echo "📄 Logs will be in /tmp/mcp-router.log"
-    cd ../..
+MCP_BINARY_PATH=./xiaohongshu-mcp HTTP_PORT="$MCP_HTTP_PORT" COOKIE_DIR=./cookies node dist/httpServer.js > /tmp/mcp-router.log 2>&1 &
+MCP_PID=$!
+cd ../..
 
-    # 等待MCP Router启动并验证
-    echo "⏳ Waiting for MCP Router to start..."
-    sleep 5
+echo "📍 MCP Router PID: $MCP_PID"
+echo "📄 Logs will be in /tmp/mcp-router.log"
 
-    # 检查MCP Router健康状态
-    echo "🔍 Checking MCP Router health..."
-    for i in {1..10}; do
-        if curl -f http://localhost:3000/health >/dev/null 2>&1; then
-            echo "✅ MCP Router is healthy"
-            break
-        else
-            echo "⏳ Attempt $i: MCP Router not ready yet..."
-            sleep 2
-        fi
+trap "kill $MCP_PID 2>/dev/null" EXIT
 
-        if [ $i -eq 10 ]; then
-            echo "⚠️  MCP Router health check failed, checking what's wrong..."
-            echo "📋 MCP Router logs (last 30 lines):"
-            tail -30 /tmp/mcp-router.log 2>&1 || echo "No logs available"
-            echo "📡 Testing manual connection:"
-            curl -v http://localhost:3000/health 2>&1 || echo "Connection failed"
-            echo "🔍 Process status:"
-            ps aux | grep -E "(node|xiaohongshu)" | grep -v grep || echo "No processes found"
-            echo "---"
-        fi
-    done
+echo "⏳ Waiting for MCP Router to start..."
+sleep 5
 
-    # 启动Claude Agent Service
-    echo "🤖 Starting Claude Agent Service..."
-    cd playwright-service/claude-agent-service
-    echo "📂 Current directory: $(pwd)"
-    echo "📦 Server file exists: $(test -f dist/server.js && echo 'YES' || echo 'NO')"
-    echo "🌐 MCP_ROUTER_URL: http://localhost:3000"
-    echo "🔌 PORT: 4000"
+echo "🔍 Checking MCP Router health..."
+for i in {1..10}; do
+    if curl -f "http://127.0.0.1:${MCP_HTTP_PORT}/health" >/dev/null 2>&1; then
+        echo "✅ MCP Router is healthy"
+        break
+    fi
+    echo "⏳ Attempt $i: MCP Router not ready yet..."
+    sleep 2
+    if [ $i -eq 10 ]; then
+        echo "⚠️  MCP Router health check failed, showing logs..."
+        tail -30 /tmp/mcp-router.log 2>&1 || echo "No logs available"
+    fi
+done
 
-    MCP_ROUTER_URL=http://localhost:3000 PORT=4000 node dist/server.js 2>&1 | tee /tmp/claude-agent.log
+# 启动Claude Agent Service
+echo "🤖 Starting Claude Agent Service..."
+cd playwright-service/claude-agent-service
+echo "📂 Current directory: $(pwd)"
+echo "📦 Server file exists: $(test -f dist/server.js && echo 'YES' || echo 'NO')"
+echo "🌐 MCP_ROUTER_URL: $MCP_ROUTER_URL_EFFECTIVE"
+echo "🔌 PORT: $APP_PORT"
 
-    # 清理
-    trap "kill $MCP_PID 2>/dev/null" EXIT
-fi
+MCP_ROUTER_URL="$MCP_ROUTER_URL_EFFECTIVE" PORT="$APP_PORT" node dist/server.js 2>&1 | tee /tmp/claude-agent.log
