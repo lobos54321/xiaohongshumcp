@@ -27,7 +27,7 @@ done
 
 if [ "$CLAUDE_BUILD_MISSING" = true ]; then
     echo "🔄 Rebuilding Claude Agent dist..."
-    (cd playwright-service/claude-agent-service && npm run build)
+    (cd playwright-service/claude-agent-service && npm install && npm run build)
 fi
 
 # 检查二进制文件

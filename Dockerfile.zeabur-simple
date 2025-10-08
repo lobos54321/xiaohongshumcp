@@ -23,7 +23,7 @@ COPY . .
 
 # Build TypeScript outputs to ensure dist is up to date
 RUN cd playwright-service/mcp-router && npm run build
-RUN cd playwright-service/claude-agent-service && npx tsc --project tsconfig.json
+RUN cd playwright-service/claude-agent-service && npm install && npm run build
 
 # Ensure startup scripts are executable
 RUN chmod +x /app/start.sh
