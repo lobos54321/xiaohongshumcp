@@ -3,7 +3,7 @@
  * 提供HTTP API模拟xiaohongshu-mcp功能
  */
 
-import express from 'express';
+import express, { Request, Response } from 'express';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -23,12 +23,12 @@ export class MockMCPService {
 
   private setupRoutes() {
     // 健康检查
-    this.app.get('/health', (req, res) => {
+    this.app.get('/health', (_req: Request, res: Response) => {
       res.json({ status: 'healthy', service: 'mock-mcp-service' });
     });
 
     // MCP调用接口
-    this.app.post('/mcp/call', async (req, res) => {
+    this.app.post('/mcp/call', async (req: Request, res: Response) => {
       try {
         const { userId, toolName, arguments: args } = req.body;
         console.log(`[Mock MCP] Tool call: ${toolName} for user ${userId}`);
