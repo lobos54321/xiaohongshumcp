@@ -35,14 +35,14 @@ RUN mkdir -p /tmp/binary && \
 # 安装根目录依赖并构建
 RUN npm install
 
-# 创建一个统一的 node_modules 结构，跳过TypeScript编译
+# 创建一个统一的 node_modules 结构，完全跳过TypeScript编译
 RUN cd playwright-service/mcp-router && \
-    npm install --production && \
+    npm ci --only=production --ignore-scripts && \
     cd ../../ && \
     cp -r playwright-service/mcp-router/node_modules/* ./node_modules/ 2>/dev/null || true
 
 RUN cd playwright-service/claude-agent-service && \
-    npm install --production && \
+    npm ci --only=production --ignore-scripts && \
     cd ../../ && \
     cp -r playwright-service/claude-agent-service/node_modules/* ./node_modules/ 2>/dev/null || true
 
