@@ -11,6 +11,7 @@ import ImageGenerationService from './imageGenerationService.js';
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+// 端口配置 - 支持Zeabur动态端口分配
 const PORT = parseInt(process.env.PORT || '8080');
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 if (!ANTHROPIC_API_KEY || ANTHROPIC_API_KEY === 'demo-key') {
@@ -19,6 +20,7 @@ if (!ANTHROPIC_API_KEY || ANTHROPIC_API_KEY === 'demo-key') {
     console.error('Example: export ANTHROPIC_API_KEY=sk-ant-...');
     process.exit(1);
 }
+// MCP Router URL配置 - 支持生产环境和本地开发
 const MCP_ROUTER_URL = process.env.MCP_ROUTER_URL || 'http://localhost:3000';
 // 创建图片生成服务
 const imageService = new ImageGenerationService({
@@ -40,6 +42,18 @@ const autoContentManager = new AutoContentManager({
 });
 const app = express();
 app.use(express.json());
+// Basic CORS + preflight handler so browser fetch requests succeed in hosted envs
+app.use((req, res, next) => {
+    const allowOrigin = req.headers.origin || '*';
+    res.header('Access-Control-Allow-Origin', allowOrigin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+    res.header('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(204);
+    }
+    next();
+});
 // API文档路由
 app.get('/api', (_req, res) => {
     res.json({

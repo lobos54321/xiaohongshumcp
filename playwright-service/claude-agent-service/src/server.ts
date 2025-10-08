@@ -53,6 +53,21 @@ const autoContentManager = new AutoContentManager({
 const app = express();
 app.use(express.json());
 
+// Basic CORS + preflight handler so browser fetch requests succeed in hosted envs
+app.use((req, res, next) => {
+  const allowOrigin = req.headers.origin || '*';
+  res.header('Access-Control-Allow-Origin', allowOrigin);
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || 'Content-Type, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+
+  next();
+});
+
 // API文档路由
 app.get('/api', (_req, res) => {
   res.json({
