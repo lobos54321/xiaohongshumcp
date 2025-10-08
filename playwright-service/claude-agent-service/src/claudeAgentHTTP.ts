@@ -168,9 +168,16 @@ export class ClaudeAgentHTTP {
   private config: AgentConfig;
 
   constructor(config: AgentConfig) {
-    this.config = config;
+    this.config = {
+      ...config,
+      model: config.model || process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022'
+    };
+
     this.anthropic = new Anthropic({
-      apiKey: config.apiKey,
+      apiKey: this.config.apiKey,
+      defaultHeaders: {
+        'anthropic-version': '2023-06-01',
+      }
     });
   }
 
