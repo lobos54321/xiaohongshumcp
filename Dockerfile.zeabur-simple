@@ -30,7 +30,11 @@ echo "📦 Files: $(ls -la dist/)"\n\
 \n\
 # Start with environment-provided API key\n\
 echo "🤖 Starting Claude Agent Service on port $PORT..."\n\
-MCP_ROUTER_URL=http://localhost:3000 PORT=$PORT node dist/server.js\n\
+if [ -z "$MCP_ROUTER_URL" ]; then\n\
+  export MCP_ROUTER_URL="http://localhost:${HTTP_PORT:-3000}"\n\
+fi\n\
+PORT=${PORT:-8080}\n\
+MCP_ROUTER_URL=$MCP_ROUTER_URL PORT=$PORT node dist/server.js\n\
 ' > /app/start-simple.sh
 
 RUN chmod +x /app/start-simple.sh
