@@ -39,7 +39,7 @@
    NODE_ENV=production
    ANTHROPIC_API_KEY=your_claude_api_key_here
    GEMINI_API_KEY=your_gemini_api_key_here
-   CLAUDE_MODEL=claude-3-5-sonnet-20241022
+   CLAUDE_MODEL=claude-3-haiku-20240307
    ```
 4. **等待自动部署完成**
 5. **配置域名** → 测试访问
@@ -54,7 +54,7 @@
 |--------|------|------|--------|
 | `ANTHROPIC_API_KEY` | ✅ | Claude API密钥 | `sk-ant-api03-...` |
 | `GEMINI_API_KEY` | ✅ | Gemini API密钥 | `AIzaSy...` |
-| `CLAUDE_MODEL` | ❌ | Claude模型名 | `claude-3-5-sonnet-20241022` |
+| `CLAUDE_MODEL` | ❌ | Claude模型名 | `claude-3-haiku-20240307` |
 | `PORT` | ❌ | 服务端口 | `8080` |
 | `MCP_ROUTER_URL` | ✅ | MCP Router地址 | `http://mcp-router:3000` |
 | `UNSPLASH_ACCESS_KEY` | ❌ | Unsplash图片API | 可选 |

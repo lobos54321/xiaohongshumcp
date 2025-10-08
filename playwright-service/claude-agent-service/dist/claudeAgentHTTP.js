@@ -141,7 +141,7 @@ export class ClaudeAgentHTTP {
     constructor(config) {
         this.config = {
             ...config,
-            model: config.model || process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022'
+            model: config.model || process.env.CLAUDE_MODEL || 'claude-3-haiku-20240307'
         };
         this.anthropic = new Anthropic({
             apiKey: this.config.apiKey,
@@ -261,7 +261,7 @@ ${MCP_TOOLS.map(t => `- ${t.name}: ${t.description}`).join('\n')}
         for (let iteration = 0; iteration < 5; iteration++) {
             console.log(`[ClaudeAgentHTTP] Iteration ${iteration + 1}`);
             const response = await this.anthropic.messages.create({
-                model: this.config.model || 'claude-3-5-sonnet-20241022',
+                model: this.config.model || 'claude-3-haiku-20240307',
                 max_tokens: this.config.maxTokens || 4096,
                 system: systemPrompt || defaultSystemPrompt,
                 messages,

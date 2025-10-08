@@ -33,7 +33,7 @@ echo "✅ All core files exist"
 echo "⚙️  Creating test configuration..."
 cat > .env.test << 'EOF'
 ANTHROPIC_API_KEY=test_key_placeholder
-CLAUDE_MODEL=claude-3-5-sonnet-20241022
+CLAUDE_MODEL=claude-3-haiku-20240307
 MAX_TOKENS=4096
 PORT=4001
 MCP_PORT=18061

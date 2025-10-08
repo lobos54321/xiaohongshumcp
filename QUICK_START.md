@@ -264,7 +264,7 @@ MCP_ROUTER_URL=http://localhost:3000
 PORT=4000
 
 # Claude模型
-CLAUDE_MODEL=claude-3-5-sonnet-20241022
+CLAUDE_MODEL=claude-3-haiku-20240307
 MAX_TOKENS=4096
 ```
 

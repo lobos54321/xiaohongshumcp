@@ -155,7 +155,7 @@ fetch('http://localhost:4000/agent/xiaohongshu/research', {
 ANTHROPIC_API_KEY=your_api_key_here    # Claude API密钥
 
 # 可选配置
-CLAUDE_MODEL=claude-3-5-sonnet-20241022  # Claude模型
+CLAUDE_MODEL=claude-3-haiku-20240307  # Claude模型
 MAX_TOKENS=4096                          # 最大token数
 PORT=4000                                # HTTP服务端口
 MCP_PORT=18060                           # MCP服务端口

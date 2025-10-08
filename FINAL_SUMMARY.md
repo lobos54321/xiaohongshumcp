@@ -37,7 +37,7 @@
 **位置**: `/Users/boliu/xiaohongshumcp/playwright-service/claude-agent-service/`
 
 **核心功能**:
-- ✅ Claude SDK集成（claude-3-5-sonnet）
+- ✅ Claude SDK集成（claude-3-haiku）
 - ✅ MCP Client连接
 - ✅ 自然语言理解
 - ✅ 智能工具调用

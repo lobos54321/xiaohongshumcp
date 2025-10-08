@@ -310,7 +310,7 @@ export class AutoContentManager {
 `;
 
     const response = await this.anthropic.messages.create({
-      model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022',
+      model: process.env.CLAUDE_MODEL || 'claude-3-haiku-20240307',
       max_tokens: 2000,
       messages: [{ role: 'user', content: prompt }]
     });
@@ -386,7 +386,7 @@ export class AutoContentManager {
 `;
 
     const response = await this.anthropic.messages.create({
-      model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022',
+      model: process.env.CLAUDE_MODEL || 'claude-3-haiku-20240307',
       max_tokens: 3000,
       messages: [{ role: 'user', content: prompt }]
     });
@@ -570,7 +570,7 @@ export class AutoContentManager {
 `;
 
     const response = await this.anthropic.messages.create({
-      model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022',
+      model: process.env.CLAUDE_MODEL || 'claude-3-haiku-20240307',
       max_tokens: 1500,
       messages: [{ role: 'user', content: prompt }]
     });
