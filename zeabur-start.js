@@ -27,6 +27,7 @@ console.log('🔧 Environment Variables:');
 console.log('- NODE_ENV:', process.env.NODE_ENV);
 console.log('- PORT:', process.env.PORT);
 console.log('- NODE_PATH:', process.env.NODE_PATH);
+console.log('- Current working directory:', process.cwd());
 
 // 检查必需的文件
 const requiredFiles = [
