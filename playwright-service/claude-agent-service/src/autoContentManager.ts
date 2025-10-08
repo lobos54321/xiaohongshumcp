@@ -197,12 +197,16 @@ export class AutoContentManager {
       console.error(`❌ [DEBUG] 启动自动运营失败:`, error.message);
       console.error(`❌ [DEBUG] 错误详情:`, error);
 
-      // 设置失败状态并抛出错误，不再使用演示模式
+      if (this.shouldFallbackToDemo(error)) {
+        console.warn('⚠️ [DEBUG] 启动失败，使用演示模式数据以继续体验');
+        this.useDemoPlan(userProfile);
+        return;
+      }
+
       console.log(`❌ [DEBUG] 设置失败状态...`);
       this.generationStatus.set(userProfile.userId, 'failed');
       console.log(`❌ [DEBUG] 失败状态已设置: ${this.generationStatus.get(userProfile.userId)}`);
 
-      // 提供更有用的错误信息
       if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
         throw new Error('Invalid Anthropic API key. Please check your ANTHROPIC_API_KEY environment variable.');
       } else if (error.message?.includes('model_not_supported')) {
@@ -847,6 +851,52 @@ export class AutoContentManager {
       // 拒绝，重新生成
       await this.regenerateTask(userId, task);
     }
+  }
+
+  private shouldFallbackToDemo(error: any): boolean {
+    const message = (error?.message || '').toLowerCase();
+    const anthropicStatus = error?.status || error?.response?.status;
+
+    return (
+      anthropicStatus === 403 ||
+      message.includes('request not allowed') ||
+      message.includes('forbidden') ||
+      message.includes('rate limit') ||
+      message.includes('overloaded')
+    );
+  }
+
+  private useDemoPlan(userProfile: UserProfile): void {
+    const strategy = this.getDefaultStrategy();
+    const weeklyPlan = this.getDefaultWeeklyPlan();
+
+    const demoTasks: DailyTask[] = weeklyPlan.days.flatMap((day, dayIndex) => {
+      return day.posts.map((post, postIndex) => {
+        const scheduled = post.scheduledTime instanceof Date
+          ? post.scheduledTime
+          : new Date(post.scheduledTime || Date.now());
+
+        return {
+          scheduledTime: scheduled,
+          contentType: post.type,
+          title: `${userProfile.productName} 演示内容 ${dayIndex + 1}-${postIndex + 1}`,
+          content: `【演示模式】这是关于 ${userProfile.productName} 的示例文案。配置有效的 ANTHROPIC_API_KEY 后，将自动生成真实内容。`,
+          imagePrompt: `${userProfile.productName}, ${post.theme}, 小红书风格, 演示模式`,
+          hashtags: ['演示模式', userProfile.productName, '小红书运营'],
+          status: 'ready'
+        };
+      });
+    });
+
+    this.contentPlans.set(userProfile.userId, {
+      strategy,
+      weeklyPlan,
+      dailyTasks: demoTasks
+    });
+
+    this.generationStatus.set(userProfile.userId, 'completed');
+    this.addRealTimeActivity(userProfile.userId, '⚠️ Anthropic API 不可用，已启用演示模式内容', 'analysis');
+    this.saveData(userProfile.userId);
   }
 
   // 默认策略和计划的辅助方法
