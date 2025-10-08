@@ -15,5 +15,9 @@
     "node": ">=18.0.0"
   },
   "author": "xiaohongshu-ai",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.27.0",
+    "dotenv": "^17.2.3"
+  }
 }
