@@ -40,4 +40,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
 # Expose application port (Zeabur reads this metadata)
 EXPOSE 8080
 
-CMD ["bash", "start.sh"]
+ENTRYPOINT ["bash", "/app/start.sh"]
