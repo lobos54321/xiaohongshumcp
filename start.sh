@@ -66,8 +66,22 @@ else
     echo "✅ GEMINI_API_KEY is set (${#GEMINI_API_KEY} chars)"
 fi
 
-APP_PORT="${PORT:-4000}"
-MCP_HTTP_PORT="${HTTP_PORT:-3000}"
+APP_PORT_RAW="${PORT:-}"
+MCP_HTTP_PORT_RAW="${HTTP_PORT:-}"
+
+if [[ "$APP_PORT_RAW" =~ ^[0-9]+$ ]]; then
+    APP_PORT="$APP_PORT_RAW"
+else
+    APP_PORT="8080"
+    echo "⚠️  Invalid or missing PORT ('$APP_PORT_RAW'), falling back to $APP_PORT"
+fi
+
+if [[ "$MCP_HTTP_PORT_RAW" =~ ^[0-9]+$ ]]; then
+    MCP_HTTP_PORT="$MCP_HTTP_PORT_RAW"
+else
+    MCP_HTTP_PORT="3000"
+    echo "⚠️  Invalid or missing HTTP_PORT ('$MCP_HTTP_PORT_RAW'), falling back to $MCP_HTTP_PORT"
+fi
 
 if [ "$MCP_HTTP_PORT" = "$APP_PORT" ]; then
     echo "⚠️  MCP HTTP port conflicts with app port ($APP_PORT). Adjusting MCP port to 3000."
@@ -77,6 +91,9 @@ if [ "$MCP_HTTP_PORT" = "$APP_PORT" ]; then
         echo "ℹ️  Using fallback MCP port: $MCP_HTTP_PORT"
     fi
 fi
+
+export PORT="$APP_PORT"
+export HTTP_PORT="$MCP_HTTP_PORT"
 
 MCP_ROUTER_URL_EFFECTIVE="${MCP_ROUTER_URL:-http://127.0.0.1:${MCP_HTTP_PORT}}"
 
