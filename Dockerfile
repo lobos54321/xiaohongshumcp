@@ -1,6 +1,9 @@
 # 使用Node.js 18作为基础镜像
 FROM node:18-slim
 
+# 强制重建所有Docker层 - 解决缓存问题
+ARG CACHEBUST=1
+
 # 安装必要的系统依赖，包括Chromium用于QR登录
 RUN apt-get update && apt-get install -y \
     wget \
