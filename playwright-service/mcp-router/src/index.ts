@@ -7,6 +7,8 @@ import {
 import { XiaohongshuMCPProcessManager } from './processManager.js';
 import { z } from 'zod';
 import * as dotenv from 'dotenv';
+import express from 'express';
+import cors from 'cors';
 
 dotenv.config();
 
@@ -294,8 +296,75 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   console.log('[MCP Router] Starting xiaohongshu-mcp-router...');
 
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  // 启动 HTTP API 服务器
+  const app = express();
+  app.use(cors());
+  app.use(express.json());
+
+  // HTTP API 端点
+  // 获取登录二维码
+  app.get('/api/xiaohongshu/login/qrcode', async (req, res) => {
+    try {
+      const userId = req.query.userId as string;
+      if (!userId) {
+        return res.status(400).json({ error: 'userId is required' });
+      }
+
+      const result = await processManager.callTool(
+        userId,
+        '/api/v1/login/qrcode',
+        'GET',
+        {}
+      );
+
+      res.json(result);
+    } catch (error: any) {
+      console.error('Login QR error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 检查登录状态
+  app.get('/api/xiaohongshu/login/status', async (req, res) => {
+    try {
+      const userId = req.query.userId as string;
+      if (!userId) {
+        return res.status(400).json({ error: 'userId is required' });
+      }
+
+      const result = await processManager.callTool(
+        userId,
+        '/api/v1/login/status',
+        'GET',
+        {}
+      );
+
+      res.json(result);
+    } catch (error: any) {
+      console.error('Login status error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 健康检查
+  app.get('/health', (req, res) => {
+    res.json({
+      status: 'ok',
+      processes: processManager.getStats()
+    });
+  });
+
+  // 启动 HTTP 服务器
+  const httpPort = process.env.HTTP_PORT || 3001;
+  app.listen(httpPort, () => {
+    console.log(`[MCP Router] HTTP API server running on port ${httpPort}`);
+  });
+
+  // 启动 MCP Protocol 服务器 (只在非 HTTP 模式下)
+  if (process.env.HTTP_ONLY !== 'true') {
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+  }
 
   console.log('[MCP Router] Server ready');
 

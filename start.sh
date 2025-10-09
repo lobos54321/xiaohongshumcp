@@ -2,6 +2,15 @@
 
 echo "🚀 Starting Xiaohongshu AI Automation System v2.1.1 (binary-included)..."
 
+# 首先加载环境变量
+if [ -f ".env" ]; then
+    echo "📋 Loading environment variables from .env..."
+    export $(cat .env | grep -v '^#' | xargs)
+    echo "✅ Environment variables loaded"
+else
+    echo "⚠️  No .env file found, using system environment variables"
+fi
+
 # 检查必要的文件
 echo "📦 Checking dist files..."
 if [ ! -f "playwright-service/mcp-router/dist/httpServer.js" ]; then

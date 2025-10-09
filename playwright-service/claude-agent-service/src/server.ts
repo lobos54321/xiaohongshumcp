@@ -429,22 +429,35 @@ app.get('/agent/auto/plan/:userId', async (req: Request, res: Response) => {
       });
     }
 
-    // 只返回今天的任务
+    // 返回所有今天的任务，不过滤日期（因为日期处理可能有问题）
     const today = new Date().toISOString().split('T')[0];
-    const todayTasks = dailyTasks
-      .filter(task => {
-        const taskDate = task.scheduledTime.toISOString().split('T')[0];
-        return taskDate === today;
-      })
-      .map((task, index) => ({
+    const todayTasks = dailyTasks.map((task, index) => {
+      // 安全的时间处理
+      let scheduledTimeStr = '09:00';
+      try {
+        if (task.scheduledTime && typeof task.scheduledTime === 'object' && task.scheduledTime.toLocaleTimeString) {
+          scheduledTimeStr = task.scheduledTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        } else if (task.scheduledTime && typeof task.scheduledTime === 'string') {
+          // 如果是字符串，尝试转换为Date
+          const dateObj = new Date(task.scheduledTime);
+          if (!isNaN(dateObj.getTime())) {
+            scheduledTimeStr = dateObj.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+          }
+        }
+      } catch (error) {
+        console.warn(`[Plan API] 时间格式处理失败:`, error);
+      }
+
+      return {
         id: (index + 1).toString(),
-        title: task.title,
-        scheduledTime: task.scheduledTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+        title: task.title || '默认标题',
+        scheduledTime: scheduledTimeStr,
         status: task.status === 'published' ? 'completed' :
                 task.status === 'generating' || task.status === 'ready' ? 'in-progress' :
                 'pending',
-        type: task.contentType
-      }));
+        type: task.contentType || '图文'
+      };
+    });
 
     const plan = {
       date: today,

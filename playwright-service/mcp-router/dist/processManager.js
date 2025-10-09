@@ -54,6 +54,12 @@ export class XiaohongshuMCPProcessManager {
         if (!fs.existsSync(workDir)) {
             fs.mkdirSync(workDir, { recursive: true });
         }
+        // 确保cookies.json文件存在，防止MCP进程panic
+        const cookiesFile = path.join(workDir, 'cookies.json');
+        if (!fs.existsSync(cookiesFile)) {
+            fs.writeFileSync(cookiesFile, '[]', 'utf8');
+            console.log(`[ProcessManager] Created empty cookies.json for user ${userId}`);
+        }
         console.log(`[ProcessManager] Starting MCP process for user ${userId} on port ${port}`);
         console.log(`[ProcessManager] Working directory: ${workDir}`);
         const childProcess = spawn(this.mcpBinary, ['-port', `:${port}`], {

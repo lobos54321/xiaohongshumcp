@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>测试真实数据</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .data-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .success { color: green; }
+        .error { color: red; }
+        pre { background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>小红书自动运营系统 - 真实数据测试</h1>
+
+    <div class="data-section">
+        <h2>用户 test-user-123 的策略数据</h2>
+        <div id="strategy-result">加载中...</div>
+    </div>
+
+    <div class="data-section">
+        <h2>今日计划</h2>
+        <div id="plan-result">加载中...</div>
+    </div>
+
+    <div class="data-section">
+        <h2>运营数据</h2>
+        <div id="stats-result">加载中...</div>
+    </div>
+
+    <div class="data-section">
+        <h2>启动新的自动运营</h2>
+        <button onclick="startAutoMode()" id="start-btn">启动测试产品的自动运营</button>
+        <div id="start-result"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8080';
+        const TEST_USER = 'test-user-123';
+
+        async function loadStrategy() {
+            try {
+                const response = await fetch(`${API_BASE}/agent/auto/strategy/${TEST_USER}`);
+                const data = await response.json();
+
+                const result = document.getElementById('strategy-result');
+                if (data.success) {
+                    result.innerHTML = `
+                        <div class="success">✅ 策略数据加载成功</div>
+                        <h3>核心主题:</h3>
+                        <ul>${data.strategy.keyThemes.map(theme => `<li>${theme}</li>`).join('')}</ul>
+                        <h3>内容类型:</h3>
+                        <ul>${data.strategy.contentTypes.map(type => `<li>${type}</li>`).join('')}</ul>
+                        <h3>最佳发布时间:</h3>
+                        <ul>${data.strategy.optimalTimes.map(time => `<li>${time}</li>`).join('')}</ul>
+                        <h3>热门标签:</h3>
+                        <div>${data.strategy.hashtags.slice(0,10).join(', ')}</div>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                } else {
+                    result.innerHTML = `<div class="error">❌ ${data.error}</div>`;
+                }
+            } catch (error) {
+                document.getElementById('strategy-result').innerHTML = `<div class="error">❌ 请求失败: ${error.message}</div>`;
+            }
+        }
+
+        async function loadPlan() {
+            try {
+                const response = await fetch(`${API_BASE}/agent/auto/plan/${TEST_USER}`);
+                const data = await response.json();
+
+                const result = document.getElementById('plan-result');
+                if (data.success) {
+                    result.innerHTML = `
+                        <div class="success">✅ 计划数据加载成功</div>
+                        <h3>今日任务 (${data.plan.date}):</h3>
+                        <ul>${data.plan.tasks.map(task => `<li><strong>${task.title}</strong> - ${task.scheduledTime} (${task.status})</li>`).join('')}</ul>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                } else {
+                    result.innerHTML = `<div class="error">❌ ${data.error}</div>`;
+                }
+            } catch (error) {
+                document.getElementById('plan-result').innerHTML = `<div class="error">❌ 请求失败: ${error.message}</div>`;
+            }
+        }
+
+        async function loadStats() {
+            try {
+                const response = await fetch(`${API_BASE}/agent/auto/stats/${TEST_USER}`);
+                const data = await response.json();
+
+                const result = document.getElementById('stats-result');
+                if (data.success) {
+                    result.innerHTML = `
+                        <div class="success">✅ 统计数据加载成功</div>
+                        <ul>
+                            <li>今日发布: ${data.stats.todayPosts} / ${data.stats.plannedPosts}</li>
+                            <li>本周阅读: ${data.stats.weeklyReads}</li>
+                            <li>新增粉丝: ${data.stats.newFollowers}</li>
+                            <li>互动率: ${data.stats.engagementRate}%</li>
+                        </ul>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                } else {
+                    result.innerHTML = `<div class="error">❌ ${data.error}</div>`;
+                }
+            } catch (error) {
+                document.getElementById('stats-result').innerHTML = `<div class="error">❌ 请求失败: ${error.message}</div>`;
+            }
+        }
+
+        async function startAutoMode() {
+            const btn = document.getElementById('start-btn');
+            const result = document.getElementById('start-result');
+
+            btn.disabled = true;
+            btn.textContent = '启动中...';
+            result.innerHTML = '<div>🚀 正在启动自动运营...</div>';
+
+            try {
+                const response = await fetch(`${API_BASE}/agent/auto/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: `test-user-${Date.now()}`,
+                        productName: '精品咖啡店',
+                        targetAudience: '25-35岁咖啡爱好者',
+                        marketingGoal: 'brand',
+                        postFrequency: 'daily',
+                        brandStyle: 'professional',
+                        reviewMode: 'auto'
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    result.innerHTML = `
+                        <div class="success">✅ 自动运营启动成功!</div>
+                        <p>${data.message}</p>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                } else {
+                    result.innerHTML = `<div class="error">❌ 启动失败: ${data.error}</div>`;
+                }
+            } catch (error) {
+                result.innerHTML = `<div class="error">❌ 请求失败: ${error.message}</div>`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '启动测试产品的自动运营';
+            }
+        }
+
+        // 页面加载时获取数据
+        window.addEventListener('DOMContentLoaded', () => {
+            loadStrategy();
+            loadPlan();
+            loadStats();
+        });
+    </script>
+</body>
+</html>
