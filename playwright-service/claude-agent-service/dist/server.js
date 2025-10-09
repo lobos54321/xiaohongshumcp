@@ -21,7 +21,7 @@ if (!ANTHROPIC_API_KEY || ANTHROPIC_API_KEY === 'demo-key') {
     process.exit(1);
 }
 // MCP Router URL配置 - 支持生产环境和本地开发
-const MCP_ROUTER_URL = process.env.MCP_ROUTER_URL || 'http://localhost:3000';
+const MCP_ROUTER_URL = process.env.MCP_ROUTER_URL || 'http://localhost:3001';
 // 创建图片生成服务
 const imageService = new ImageGenerationService({
     geminiKey: process.env.GEMINI_API_KEY,
@@ -678,6 +678,44 @@ app.get('/agent/xiaohongshu/login/status', async (req, res) => {
             success: false,
             error: error.message || 'Failed to check login status',
         });
+    }
+});
+// ============ 前端兼容性 API 端点 ============
+// 为前端提供期望的 /api/xiaohongshu/login/* 端点
+// 获取登录二维码 (前端兼容性端点)
+app.get('/api/xiaohongshu/login/qrcode', async (req, res) => {
+    try {
+        const userId = req.query.userId;
+        if (!userId) {
+            return res.status(400).json({ error: 'userId is required' });
+        }
+        console.log(`[API Proxy] QR code request for user ${userId}`);
+        // 代理到 MCP Router
+        const axios = await import('axios');
+        const response = await axios.default.get(`${MCP_ROUTER_URL}/api/xiaohongshu/login/qrcode?userId=${userId}`, { timeout: 10000 });
+        res.json(response.data);
+    }
+    catch (error) {
+        console.error('[API Proxy] QR code error:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+// 检查登录状态 (前端兼容性端点)
+app.get('/api/xiaohongshu/login/status', async (req, res) => {
+    try {
+        const userId = req.query.userId;
+        if (!userId) {
+            return res.status(400).json({ error: 'userId is required' });
+        }
+        console.log(`[API Proxy] Login status check for user ${userId}`);
+        // 代理到 MCP Router
+        const axios = await import('axios');
+        const response = await axios.default.get(`${MCP_ROUTER_URL}/api/xiaohongshu/login/status?userId=${userId}`, { timeout: 5000 });
+        res.json(response.data);
+    }
+    catch (error) {
+        console.error('[API Proxy] Login status error:', error.message);
+        res.status(500).json({ error: error.message });
     }
 });
 // 捕获所有未匹配的路由，重定向到根路径（SPA fallback）
