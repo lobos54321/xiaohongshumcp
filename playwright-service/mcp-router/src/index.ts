@@ -8,7 +8,6 @@ import { XiaohongshuMCPProcessManager } from './processManager.js';
 import { z } from 'zod';
 import * as dotenv from 'dotenv';
 import express from 'express';
-// @ts-ignore - 绕过类型检查问题
 import cors from 'cors';
 
 dotenv.config();
