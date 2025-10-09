@@ -166,10 +166,15 @@ echo "🌐 Starting Zeabur Production Services..."\n\
 \n\
 # 启动虚拟显示服务（关键：解决Chrome QR登录问题）\n\
 echo "🖥️  Starting virtual display..."\n\
-Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &\n\
-XVFB_PID=$!\n\
-echo "📍 Xvfb PID: $XVFB_PID"\n\
-sleep 2\n\
+# 在Zeabur环境中，虚拟显示可能不可用，增加错误处理\n\
+if command -v Xvfb >/dev/null 2>&1; then\n\
+    Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &\n\
+    XVFB_PID=$!\n\
+    echo "📍 Xvfb PID: $XVFB_PID"\n\
+    sleep 2\n\
+else\n\
+    echo "⚠️  Xvfb not available in this environment, continuing without virtual display"\n\
+fi\n\
 \n\
 # 设置全局环境变量\n\
 export ROD_BROWSER_BIN=/usr/bin/chromium\n\
