@@ -6,6 +6,7 @@ import express from 'express';
 import { XiaohongshuMCPProcessManager } from './processManager.js';
 import * as dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
@@ -138,6 +139,38 @@ app.post('/api/xiaohongshu/publish/video', async (req, res) => {
         res.json(result);
     }
     catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// 便捷API：导入Cookie（解决登录问题）
+app.post('/api/xiaohongshu/login/import-cookies', async (req, res) => {
+    try {
+        const { userId, cookies } = req.body;
+        if (!userId) {
+            return res.status(400).json({ error: 'userId is required' });
+        }
+        if (!cookies || !Array.isArray(cookies)) {
+            return res.status(400).json({ error: 'cookies array is required' });
+        }
+        console.log(`[Cookie Import] Importing ${cookies.length} cookies for user ${userId}`);
+        // 直接写入cookie文件
+        const cookieDir = path.join(COOKIE_DIR, userId);
+        const cookieFile = path.join(cookieDir, 'cookies.json');
+        // 确保目录存在
+        if (!fs.existsSync(cookieDir)) {
+            fs.mkdirSync(cookieDir, { recursive: true });
+        }
+        // 写入cookie
+        fs.writeFileSync(cookieFile, JSON.stringify(cookies, null, 2));
+        console.log(`[Cookie Import] Successfully imported cookies to ${cookieFile}`);
+        res.json({
+            success: true,
+            message: `Successfully imported ${cookies.length} cookies`,
+            cookieFile: cookieFile
+        });
+    }
+    catch (error) {
+        console.error('[Cookie Import] Error:', error);
         res.status(500).json({ error: error.message });
     }
 });

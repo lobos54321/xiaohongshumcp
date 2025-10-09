@@ -5,7 +5,7 @@ FROM node:18-slim
 ARG CACHEBUST=production-v4-claude-agent
 RUN echo "Force rebuild CLAUDE AGENT at $(date)" > /tmp/rebuild.txt
 
-# 安装必要的系统依赖，包括Chromium用于QR登录
+# 安装必要的系统依赖，包括Chromium和虚拟显示用于QR登录
 RUN apt-get update && apt-get install -y \
     wget \
     curl \
@@ -33,6 +33,7 @@ RUN apt-get update && apt-get install -y \
     xdg-utils \
     libu2f-udev \
     libvulkan1 \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # 设置Chromium环境变量（关键：解决QR登录问题）
@@ -40,6 +41,9 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV ROD_BROWSER_BIN=/usr/bin/chromium
 ENV CHROMIUM_NO_SANDBOX=true
+# 优化Chrome性能，解决QR登录超时
+ENV ROD_BROWSER_ARGS="--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-gpu,--no-first-run,--no-zygote,--single-process,--disable-extensions,--disable-plugins,--disable-background-timer-throttling,--disable-backgrounding-occluded-windows,--disable-renderer-backgrounding,--disable-features=TranslateUI,--disable-web-security,--disable-features=VizDisplayCompositor,--timeout=60000"
+ENV DISPLAY=:99
 
 # 设置工作目录
 WORKDIR /app
@@ -160,11 +164,19 @@ done\n\
 \n\
 echo "🌐 Starting Zeabur Production Services..."\n\
 \n\
+# 启动虚拟显示服务（关键：解决Chrome QR登录问题）\n\
+echo "🖥️  Starting virtual display..."\n\
+Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &\n\
+XVFB_PID=$!\n\
+echo "📍 Xvfb PID: $XVFB_PID"\n\
+sleep 2\n\
+\n\
 # 设置全局环境变量\n\
 export ROD_BROWSER_BIN=/usr/bin/chromium\n\
 export CHROMIUM_NO_SANDBOX=true\n\
 export COOKIES_PATH=/app/data/cookies.json\n\
 export MCP_ROUTER_URL=http://localhost:3001\n\
+export DISPLAY=:99\n\
 \n\
 # 启动MCP二进制服务 (port 18070)\n\
 echo "🔧 [1/3] Starting xiaohongshu-mcp binary..."\n\
@@ -188,18 +200,40 @@ export MCP_BINARY_PATH=./xiaohongshu-mcp\n\
 export HTTP_PORT=3001\n\
 export COOKIE_DIR=./cookies\n\
 export HTTP_ONLY=true\n\
+echo "📋 MCP Router Environment:"\n\
+echo "  HTTP_PORT: $HTTP_PORT"\n\
+echo "  MCP_BINARY_PATH: $MCP_BINARY_PATH"\n\
+echo "  COOKIE_DIR: $COOKIE_DIR"\n\
+echo "  HTTP_ONLY: $HTTP_ONLY"\n\
 node dist/httpServer.js &\n\
 ROUTER_PID=$!\n\
 echo "📍 MCP Router PID: $ROUTER_PID"\n\
 \n\
-# 等待Router服务启动\n\
-sleep 3\n\
+# 等待Router服务启动 - 增加等待时间\n\
+echo "⏳ Waiting for MCP Router to start..."\n\
+sleep 8\n\
+\n\
+# 检查进程状态\n\
 if ! kill -0 $ROUTER_PID 2>/dev/null; then\n\
-    echo "❌ MCP Router failed to start!"\n\
+    echo "❌ MCP Router process died!"\n\
     kill $MCP_PID 2>/dev/null || true\n\
     exit 1\n\
 fi\n\
-echo "✅ MCP Router running on port 3001"\n\
+\n\
+# 测试HTTP端口是否可用\n\
+for i in {1..10}; do\n\
+    if curl -s http://localhost:3001/health > /dev/null 2>&1; then\n\
+        echo "✅ MCP Router running on port 3001 and responding"\n\
+        break\n\
+    fi\n\
+    echo "⏳ Waiting for MCP Router HTTP server... ($i/10)"\n\
+    sleep 2\n\
+    if [ $i -eq 10 ]; then\n\
+        echo "❌ MCP Router HTTP server failed to respond after 20 seconds!"\n\
+        kill $MCP_PID $ROUTER_PID 2>/dev/null || true\n\
+        exit 1\n\
+    fi\n\
+done\n\
 \n\
 # 启动Claude Agent Service (主服务 port 3000)\n\
 echo "🔧 [3/3] Starting Claude Agent Service..."\n\
