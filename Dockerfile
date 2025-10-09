@@ -40,29 +40,46 @@ ENV CHROMIUM_NO_SANDBOX=true
 # 设置工作目录
 WORKDIR /app
 
+# 第一步：创建目录结构并复制package.json文件
+RUN mkdir -p playwright-service/mcp-router playwright-service/claude-agent-service
+
 # 复制package.json文件
 COPY package*.json ./
 COPY playwright-service/mcp-router/package*.json ./playwright-service/mcp-router/
 COPY playwright-service/claude-agent-service/package*.json ./playwright-service/claude-agent-service/
 
-# 安装所有依赖（包括devDependencies，构建需要）
-RUN cd playwright-service/mcp-router && npm install
-RUN cd playwright-service/claude-agent-service && npm install
+# 第二步：安装所有依赖（包括devDependencies用于构建）
+WORKDIR /app/playwright-service/mcp-router
+RUN npm install
 
-# 复制源代码
+WORKDIR /app/playwright-service/claude-agent-service
+RUN npm install
+
+# 回到根目录
+WORKDIR /app
+
+# 第三步：复制所有源代码
 COPY . .
 
-# 编译TypeScript
-RUN cd playwright-service/mcp-router && npm run build
-RUN cd playwright-service/claude-agent-service && npm run build
+# 第四步：构建TypeScript项目
+WORKDIR /app/playwright-service/mcp-router
+RUN npm run build
 
-# 构建完成后，清理devDependencies减小镜像大小
-RUN cd playwright-service/mcp-router && npm prune --production
-RUN cd playwright-service/claude-agent-service && npm prune --production
+WORKDIR /app/playwright-service/claude-agent-service
+RUN npm run build
 
-# 下载二进制文件（带错误处理）
+# 第五步：清理devDependencies减小镜像大小
+WORKDIR /app/playwright-service/mcp-router
+RUN npm prune --production
+
+WORKDIR /app/playwright-service/claude-agent-service
+RUN npm prune --production
+
+# 回到根目录
+WORKDIR /app
+
+# 第六步：下载xiaohongshu-mcp二进制文件
 RUN set -e && \
-    mkdir -p playwright-service/mcp-router && \
     echo "Downloading xiaohongshu-mcp binary..." && \
     wget -v -O /tmp/xiaohongshu-mcp.tar.gz https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz && \
     echo "Download completed, extracting..." && \
@@ -74,7 +91,7 @@ RUN set -e && \
     ls -lh /app/playwright-service/mcp-router/xiaohongshu-mcp && \
     rm /tmp/xiaohongshu-mcp.tar.gz
 
-# 创建Zeabur专用启动脚本（QR登录优化版）
+# 第七步：创建Zeabur专用启动脚本
 RUN echo '#!/bin/bash\n\
 set -e\n\
 echo "🚀 Starting Xiaohongshu Automation for Zeabur with QR Login Support..."\n\
@@ -87,10 +104,21 @@ echo "  COOKIES_PATH: $COOKIES_PATH"\n\
 echo "  PWD: $(pwd)"\n\
 echo "  USER: $(whoami)"\n\
 \n\
+# 进入MCP Router目录\n\
 cd /app/playwright-service/mcp-router\n\
 echo "📂 Working directory: $(pwd)"\n\
 \n\
-echo "📦 Binary check:"\n\
+# 检查构建产物\n\
+echo "📦 Build artifacts check:"\n\
+if [ -f dist/httpServer.js ]; then\n\
+    echo "  ✅ httpServer.js exists: $(ls -lh dist/httpServer.js | awk \"{print \\$5}\"")"\n\
+else\n\
+    echo "  ❌ httpServer.js missing!"\n\
+    ls -la dist/ || echo "  ❌ dist directory missing!"\n\
+    exit 1\n\
+fi\n\
+\n\
+# 检查二进制文件\n\
 if [ -f xiaohongshu-mcp ]; then\n\
     echo "  ✅ Binary exists: $(ls -lh xiaohongshu-mcp | awk \"{print \\$5}\"")"\n\
     echo "  🔍 Binary is executable: $(test -x xiaohongshu-mcp && echo YES || echo NO)"\n\
@@ -99,6 +127,7 @@ else\n\
     exit 1\n\
 fi\n\
 \n\
+# 检查Chromium\n\
 echo "🌐 Chromium check for QR login:"\n\
 if [ -f /usr/bin/chromium ]; then\n\
     echo "  ✅ Chromium available: $(/usr/bin/chromium --version)"\n\
@@ -107,22 +136,14 @@ else\n\
     exit 1\n\
 fi\n\
 \n\
-echo "📦 dist directory check:"\n\
-if [ -f dist/httpServer.js ]; then\n\
-    echo "  ✅ httpServer.js exists: $(ls -lh dist/httpServer.js | awk \"{print \\$5}\"")"\n\
-else\n\
-    echo "  ❌ httpServer.js missing!"\n\
-    exit 1\n\
-fi\n\
-\n\
-# 创建数据目录结构（关键：支持Cookie持久化）\n\
+# 创建数据目录结构\n\
 mkdir -p /app/data/cookies ./cookies\n\
 echo "📁 Created data directories for cookie persistence"\n\
 \n\
-# 初始化cookies文件（防止MCP panic）\n\
+# 初始化cookies文件\n\
 if [ ! -f /app/data/cookies.json ]; then\n\
     echo "[]" > /app/data/cookies.json\n\
-    echo "📝 Initialized empty cookies.json"\n\
+    echo "📝 Initialized /app/data/cookies.json"\n\
 fi\n\
 \n\
 if [ ! -f ./cookies.json ]; then\n\
@@ -132,7 +153,7 @@ fi\n\
 \n\
 echo "🌐 Zeabur Production Mode - Starting services..."\n\
 \n\
-# 设置关键环境变量\n\
+# 设置环境变量\n\
 export MCP_BINARY_PATH=./xiaohongshu-mcp\n\
 export HTTP_PORT=3000\n\
 export COOKIE_DIR=./cookies\n\
@@ -140,7 +161,7 @@ export COOKIES_PATH=/app/data/cookies.json\n\
 export ROD_BROWSER_BIN=/usr/bin/chromium\n\
 export CHROMIUM_NO_SANDBOX=true\n\
 \n\
-# 启动MCP二进制服务（后台运行）\n\
+# 启动MCP二进制服务\n\
 echo "🔧 Starting MCP binary service on port 18070..."\n\
 ./xiaohongshu-mcp -port :18070 &\n\
 MCP_PID=$!\n\
@@ -194,7 +215,7 @@ fi' > /app/start-zeabur-qr.sh && \
 # 暴露端口
 EXPOSE 3000
 
-# 设置环境变量（生产环境优化）
+# 设置环境变量
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HTTP_PORT=3000
@@ -206,9 +227,9 @@ ENV CHROMIUM_NO_SANDBOX=true
 RUN mkdir -p /app/data /app/logs
 VOLUME ["/app/data"]
 
-# 健康检查（优化版）
+# 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:3000/health || curl -f http://localhost:3000/api/xiaohongshu/login/status || exit 1
 
-# 启动应用（使用QR登录优化版启动脚本）
+# 启动应用
 CMD ["/app/start-zeabur-qr.sh"]
