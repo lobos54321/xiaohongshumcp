@@ -7,7 +7,7 @@
   "scripts": {
     "start": "bash start.sh",
     "dev": "bash start.sh",
-    "build": "cd playwright-service/mcp-router && npm install && npm run build && cd ../claude-agent-service && npm install && npm run build",
+    "build": "cd playwright-service/mcp-router && npm install --include=dev && npm run build && cd ../claude-agent-service && npm install --include=dev && npm run build",
     "dev:mcp": "cd playwright-service/mcp-router && npm run start:http",
     "dev:claude": "cd playwright-service/claude-agent-service && npm start"
   },
