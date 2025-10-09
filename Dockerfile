@@ -227,6 +227,12 @@ ENV COOKIES_PATH=/app/data/cookies.json
 ENV ROD_BROWSER_BIN=/usr/bin/chromium
 ENV CHROMIUM_NO_SANDBOX=true
 
+# 性能优化环境变量
+ENV REQUEST_TIMEOUT=300000
+ENV KEEP_ALIVE_TIMEOUT=310000
+ENV HEADERS_TIMEOUT=320000
+ENV NODE_OPTIONS="--max-old-space-size=2048"
+
 # 创建持久化数据目录
 RUN mkdir -p /app/data /app/logs
 VOLUME ["/app/data"]
