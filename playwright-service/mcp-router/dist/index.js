@@ -4,6 +4,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema, } from '@modelcontextpro
 import { XiaohongshuMCPProcessManager } from './processManager.js';
 import * as dotenv from 'dotenv';
 import express from 'express';
+// @ts-ignore - 绕过类型检查问题
 import cors from 'cors';
 dotenv.config();
 const MCP_BINARY = process.env.MCP_BINARY_PATH || './xiaohongshu-mcp';
