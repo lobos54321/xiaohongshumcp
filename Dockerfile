@@ -183,10 +183,12 @@ echo "✅ xiaohongshu-mcp running on port 18070"\n\
 \n\
 # 启动MCP Router (port 3001)\n\
 echo "🔧 [2/3] Starting MCP Router..."\n\
+cd /app/playwright-service/mcp-router\n\
 export MCP_BINARY_PATH=./xiaohongshu-mcp\n\
 export HTTP_PORT=3001\n\
 export COOKIE_DIR=./cookies\n\
-HTTP_ONLY=true node dist/httpServer.js &\n\
+export HTTP_ONLY=true\n\
+node dist/httpServer.js &\n\
 ROUTER_PID=$!\n\
 echo "📍 MCP Router PID: $ROUTER_PID"\n\
 \n\
