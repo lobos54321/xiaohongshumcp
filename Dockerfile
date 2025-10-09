@@ -45,9 +45,9 @@ COPY package*.json ./
 COPY playwright-service/mcp-router/package*.json ./playwright-service/mcp-router/
 COPY playwright-service/claude-agent-service/package*.json ./playwright-service/claude-agent-service/
 
-# 安装依赖
-RUN cd playwright-service/mcp-router && npm install --production
-RUN cd playwright-service/claude-agent-service && npm install --production
+# 安装所有依赖（包括devDependencies，构建需要）
+RUN cd playwright-service/mcp-router && npm install
+RUN cd playwright-service/claude-agent-service && npm install
 
 # 复制源代码
 COPY . .
@@ -55,6 +55,10 @@ COPY . .
 # 编译TypeScript
 RUN cd playwright-service/mcp-router && npm run build
 RUN cd playwright-service/claude-agent-service && npm run build
+
+# 构建完成后，清理devDependencies减小镜像大小
+RUN cd playwright-service/mcp-router && npm prune --production
+RUN cd playwright-service/claude-agent-service && npm prune --production
 
 # 下载二进制文件（带错误处理）
 RUN set -e && \
