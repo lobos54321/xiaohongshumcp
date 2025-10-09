@@ -1,5 +1,8 @@
 {
-  "dockerfile": "Dockerfile",
+  "build": {
+    "type": "docker",
+    "dockerfile": "Dockerfile"
+  },
   "ports": [
     {
       "id": "web",
