@@ -94,51 +94,49 @@
     </div>
 
     <script>
-        const QR_LOGIN_URL = 'http://localhost:3062';
-        const CLAUDE_API = 'http://localhost:4000';
-        const DASHBOARD_URL = 'http://localhost:3000/auto-manager.html';
+        const CLAUDE_API = window.location.origin; // 使用当前域名，不硬编码localhost
+        const DASHBOARD_URL = '/auto-manager.html'; // 相对路径
 
-        let checkInterval;
         let isLoggedIn = false;
 
         // 页面加载时检查登录状态
         window.addEventListener('DOMContentLoaded', checkLoginStatus);
 
         async function checkLoginStatus() {
+            updateLoginStatus('🔍 正在检查登录状态...', 'syncing');
+
             try {
-                // 首先检查 ultra-simple-login 的状态
-                const qrResponse = await fetch(`${QR_LOGIN_URL}/api/status`);
-                const qrStatus = await qrResponse.json();
+                // 直接检查 Claude Agent Service 的登录状态
+                const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/login/status?userId=default`, {
+                    method: 'GET',
+                    timeout: 8000
+                });
 
-                // 检查 Claude Agent Service 的状态 (减少超时时间)
-                try {
-                    const claudeResponse = await fetch(`${CLAUDE_API}/api/xiaohongshu/login/status?userId=default`, {
-                        timeout: 3000 // 3秒超时
-                    });
-                    const claudeStatus = await claudeResponse.json();
+                const result = await response.json();
+                console.log('Login status check result:', result);
 
-                    if (claudeStatus.success && claudeStatus.data.logged_in) {
-                        updateLoginStatus('✅ 已登录', 'success');
+                if (result.success) {
+                    if (result.data.logged_in || result.data.demo_mode) {
+                        updateLoginStatus('✅ 登录状态已确认！', 'success');
                         enableDashboard();
                         isLoggedIn = true;
-                        return;
-                    }
-                } catch (claudeError) {
-                    console.warn('Claude Agent Service check failed:', claudeError);
-                }
 
-                // 检查 ultra-simple-login 状态
-                if (qrStatus.status === 'logged_in') {
-                    updateLoginStatus('🔄 正在同步登录状态...', 'syncing');
-                    await syncLoginStatus();
-                } else if (qrStatus.status === 'no_session') {
-                    updateLoginStatus('❗ 尚未登录', 'pending');
+                        // 3秒后自动跳转
+                        setTimeout(() => {
+                            updateLoginStatus('🚀 正在跳转到管理面板...', 'syncing');
+                            setTimeout(() => {
+                                window.location.href = DASHBOARD_URL;
+                            }, 1000);
+                        }, 2000);
+                    } else {
+                        updateLoginStatus('❗ 未检测到登录状态，请确保已完成登录', 'error');
+                    }
                 } else {
-                    updateLoginStatus('⚠️ 状态检查完成', 'pending');
+                    updateLoginStatus('⚠️ 状态检查失败: ' + (result.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
-                updateLoginStatus('⚠️ 状态检查失败', 'error');
                 console.error('Login status check failed:', error);
+                updateLoginStatus('⚠️ 网络连接失败，请重试', 'error');
             }
         }
 
@@ -163,130 +161,32 @@
         }
 
         async function startQRLogin() {
-            updateLoginStatus('🚀 启动 QR 码登录...', 'syncing');
+            updateLoginStatus('🌐 打开小红书登录页面...', 'syncing');
 
-            try {
-                // 打开 ultra-simple-login 登录窗口
-                updateLoginStatus('📱 打开登录窗口，请完成登录', 'syncing');
-                window.open(`${QR_LOGIN_URL}/view`, '_blank', 'width=800,height=600');
+            // 直接打开小红书登录页面
+            const loginWindow = window.open('https://www.xiaohongshu.com/login', '_blank', 'width=800,height=600');
 
-                // 触发手动检测
-                try {
-                    const response = await fetch(`${QR_LOGIN_URL}/api/manual-check`, {
-                        method: 'POST'
-                    });
-                    console.log('Manual check triggered');
-                } catch (checkError) {
-                    console.warn('Manual check failed:', checkError);
-                }
+            updateLoginStatus('📱 请在新窗口中完成登录，然后点击下方按钮检测状态', 'syncing');
 
-                // 开始监控登录状态
-                startLoginMonitoring();
-
-            } catch (error) {
-                updateLoginStatus('❌ 连接失败', 'error');
-                console.error('QR login failed:', error);
-            }
-        }
-
-        function startLoginMonitoring() {
-            if (checkInterval) clearInterval(checkInterval);
-
-            checkInterval = setInterval(async () => {
-                try {
-                    const response = await fetch(`${QR_LOGIN_URL}/api/status`);
-                    const status = await response.json();
-
-                    if (status.status === 'logged_in') {
-                        clearInterval(checkInterval);
-                        updateLoginStatus('✅ 登录成功！正在同步...', 'syncing');
-
-                        // 等待一下让 cookie 完全保存
-                        setTimeout(async () => {
-                            await syncLoginStatus();
-                        }, 2000);
-                    } else if (status.status === 'timeout') {
-                        clearInterval(checkInterval);
-                        updateLoginStatus('⏰ 登录超时，请重试', 'error');
-                    } else if (status.status === 'no_session') {
-                        // 继续等待用户登录
-                        updateLoginStatus('📱 等待登录中...', 'syncing');
-                    }
-                } catch (error) {
-                    console.error('Status check failed:', error);
-                    // 继续监控，不要停止
-                }
-            }, 3000); // 每3秒检查一次
-        }
-
-        async function syncLoginStatus() {
-            try {
-                updateLoginStatus('🔄 同步登录状态到管理系统...', 'syncing');
-
-                // 触发 cookie 同步到 Claude Agent Service
-                const syncResponse = await fetch(`${CLAUDE_API}/agent/xiaohongshu/sync-cookies`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        userId: 'default',
-                        source: 'ultra-simple-login'
-                    })
-                });
-
-                if (syncResponse.ok) {
-                    updateLoginStatus('✅ 登录完成！即将跳转...', 'success');
-                    enableDashboard();
-                    isLoggedIn = true;
-
-                    // 3秒后自动跳转
-                    setTimeout(() => {
-                        goToDashboard();
-                    }, 3000);
-                } else {
-                    updateLoginStatus('⚠️ 同步失败，请手动跳转', 'error');
-                    enableDashboard();
-                }
-            } catch (error) {
-                updateLoginStatus('⚠️ 同步失败，但可以尝试进入面板', 'error');
-                enableDashboard();
-                console.error('Sync failed:', error);
-            }
-        }
-
-        function openManualLogin() {
-            updateLoginStatus('🌐 打开登录页面...', 'syncing');
-            window.open('https://www.xiaohongshu.com/login', '_blank');
-
-            // 提示用户登录后手动检查
-            setTimeout(() => {
-                updateLoginStatus('📝 登录完成后请点击"检查状态"', 'pending');
-
-                // 添加手动检查按钮
-                const statusDiv = document.getElementById('loginStatus');
-                statusDiv.innerHTML += `
+            // 添加手动检查按钮
+            const statusDiv = document.getElementById('loginStatus');
+            statusDiv.innerHTML += `
+                <div class="mt-4">
                     <button onclick="checkLoginStatus()"
-                            class="ml-2 px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600">
-                        🔍 检查状态
+                            class="px-4 py-2 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 mr-2">
+                        🔍 检查登录状态
                     </button>
-                `;
-            }, 1000);
+                    <button onclick="goToDashboard()"
+                            class="px-4 py-2 bg-green-500 text-white rounded text-sm hover:bg-green-600">
+                        📊 进入管理面板
+                    </button>
+                </div>
+            `;
         }
 
-        function goToDashboard() {
-            if (!isLoggedIn) {
-                updateLoginStatus('⚠️ 请先完成登录', 'error');
-                return;
-            }
-
-            updateLoginStatus('🚀 跳转到管理面板...', 'syncing');
-            window.location.href = DASHBOARD_URL;
-        }
-
-        // 清理定时器
+        // 清理和关闭
         window.addEventListener('beforeunload', () => {
-            if (checkInterval) clearInterval(checkInterval);
+            console.log('Page unloading...');
         });
     </script>
 </body>
