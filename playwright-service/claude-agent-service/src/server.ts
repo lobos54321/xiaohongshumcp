@@ -789,7 +789,7 @@ app.post('/agent/xiaohongshu/auto-login', async (req: Request, res: Response) =>
       console.log(`[XHS Auto Login] Cookies encrypted and saved for user ${userId}`);
 
       // 步骤4: 自动导入到cookies.json (MCP Router)
-      await this.importCookiesToMCPRouter(userId, standardCookies);
+      await importCookiesToMCPRouter(userId, standardCookies);
 
       res.json({
         success: true,

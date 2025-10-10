@@ -3,7 +3,7 @@
  * 解决图文发布需要图片的问题
  */
 
-import ImageGenerationService from '../imageGenerationService.js';
+import ImageGenerationService from './imageGenerationService.js';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -59,7 +59,7 @@ export class EnhancedPublishService {
         const imagePrompt = request.image_prompt || this.extractImagePrompt(request.content);
 
         // 智能选择风格
-        const style = request.style || this.imageService.getRecommendedStyle('post', request.content);
+        const style = request.style || this.imageService.getRecommendedStyle('post', request.content) as 'realistic' | 'cartoon' | 'painting' | 'sketch';
 
         console.log(`📝 图片提示词: ${imagePrompt}`);
         console.log(`🎭 选择风格: ${style}`);
@@ -106,10 +106,10 @@ export class EnhancedPublishService {
         body: JSON.stringify(publishData)
       });
 
-      const result = await response.json();
+      const result = await response.json() as any;
 
       if (!response.ok) {
-        throw new Error(`发布失败: ${result.error || response.statusText}`);
+        throw new Error(`发布失败: ${result?.error || response.statusText}`);
       }
 
       console.log('🎉 图文发布成功!');
@@ -124,7 +124,7 @@ export class EnhancedPublishService {
       console.error('❌ 图文发布失败:', error);
       return {
         success: false,
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         message: '图文发布失败'
       };
     }
@@ -179,10 +179,10 @@ export class EnhancedPublishService {
         body: JSON.stringify(videoData)
       });
 
-      const result = await response.json();
+      const result = await response.json() as any;
 
       if (!response.ok) {
-        throw new Error(`视频发布失败: ${result.error || response.statusText}`);
+        throw new Error(`视频发布失败: ${result?.error || response.statusText}`);
       }
 
       console.log('🎉 视频发布成功!');
@@ -197,7 +197,7 @@ export class EnhancedPublishService {
       console.error('❌ 视频发布失败:', error);
       return {
         success: false,
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         message: '视频发布失败'
       };
     }
@@ -235,7 +235,7 @@ export class EnhancedPublishService {
       } catch (error) {
         results.push({
           success: false,
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
           originalRequest: request
         });
       }

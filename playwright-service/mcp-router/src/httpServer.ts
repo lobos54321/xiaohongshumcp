@@ -240,7 +240,7 @@ app.post('/api/xiaohongshu/login/import-cookies', async (req, res) => {
         fs.copyFileSync(cookieFile, backupFile);
         console.log(`[Cookie Import] Backed up existing cookies to: ${backupFile}`);
       } catch (backupError) {
-        console.warn(`[Cookie Import] Failed to backup cookies: ${backupError.message}`);
+        console.warn(`[Cookie Import] Failed to backup cookies: ${backupError instanceof Error ? backupError.message : String(backupError)}`);
       }
     }
 
@@ -266,7 +266,7 @@ app.post('/api/xiaohongshu/login/import-cookies', async (req, res) => {
       await processManager.refreshUserCookies(userId, standardizedCookies);
       console.log(`[Cookie Import] Successfully refreshed MCP process cookies for user ${userId}`);
     } catch (refreshError) {
-      console.warn(`[Cookie Import] Failed to refresh MCP process: ${refreshError.message}`);
+      console.warn(`[Cookie Import] Failed to refresh MCP process: ${refreshError instanceof Error ? refreshError.message : String(refreshError)}`);
       // 不返回错误，因为文件写入已成功
     }
 
@@ -284,7 +284,7 @@ app.post('/api/xiaohongshu/login/import-cookies', async (req, res) => {
         console.warn(`[Cookie Import] Cookie validation failed: ${validationResult?.error || 'Unknown error'}`);
       }
     } catch (validationError) {
-      console.warn(`[Cookie Import] Cookie validation error: ${validationError.message}`);
+      console.warn(`[Cookie Import] Cookie validation error: ${validationError instanceof Error ? validationError.message : String(validationError)}`);
     }
 
     res.json({

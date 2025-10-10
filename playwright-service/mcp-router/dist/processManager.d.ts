@@ -35,6 +35,10 @@ export declare class XiaohongshuMCPProcessManager {
      */
     callTool(userId: string, endpoint: string, method?: string, data?: any): Promise<any>;
     /**
+     * 刷新用户Cookie - 重启对应的MCP进程使用新Cookie
+     */
+    refreshUserCookies(userId: string, cookies?: any[]): Promise<void>;
+    /**
      * 获取统计信息
      */
     getStats(): {

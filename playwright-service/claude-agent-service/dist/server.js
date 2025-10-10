@@ -593,7 +593,7 @@ app.post('/agent/image/generate-batch', async (req, res) => {
         });
     }
 });
-// 小红书自动登录检测API
+// 小红书弹窗扫码自动登录API - 升级版方案一
 app.post('/agent/xiaohongshu/auto-login', async (req, res) => {
     try {
         const { userId } = req.body;
@@ -603,7 +603,7 @@ app.post('/agent/xiaohongshu/auto-login', async (req, res) => {
                 error: 'userId is required',
             });
         }
-        console.log(`[XHS Auto Login] Starting auto login detection for user ${userId}`);
+        console.log(`[XHS Auto Login] Starting popup QR code login for user ${userId}`);
         // 导入Cookie检测服务
         const { AutoCookieDetector } = await import('./autoCookieDetector.js');
         const { CookieManager } = await import('./cookieManager.js');
@@ -630,8 +630,33 @@ app.post('/agent/xiaohongshu/auto-login', async (req, res) => {
                 console.warn(`[XHS Auto Login] Existing cookies may be invalid:`, testError);
             }
         }
-        // 尝试自动检测浏览器中的Cookie
-        console.log(`[XHS Auto Login] Attempting automatic cookie detection...`);
+        // 启动弹窗扫码登录流程
+        console.log(`[XHS Auto Login] Starting popup QR code login process...`);
+        // 步骤1: 调用MCP Router获取QR码
+        try {
+            const axios = await import('axios');
+            const qrResponse = await axios.default.get(`${MCP_ROUTER_URL}/api/xiaohongshu/login/qrcode?userId=${userId}`, { timeout: 10000 });
+            if (qrResponse.data && qrResponse.data.qrcode_url) {
+                console.log(`[XHS Auto Login] QR code generated successfully`);
+                // 返回QR码给前端，前端弹窗显示
+                return res.json({
+                    success: true,
+                    message: '请扫码登录',
+                    status: 'qr_code_generated',
+                    data: {
+                        userId,
+                        qrcode_url: qrResponse.data.qrcode_url,
+                        instructions: '请使用小红书App扫描二维码完成登录',
+                        polling_endpoint: `/agent/xiaohongshu/login/status?userId=${userId}`
+                    }
+                });
+            }
+        }
+        catch (qrError) {
+            console.warn(`[XHS Auto Login] QR code generation failed:`, qrError.message);
+        }
+        // 步骤2: 如果QR码失败，尝试自动检测浏览器Cookie
+        console.log(`[XHS Auto Login] Fallback to browser cookie detection...`);
         const detectionResult = await cookieDetector.autoDetectCookies();
         if (detectionResult.success && detectionResult.cookies) {
             console.log(`[XHS Auto Login] Successfully detected ${detectionResult.cookies.length} cookies`);
@@ -644,7 +669,7 @@ app.post('/agent/xiaohongshu/auto-login', async (req, res) => {
                     needManualLogin: true
                 });
             }
-            // 转换为标准格式并加密保存
+            // 转换为标准格式
             const standardCookies = detectionResult.cookies.map(cookie => ({
                 name: cookie.name,
                 value: cookie.value,
@@ -654,21 +679,11 @@ app.post('/agent/xiaohongshu/auto-login', async (req, res) => {
                 httpOnly: false,
                 sameSite: 'Lax'
             }));
-            // 保存到加密存储
+            // 步骤3: AES-256加密保存到本地
             await cookieManager.saveCookies(userId, standardCookies);
             console.log(`[XHS Auto Login] Cookies encrypted and saved for user ${userId}`);
-            // 同步到MCP Router
-            try {
-                const axios = await import('axios');
-                await axios.default.post(`${MCP_ROUTER_URL}/api/xiaohongshu/login/import-cookies`, {
-                    userId: userId,
-                    cookies: standardCookies
-                }, { timeout: 10000 });
-                console.log(`[XHS Auto Login] Cookies synced to MCP Router`);
-            }
-            catch (syncError) {
-                console.warn(`[XHS Auto Login] Failed to sync cookies to MCP Router:`, syncError.message);
-            }
+            // 步骤4: 自动导入到cookies.json (MCP Router)
+            await importCookiesToMCPRouter(userId, standardCookies);
             res.json({
                 success: true,
                 message: '自动检测并保存登录状态成功',
@@ -677,16 +692,17 @@ app.post('/agent/xiaohongshu/auto-login', async (req, res) => {
                     userId,
                     cookieCount: standardCookies.length,
                     source: 'browser_detection',
-                    encrypted: true
+                    encrypted: true,
+                    imported_to_mcp: true
                 }
             });
         }
         else {
-            // 自动检测失败，提供手动登录选项
-            console.log(`[XHS Auto Login] Auto detection failed: ${detectionResult.error}`);
+            // 所有方法失败，提供手动登录选项
+            console.log(`[XHS Auto Login] All detection methods failed: ${detectionResult.error}`);
             res.json({
                 success: false,
-                error: detectionResult.error,
+                error: detectionResult.error || 'All login methods failed',
                 needManualLogin: true,
                 loginInstructions: {
                     step1: '在浏览器中访问 https://www.xiaohongshu.com/login',
@@ -698,13 +714,30 @@ app.post('/agent/xiaohongshu/auto-login', async (req, res) => {
         }
     }
     catch (error) {
-        console.error('[XHS Auto Login] Error during auto login:', error.message);
+        console.error('[XHS Auto Login] Error during popup QR login:', error.message);
         res.status(500).json({
             success: false,
-            error: error.message || 'Auto login detection failed',
+            error: error.message || 'Popup QR login failed',
         });
     }
 });
+// 辅助方法：导入Cookie到MCP Router的cookies.json
+async function importCookiesToMCPRouter(userId, cookies) {
+    try {
+        const axios = await import('axios');
+        // 同步到MCP Router的import-cookies端点
+        await axios.default.post(`${MCP_ROUTER_URL}/api/xiaohongshu/login/import-cookies`, {
+            userId: userId,
+            cookies: cookies
+        }, { timeout: 10000 });
+        console.log(`[XHS Auto Login] Cookies successfully imported to MCP Router cookies.json for user ${userId}`);
+        return true;
+    }
+    catch (syncError) {
+        console.error(`[XHS Auto Login] Failed to import cookies to MCP Router:`, syncError.message);
+        return false;
+    }
+}
 // 小红书登录状态检查API
 app.get('/agent/xiaohongshu/login/status', async (req, res) => {
     try {

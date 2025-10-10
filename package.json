@@ -6,10 +6,12 @@
   "type": "module",
   "scripts": {
     "start": "bash start.sh",
+    "start:zeabur": "/app/start-zeabur-auto-cookie.sh",
     "dev": "bash start.sh",
     "build": "cd playwright-service/mcp-router && npm install --include=dev && npm run build && cd ../claude-agent-service && npm install --include=dev && npm run build",
     "dev:mcp": "cd playwright-service/mcp-router && npm run start:http",
-    "dev:claude": "cd playwright-service/claude-agent-service && npm start"
+    "dev:claude": "cd playwright-service/claude-agent-service && npm start",
+    "health": "curl -f http://localhost:${PORT:-3000}/health || exit 1"
   },
   "engines": {
     "node": ">=18.0.0"

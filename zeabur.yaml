@@ -1,0 +1,25 @@
+name: xiaohongshu-ai-automation
+services:
+  - name: main
+    source:
+      type: git
+    environment:
+      NODE_ENV: production
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      UNSPLASH_API_KEY: ${UNSPLASH_API_KEY}
+    # Zeabur 会自动设置 PORT
+    port: 3000
+    # 资源配置
+    resources:
+      memory: 2048Mi
+      cpu: 1000m
+    # 健康检查
+    healthcheck:
+      path: /health
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    # 启动命令（使用默认的 npm start）
+    build:
+      dockerfile: Dockerfile

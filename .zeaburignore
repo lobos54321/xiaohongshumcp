@@ -1,6 +1,48 @@
-# Zeabur deployment ignore file
+# Zeabur 部署时忽略的文件和目录
 
-# Go files (not needed for Node.js service)
+# 日志文件
+*.log
+logs/
+tmp/
+
+# 开发和测试文件
+.env.local
+.env.development
+test-*.js
+test-*.mjs
+test-*.cjs
+test/
+tests/
+*.test.js
+*.spec.js
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 测试和开发工具
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+
+# 本地cookies（生产环境会使用持久化存储）
+cookies/
+/Users/
+
+# Go 语言相关文件（这是 Node.js 项目）
 *.go
 go.mod
 go.sum
@@ -8,55 +50,22 @@ cmd/
 internal/
 pkg/
 
-# Documentation
-*.md
-docs/
-ZEABUR_ENV_SETUP.md
-
-# Development files
-.env*
-.git/
-.gitignore
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Logs
-logs/
-*.log
-
-# Test files
-test/
-tests/
-*.test.js
-*.spec.js
-
-# Other Dockerfiles (only use zeabur-simple)
-Dockerfile
+# 其他 Dockerfile（只使用生产版本）
 Dockerfile.debug
 Dockerfile.minimal
-Dockerfile.production
 Dockerfile.ultra
 Dockerfile.zeabur
 
-# MCP Router (not needed for demo mode)
-playwright-service/mcp-router/
+# 构建缓存
+.cache/
+dist/*.map
+*.tsbuildinfo
 
-# Build artifacts that will be rebuilt
-playwright-service/claude-agent-service/dist/
-playwright-service/claude-agent-service/node_modules/
+# Git 相关
+.git/
+.gitignore
 
-# Temporary files
-tmp/
-temp/
+# 文档（可选，如果不需要在生产环境中）
+docs/
+*.md
+ZEABUR_ENV_SETUP.md

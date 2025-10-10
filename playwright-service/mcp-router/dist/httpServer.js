@@ -142,7 +142,7 @@ app.post('/api/xiaohongshu/publish/video', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-// 便捷API：导入Cookie（解决登录问题）
+// 便捷API：导入Cookie（解决登录问题）- 增强版
 app.post('/api/xiaohongshu/login/import-cookies', async (req, res) => {
     try {
         const { userId, cookies } = req.body;
@@ -153,25 +153,93 @@ app.post('/api/xiaohongshu/login/import-cookies', async (req, res) => {
             return res.status(400).json({ error: 'cookies array is required' });
         }
         console.log(`[Cookie Import] Importing ${cookies.length} cookies for user ${userId}`);
-        // 直接写入cookie文件
+        // 验证Cookie质量 - 检查关键字段
+        const requiredCookies = ['a1', 'web_session'];
+        const availableCookies = cookies.map(c => c.name);
+        const missingCookies = requiredCookies.filter(name => !availableCookies.includes(name));
+        if (missingCookies.length > 0) {
+            console.warn(`[Cookie Import] Missing required cookies: ${missingCookies.join(', ')}`);
+            return res.status(400).json({
+                error: `Missing required cookies: ${missingCookies.join(', ')}`,
+                available: availableCookies,
+                required: requiredCookies
+            });
+        }
+        // 创建多级目录结构确保Cookie隔离
         const cookieDir = path.join(COOKIE_DIR, userId);
         const cookieFile = path.join(cookieDir, 'cookies.json');
+        const backupFile = path.join(cookieDir, `cookies_backup_${Date.now()}.json`);
         // 确保目录存在
         if (!fs.existsSync(cookieDir)) {
             fs.mkdirSync(cookieDir, { recursive: true });
+            console.log(`[Cookie Import] Created cookie directory: ${cookieDir}`);
         }
-        // 写入cookie
-        fs.writeFileSync(cookieFile, JSON.stringify(cookies, null, 2));
-        console.log(`[Cookie Import] Successfully imported cookies to ${cookieFile}`);
+        // 备份现有Cookie（如果存在）
+        if (fs.existsSync(cookieFile)) {
+            try {
+                fs.copyFileSync(cookieFile, backupFile);
+                console.log(`[Cookie Import] Backed up existing cookies to: ${backupFile}`);
+            }
+            catch (backupError) {
+                console.warn(`[Cookie Import] Failed to backup cookies: ${backupError instanceof Error ? backupError.message : String(backupError)}`);
+            }
+        }
+        // 标准化Cookie格式
+        const standardizedCookies = cookies.map(cookie => ({
+            name: cookie.name,
+            value: cookie.value,
+            domain: cookie.domain || '.xiaohongshu.com',
+            path: cookie.path || '/',
+            secure: cookie.secure !== false, // 默认为true
+            httpOnly: cookie.httpOnly || false,
+            sameSite: cookie.sameSite || 'Lax',
+            expires: cookie.expires, // 保留过期时间
+            priority: cookie.priority || 'Medium' // 默认优先级
+        }));
+        // 写入Cookie文件
+        fs.writeFileSync(cookieFile, JSON.stringify(standardizedCookies, null, 2));
+        console.log(`[Cookie Import] Successfully imported ${standardizedCookies.length} cookies to ${cookieFile}`);
+        // 同步到进程管理器 - 立即刷新对应用户的MCP进程
+        try {
+            await processManager.refreshUserCookies(userId, standardizedCookies);
+            console.log(`[Cookie Import] Successfully refreshed MCP process cookies for user ${userId}`);
+        }
+        catch (refreshError) {
+            console.warn(`[Cookie Import] Failed to refresh MCP process: ${refreshError instanceof Error ? refreshError.message : String(refreshError)}`);
+            // 不返回错误，因为文件写入已成功
+        }
+        // 验证Cookie有效性 - 尝试调用登录状态检查
+        try {
+            const validationResult = await processManager.callTool(userId, '/api/v1/login/status', 'GET');
+            if (validationResult && !validationResult.error) {
+                console.log(`[Cookie Import] Cookie validation successful for user ${userId}`);
+            }
+            else {
+                console.warn(`[Cookie Import] Cookie validation failed: ${validationResult?.error || 'Unknown error'}`);
+            }
+        }
+        catch (validationError) {
+            console.warn(`[Cookie Import] Cookie validation error: ${validationError instanceof Error ? validationError.message : String(validationError)}`);
+        }
         res.json({
             success: true,
-            message: `Successfully imported ${cookies.length} cookies`,
-            cookieFile: cookieFile
+            message: `Successfully imported ${standardizedCookies.length} cookies`,
+            data: {
+                userId,
+                cookieCount: standardizedCookies.length,
+                cookieFile: cookieFile,
+                backupFile: fs.existsSync(backupFile) ? backupFile : null,
+                requiredCookiesPresent: requiredCookies.every(name => availableCookies.includes(name)),
+                timestamp: new Date().toISOString()
+            }
         });
     }
     catch (error) {
         console.error('[Cookie Import] Error:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({
+            error: error.message,
+            timestamp: new Date().toISOString()
+        });
     }
 });
 // 便捷API：搜索内容
