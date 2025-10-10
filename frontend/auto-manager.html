@@ -44,19 +44,28 @@
                     </div>
                     <div id="loginActions" class="hidden">
                         <div class="bg-orange-50 p-4 rounded-lg mb-4">
-                            <p class="text-orange-800 font-medium mb-2">❗ 尚未登录小红书</p>
-                            <p class="text-orange-700 text-sm">请先扫码登录小红书，才能开始自动运营</p>
+                            <p class="text-orange-800 font-medium mb-2">❗ 尚未检测到登录状态</p>
+                            <p class="text-orange-700 text-sm">请先登录小红书，系统将自动检测并保存登录状态</p>
                         </div>
 
                         <div class="space-y-3">
-                            <button onclick="getLoginQR()" class="w-full bg-red-500 hover:bg-red-600 text-white font-medium py-3 px-6 rounded-lg transition">
-                                📱 扫码登录小红书
+                            <button onclick="autoDetectLogin()" class="w-full bg-green-500 hover:bg-green-600 text-white font-medium py-3 px-6 rounded-lg transition">
+                                🔍 智能检测登录状态
                             </button>
-                            <button onclick="showCookieImport()" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 px-6 rounded-lg transition">
-                                🍪 导入浏览器Cookie（快速登录）
+                            <button onclick="openXHSLogin()" class="w-full bg-red-500 hover:bg-red-600 text-white font-medium py-3 px-6 rounded-lg transition">
+                                🚀 在新窗口登录小红书
                             </button>
-                            <div id="qrCodeArea" class="w-48 h-48 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center text-gray-400 mx-auto">
-                                点击上方按钮获取二维码或导入Cookie
+                            <button onclick="showManualCookieInput()" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 px-6 rounded-lg transition">
+                                📋 手动导入Cookie
+                            </button>
+                            <div id="detectionArea" class="w-full p-4 border-2 border-dashed border-gray-300 rounded-lg text-center text-gray-400">
+                                <div class="mb-2">💡 使用说明</div>
+                                <div class="text-sm text-left">
+                                    <div>1. 点击"在新窗口登录"或手动访问 xiaohongshu.com</div>
+                                    <div>2. 完成登录操作</div>
+                                    <div>3. 点击"智能检测"自动保存登录状态</div>
+                                    <div>4. 或使用"手动导入Cookie"选项</div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -262,8 +271,8 @@
         const CLAUDE_API = (() => {
             // 检查是否为本地开发环境
             if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-                // 本地开发：使用localhost:8080
-                return 'http://localhost:8080';
+                // 本地开发：使用localhost:4000 (Claude Agent Service端口)
+                return 'http://localhost:4000';
             } else {
                 // 生产环境：使用当前域名和端口
                 return window.location.origin;
@@ -306,19 +315,12 @@
 
         async function checkLoginOnLoad() {
             try {
-                const response = await fetch(`${CLAUDE_API}/agent/chat`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        userId: currentUser,
-                        prompt: '检查登录状态'
-                    })
-                });
-
+                // 使用专门的登录状态检查端点
+                const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/login/status?userId=${currentUser}`);
                 const data = await response.json();
                 console.log('登录状态检查结果:', data);
 
-                if (data.success && !data.data.content.includes('请先登录')) {
+                if (data.success && data.data && data.data.logged_in === true) {
                     // 已经登录，检查是否已有配置
                     document.getElementById('loginStatus').innerHTML =
                         '<span class="text-green-600 text-xl">✅ 已登录成功！</span>';
@@ -389,10 +391,21 @@
             }
         }
 
-        // 获取登录二维码
-        async function getLoginQR() {
+        // 自动检测登录状态
+        async function autoDetectLogin() {
             try {
-                const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/login`, {
+                console.log('🔍 开始自动检测登录状态...');
+
+                // 显示检测中状态
+                document.getElementById('detectionArea').innerHTML = `
+                    <div class="text-center py-4">
+                        <div class="loading mx-auto mb-2"></div>
+                        <div class="text-blue-600 font-medium">🔍 正在智能检测登录状态...</div>
+                        <div class="text-blue-500 text-sm mt-1">请稍等，系统正在自动获取登录信息</div>
+                    </div>
+                `;
+
+                const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/auto-login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -401,71 +414,76 @@
                 });
 
                 const data = await response.json();
-                if (data.success) {
-                    // 检查是否有真正的二维码
-                    if (data.data && data.data.qr_code && !data.data.demo_mode) {
-                        // 显示真正的二维码
-                        document.getElementById('qrCodeArea').innerHTML =
-                            `<div class="text-center">
-                                <div class="mb-4">
-                                    <img src="${data.data.qr_code}" alt="小红书登录二维码" class="w-48 h-48 mx-auto border-2 border-gray-300 rounded-lg">
-                                </div>
-                                <div class="text-sm text-green-600 mb-3">
-                                    ✅ 请使用小红书 App 扫描上方二维码
-                                </div>
-                                <div class="text-xs text-gray-600 bg-gray-50 p-3 rounded">
-                                    <div>📱 打开小红书 App</div>
-                                    <div>🔍 点击扫一扫功能</div>
-                                    <div>📸 扫描上方二维码</div>
-                                    <div>✅ 确认登录</div>
-                                </div>
-                                <button onclick="checkLoginStatus()" class="mt-3 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 text-sm">
-                                    🔄 检查登录状态
-                                </button>
-                            </div>`;
-                    } else {
-                        // 演示模式或API错误，显示手动登录指引
-                        document.getElementById('qrCodeArea').innerHTML =
-                            `<div class="text-center">
-                                <div class="w-32 h-32 bg-orange-100 mx-auto mb-4 flex items-center justify-center text-xs border-2 border-orange-300 rounded-lg">
-                                    <div class="text-orange-600">
-                                        <div>⚠️ 服务</div>
-                                        <div>启动中</div>
-                                    </div>
-                                </div>
-                                <div class="text-sm text-orange-600 mb-3">
-                                    ${data.data && data.data.demo_mode ? '演示模式 - MCP Router 启动中' : 'QR 服务正在初始化'}
-                                </div>
-                                <button onclick="openXHSLogin()" class="w-full bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg transition mb-3 text-sm">
-                                    🚀 手动登录小红书
-                                </button>
-                                <div class="text-xs text-gray-600">
-                                    <div class="mb-2">临时解决方案：手动登录</div>
-                                    <div class="text-left text-xs bg-gray-50 p-2 rounded">
-                                        <div>1. 🔗 点击上方按钮</div>
-                                        <div>2. 📱 在新窗口中登录</div>
-                                        <div>3. ✅ 完成后关闭窗口</div>
-                                        <div>4. 🎯 返回继续使用</div>
-                                    </div>
-                                </div>
-                            </div>`;
+                console.log('自动登录检测结果:', data);
 
-                    // 添加"已完成登录"按钮
-                    setTimeout(() => {
-                        document.getElementById('qrCodeArea').innerHTML +=
-                            `<div class="mt-3">
-                                <button onclick="confirmLogin()" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 text-sm">
-                                    ✓ 我已在新窗口完成登录
+                if (data.success) {
+                    if (data.status === 'already_logged_in') {
+                        // 已有有效登录状态
+                        document.getElementById('detectionArea').innerHTML = `
+                            <div class="bg-green-50 p-4 rounded-lg">
+                                <div class="text-green-600 text-lg mb-2">✅ 检测到有效登录状态</div>
+                                <div class="text-green-700 text-sm">无需重新登录，可以直接使用</div>
+                            </div>
+                        `;
+
+                        // 更新页面状态为已登录
+                        setTimeout(() => {
+                            confirmLogin();
+                        }, 1500);
+
+                    } else if (data.status === 'auto_detected') {
+                        // 自动检测并保存成功
+                        document.getElementById('detectionArea').innerHTML = `
+                            <div class="bg-green-50 p-4 rounded-lg">
+                                <div class="text-green-600 text-lg mb-2">✅ 自动检测成功</div>
+                                <div class="text-green-700 text-sm mb-2">已检测到 ${data.data.cookieCount} 个登录凭证</div>
+                                <div class="text-green-600 text-xs">✅ 已加密保存，可以开始使用</div>
+                            </div>
+                        `;
+
+                        // 更新页面状态为已登录
+                        setTimeout(() => {
+                            confirmLogin();
+                        }, 1500);
+
+                    } else {
+                        // 检测失败，需要手动登录
+                        document.getElementById('detectionArea').innerHTML = `
+                            <div class="bg-orange-50 p-4 rounded-lg">
+                                <div class="text-orange-600 text-lg mb-2">⚠️ 未检测到登录状态</div>
+                                <div class="text-orange-700 text-sm mb-3">请先完成登录后再次检测</div>
+                                <button onclick="openXHSLogin()" class="w-full bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded-lg mb-2">
+                                    🚀 在新窗口登录
                                 </button>
-                            </div>`;
-                    }, 1000);
+                                <button onclick="autoDetectLogin()" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg">
+                                    🔄 重新检测
+                                </button>
+                            </div>
+                        `;
                     }
                 } else {
-                    alert('启动登录失败: ' + (data.error || '未知错误'));
+                    // 检测出错
+                    document.getElementById('detectionArea').innerHTML = `
+                        <div class="bg-red-50 p-4 rounded-lg">
+                            <div class="text-red-600 text-lg mb-2">❌ 检测失败</div>
+                            <div class="text-red-700 text-sm mb-3">${data.error || '自动检测遇到问题'}</div>
+                            <button onclick="autoDetectLogin()" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg">
+                                🔄 重新检测
+                            </button>
+                        </div>
+                    `;
                 }
             } catch (error) {
-                console.error('获取二维码失败:', error);
-                alert('获取二维码失败，请重试');
+                console.error('自动检测登录失败:', error);
+                document.getElementById('detectionArea').innerHTML = `
+                    <div class="bg-red-50 p-4 rounded-lg">
+                        <div class="text-red-600 text-lg mb-2">❌ 网络错误</div>
+                        <div class="text-red-700 text-sm mb-3">请检查网络连接后重试</div>
+                        <button onclick="autoDetectLogin()" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg">
+                            🔄 重新检测
+                        </button>
+                    </div>
+                `;
             }
         }
 
@@ -979,134 +997,34 @@
             alert('功能开发中...');
         }
 
-        // 显示Cookie导入界面
-        function showCookieImport() {
-            document.getElementById('qrCodeArea').innerHTML = `
-                <div class="text-center w-full">
-                    <div class="bg-blue-50 p-4 rounded-lg mb-4">
-                        <h3 class="font-bold text-blue-800 mb-2">🍪 导入浏览器Cookie</h3>
-                        <p class="text-blue-700 text-sm mb-3">将您的小红书登录状态同步到系统</p>
-                    </div>
-
-                    <div class="text-left bg-gray-50 p-3 rounded text-xs mb-4">
-                        <div class="font-medium mb-2">📋 操作步骤：</div>
-                        <div>1. 在新标签页打开 xiaohongshu.com</div>
-                        <div>2. 确保已登录状态</div>
-                        <div>3. 按F12打开开发者工具</div>
-                        <div>4. 在控制台粘贴并执行下方代码</div>
-                        <div>5. 复制输出结果，粘贴到下方输入框</div>
-                    </div>
-
-                    <div class="bg-black text-green-400 p-2 rounded text-xs mb-3 font-mono text-left overflow-x-auto">
-copy(document.cookie.split(';').map(c => {
-  const [name, value] = c.trim().split('=');
-  return {
-    name: name, value: value, domain: '.xiaohongshu.com',
-    path: '/', httpOnly: false, secure: true, sameSite: 'Lax'
-  };
-}).filter(c => c.name && c.value));
-                    </div>
-
-                    <textarea id="cookieInput" placeholder="请粘贴从控制台复制的Cookie数据..."
-                        class="w-full h-24 p-2 border rounded text-xs mb-3"></textarea>
-
-                    <div class="space-y-2">
-                        <button onclick="importCookies()"
-                            class="w-full bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded transition text-sm">
-                            ✅ 导入Cookie并登录
-                        </button>
-                        <button onclick="getLoginQR()"
-                            class="w-full bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded transition text-sm">
-                            ← 返回QR码登录
-                        </button>
-                    </div>
-                </div>
-            `;
-        }
-
-        // 导入Cookie
-        async function importCookies() {
-            const cookieText = document.getElementById('cookieInput').value.trim();
-
-            if (!cookieText) {
-                alert('请先输入Cookie数据');
-                return;
-            }
-
-            try {
-                // 尝试解析Cookie数据
-                let cookies;
-                try {
-                    cookies = JSON.parse(cookieText);
-                } catch (e) {
-                    // 如果不是JSON，尝试解析为原始cookie字符串
-                    cookies = cookieText.split(';').map(c => {
-                        const [name, value] = c.trim().split('=');
-                        return {
-                            name: name,
-                            value: value,
-                            domain: '.xiaohongshu.com',
-                            path: '/',
-                            httpOnly: false,
-                            secure: true,
-                            sameSite: 'Lax'
-                        };
-                    }).filter(c => c.name && c.value);
-                }
-
-                if (!Array.isArray(cookies) || cookies.length === 0) {
-                    alert('Cookie数据格式不正确，请检查输入');
-                    return;
-                }
-
-                console.log('🍪 正在导入Cookie...', cookies.length, '个');
-
-                // 调用Cookie导入API
-                const response = await fetch(`${CLAUDE_API}/api/xiaohongshu/login/import-cookies`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        userId: currentUser,
-                        cookies: cookies
-                    })
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    console.log('✅ Cookie导入成功');
-
-                    // 显示成功状态
-                    document.getElementById('qrCodeArea').innerHTML = `
-                        <div class="text-center">
-                            <div class="bg-green-50 p-4 rounded-lg">
-                                <div class="text-green-600 text-lg mb-2">✅ Cookie导入成功</div>
-                                <div class="text-green-700 text-sm mb-3">已导入 ${cookies.length} 个Cookie</div>
-                                <div class="text-xs text-gray-600">正在验证登录状态...</div>
-                            </div>
-                        </div>
-                    `;
-
-                    // 等待一下然后检查登录状态
-                    setTimeout(async () => {
-                        await checkLoginStatus();
-                    }, 2000);
-
-                } else {
-                    alert('Cookie导入失败: ' + result.error);
-                }
-
-            } catch (error) {
-                console.error('Cookie导入错误:', error);
-                alert('Cookie导入失败: ' + error.message);
-            }
-        }
-
         // 清除小红书Cookie
-        function clearXHSCookies() {
-            if (confirm('确定要清除浏览器中的小红书Cookie吗？这将退出当前登录状态。')) {
+        async function clearXHSCookies() {
+            if (confirm('确定要清除登录状态吗？这将退出当前登录并重新开始登录流程。')) {
                 try {
-                    // 清除所有小红书相关的cookie
+                    console.log('🧹 正在清除登录状态...');
+
+                    // 调用后端清除Cookie API
+                    const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/logout`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ userId: currentUser })
+                    });
+
+                    if (response.ok) {
+                        console.log('✅ 后端登录状态已清除');
+                    } else {
+                        console.warn('⚠️ 后端清除可能不完整，继续前端清除');
+                    }
+
+                    // 清除本地存储
+                    localStorage.removeItem('xiaohongshu_loginStatus');
+                    localStorage.removeItem('xiaohongshu_autoLoginEnabled');
+                    localStorage.removeItem('xiaohongshu_userId'); // 清除用户ID，强制重新生成
+                    sessionStorage.clear();
+
+                    // 清除所有可能的cookie
                     document.cookie.split(';').forEach(cookie => {
                         const eqPos = cookie.indexOf('=');
                         const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim();
@@ -1114,14 +1032,15 @@ copy(document.cookie.split(';').map(c => {
                         document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.xiaohongshu.com`;
                         document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=xiaohongshu.com`;
                         document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+                        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT`;
                     });
 
-                    alert('Cookie已清除，页面即将刷新');
+                    alert('登录状态已清除！页面即将刷新，您可以重新进行登录。');
                     // 刷新页面
                     location.reload();
                 } catch (error) {
-                    console.error('清除Cookie失败:', error);
-                    alert('清除Cookie时出现错误，请手动刷新页面');
+                    console.error('清除登录状态失败:', error);
+                    alert('清除登录状态时出现错误，请手动刷新页面重试');
                 }
             }
         }

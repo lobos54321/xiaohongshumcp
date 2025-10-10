@@ -2,48 +2,17 @@
 FROM node:18-slim
 
 # 强制重建所有Docker层 - 解决缓存问题
-ARG CACHEBUST=production-v4-claude-agent
-RUN echo "Force rebuild CLAUDE AGENT at $(date)" > /tmp/rebuild.txt
+ARG CACHEBUST=production-v5-auto-cookie-detection
+RUN echo "Force rebuild AUTO COOKIE SYSTEM at $(date)" > /tmp/rebuild.txt
 
-# 安装必要的系统依赖，包括Chromium和虚拟显示用于QR登录
+# 安装必要的系统依赖（移除浏览器相关依赖）
 RUN apt-get update && apt-get install -y \
     wget \
     curl \
     ca-certificates \
     python3 \
     procps \
-    chromium \
-    fonts-liberation \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libatspi2.0-0 \
-    libcups2 \
-    libdbus-1-3 \
-    libdrm2 \
-    libgtk-3-0 \
-    libnspr4 \
-    libnss3 \
-    libwayland-client0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxkbcommon0 \
-    libxrandr2 \
-    xdg-utils \
-    libu2f-udev \
-    libvulkan1 \
-    xvfb \
     && rm -rf /var/lib/apt/lists/*
-
-# 设置Chromium环境变量（关键：解决QR登录问题）
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV ROD_BROWSER_BIN=/usr/bin/chromium
-ENV CHROMIUM_NO_SANDBOX=true
-# 优化Chrome性能，解决QR登录超时
-ENV ROD_BROWSER_ARGS="--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-gpu,--no-first-run,--no-zygote,--single-process,--disable-extensions,--disable-plugins,--disable-background-timer-throttling,--disable-backgrounding-occluded-windows,--disable-renderer-backgrounding,--disable-features=TranslateUI,--disable-web-security,--disable-features=VizDisplayCompositor,--timeout=60000"
-ENV DISPLAY=:99
 
 # 设置工作目录
 WORKDIR /app
@@ -99,14 +68,13 @@ RUN set -e && \
     ls -lh /app/playwright-service/mcp-router/xiaohongshu-mcp && \
     rm /tmp/xiaohongshu-mcp.tar.gz
 
-# 第七步：创建Zeabur专用启动脚本（部署Claude Agent Service + MCP Router）
+# 第七步：创建Zeabur专用启动脚本（自动Cookie检测版本）
 RUN echo '#!/bin/bash\n\
 set -e\n\
-echo "🚀 Starting Xiaohongshu AI Auto-Management System for Zeabur..."\n\
+echo "🚀 Starting Xiaohongshu AI Auto-Management System with Auto Cookie Detection..."\n\
 echo "📊 Environment:"\n\
 echo "  NODE_ENV: $NODE_ENV"\n\
 echo "  PORT: $PORT"\n\
-echo "  ROD_BROWSER_BIN: $ROD_BROWSER_BIN"\n\
 echo "  COOKIES_PATH: $COOKIES_PATH"\n\
 echo "  PWD: $(pwd)"\n\
 echo "  USER: $(whoami)"\n\
@@ -137,24 +105,15 @@ else\n\
     exit 1\n\
 fi\n\
 \n\
-# 检查Chromium\n\
-echo "🌐 Browser Check:"\n\
-if [ -f /usr/bin/chromium ]; then\n\
-    echo "  ✅ Chromium available for QR login"\n\
-else\n\
-    echo "  ❌ Chromium missing! QR login will fail."\n\
-    exit 1\n\
-fi\n\
-\n\
 # 创建数据目录结构\n\
-mkdir -p /app/data/cookies \\\n\
-         /app/playwright-service/mcp-router/cookies \\\n\
+mkdir -p /app/data/cookies \\\\\n\
+         /app/playwright-service/mcp-router/cookies \\\\\n\
          /app/playwright-service/claude-agent-service/cookies\n\
 echo "📁 Data directories created"\n\
 \n\
 # 初始化cookies文件\n\
-for path in "/app/data/cookies.json" \\\n\
-           "/app/playwright-service/mcp-router/cookies.json" \\\n\
+for path in "/app/data/cookies.json" \\\\\n\
+           "/app/playwright-service/mcp-router/cookies.json" \\\\\n\
            "/app/playwright-service/claude-agent-service/cookies.json"; do\n\
     if [ ! -f "$path" ]; then\n\
         echo "[]" > "$path"\n\
@@ -162,26 +121,11 @@ for path in "/app/data/cookies.json" \\\n\
     fi\n\
 done\n\
 \n\
-echo "🌐 Starting Zeabur Production Services..."\n\
-\n\
-# 启动虚拟显示服务（关键：解决Chrome QR登录问题）\n\
-echo "🖥️  Starting virtual display..."\n\
-# 在Zeabur环境中，虚拟显示可能不可用，增加错误处理\n\
-if command -v Xvfb >/dev/null 2>&1; then\n\
-    Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &\n\
-    XVFB_PID=$!\n\
-    echo "📍 Xvfb PID: $XVFB_PID"\n\
-    sleep 2\n\
-else\n\
-    echo "⚠️  Xvfb not available in this environment, continuing without virtual display"\n\
-fi\n\
+echo "🌐 Starting Auto Cookie Detection Services..."\n\
 \n\
 # 设置全局环境变量\n\
-export ROD_BROWSER_BIN=/usr/bin/chromium\n\
-export CHROMIUM_NO_SANDBOX=true\n\
 export COOKIES_PATH=/app/data/cookies.json\n\
 export MCP_ROUTER_URL=http://localhost:3001\n\
-export DISPLAY=:99\n\
 \n\
 # 启动MCP二进制服务 (port 18070)\n\
 echo "🔧 [1/3] Starting xiaohongshu-mcp binary..."\n\
@@ -264,17 +208,17 @@ echo "  ✅ Claude Agent Service: Running (port 3000)"\n\
 echo ""\n\
 echo "🎉 All services started successfully!"\n\
 echo "🌐 API Endpoints:"\n\
-echo "  • QR Login: /api/xiaohongshu/login/qrcode"\n\
+echo "  • Auto Login: /agent/xiaohongshu/auto-login"\n\
 echo "  • Login Status: /api/xiaohongshu/login/status"\n\
 echo "  • AI Auto Start: /agent/auto/start"\n\
 echo "  • AI Auto Strategy: /agent/auto/strategy/:userId"\n\
 echo "  • Health Check: /health"\n\
 echo ""\n\
-echo "📡 Ready for AI-powered xiaohongshu automation!"\n\
+echo "📡 Ready for AI-powered xiaohongshu automation with Auto Cookie Detection!"\n\
 \n\
 # 等待主服务进程\n\
-wait $AGENT_PID' > /app/start-zeabur-claude-agent.sh && \
-    chmod +x /app/start-zeabur-claude-agent.sh
+wait $AGENT_PID' > /app/start-zeabur-auto-cookie.sh && \
+    chmod +x /app/start-zeabur-auto-cookie.sh
 
 # 暴露端口
 EXPOSE 3000
@@ -283,8 +227,6 @@ EXPOSE 3000
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV COOKIES_PATH=/app/data/cookies.json
-ENV ROD_BROWSER_BIN=/usr/bin/chromium
-ENV CHROMIUM_NO_SANDBOX=true
 ENV MCP_ROUTER_URL=http://localhost:3001
 
 # 性能优化环境变量
@@ -301,5 +243,5 @@ VOLUME ["/app/data"]
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:3000/health || curl -f http://localhost:3000/api/xiaohongshu/login/status || exit 1
 
-# 启动应用 - 使用新的启动脚本
-CMD ["/app/start-zeabur-claude-agent.sh"]
+# 启动应用 - 使用新的自动Cookie检测启动脚本
+CMD ["/app/start-zeabur-auto-cookie.sh"]

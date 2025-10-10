@@ -163,7 +163,7 @@ export class AutoCookieDetector {
           // 使用sqlite3来查询Cookie数据库
           try {
             // 修改查询格式，使用CSV分隔符
-            const query = `SELECT name, value, host_key, path FROM cookies WHERE host_key LIKE '%xiaohongshu.com%' AND value IS NOT NULL AND value != '';`;
+            const query = `SELECT name, value, host_key, path FROM cookies WHERE host_key LIKE '%xiaohongshu.com%' AND value IS NOT NULL AND length(value) > 0;`;
             const { stdout } = await execAsync(`sqlite3 -csv "${cookiePath}" "${query}"`);
 
             if (stdout.trim()) {

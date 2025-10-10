@@ -90,8 +90,9 @@ app.get('/api', (_req: Request, res: Response) => {
       autoResume: 'POST /agent/auto/resume/:userId - 恢复自动运营',
       // 图片生成API
       generateImage: 'POST /agent/image/generate - 生成图片 {prompt, style?, aspectRatio?}',
-      // 小红书登录API
-      xiaohongshuLogin: 'POST /agent/xiaohongshu/login - 启动小红书登录 {userId}',
+      // 小红书自动登录API
+      xiaohongshuAutoLogin: 'POST /agent/xiaohongshu/auto-login - 自动检测并保存登录状态 {userId}',
+      xiaohongshuLoginStatus: 'GET /agent/xiaohongshu/login/status - 检查登录状态 {userId}',
     },
     documentation: 'https://github.com/lobos54321/xiaohongshumcp',
   });
@@ -677,8 +678,8 @@ app.post('/agent/image/generate-batch', async (req: Request, res: Response) => {
   }
 });
 
-// 小红书登录API - 获取登录二维码
-app.post('/agent/xiaohongshu/login', async (req: Request, res: Response) => {
+// 小红书弹窗扫码自动登录API - 升级版方案一
+app.post('/agent/xiaohongshu/auto-login', async (req: Request, res: Response) => {
   try {
     const { userId } = req.body;
 
@@ -689,48 +690,168 @@ app.post('/agent/xiaohongshu/login', async (req: Request, res: Response) => {
       });
     }
 
-    console.log(`[XHS Login] Requesting QR code for user ${userId}`);
+    console.log(`[XHS Auto Login] Starting popup QR code login for user ${userId}`);
 
+    // 导入Cookie检测服务
+    const { AutoCookieDetector } = await import('./autoCookieDetector.js');
+    const { CookieManager } = await import('./cookieManager.js');
+
+    const cookieDetector = new AutoCookieDetector();
+    const cookieManager = new CookieManager();
+
+    // 首先检查是否已有有效Cookie
+    const existingCookies = await cookieManager.getCookies(userId);
+    if (existingCookies && existingCookies.length > 0) {
+      console.log(`[XHS Auto Login] User ${userId} already has valid cookies`);
+
+      // 验证Cookie是否仍然有效
+      try {
+        const axios = await import('axios');
+        const testResponse = await axios.default.get(
+          `${MCP_ROUTER_URL}/api/xiaohongshu/login/status?userId=${userId}`,
+          { timeout: 5000 }
+        );
+
+        if (testResponse.data && !testResponse.data.error) {
+          return res.json({
+            success: true,
+            message: '已检测到有效登录状态',
+            status: 'already_logged_in',
+            data: { userId, loginValid: true }
+          });
+        }
+      } catch (testError) {
+        console.warn(`[XHS Auto Login] Existing cookies may be invalid:`, testError);
+      }
+    }
+
+    // 启动弹窗扫码登录流程
+    console.log(`[XHS Auto Login] Starting popup QR code login process...`);
+
+    // 步骤1: 调用MCP Router获取QR码
     try {
-      // 首先检查MCP Router是否可用
       const axios = await import('axios');
-      await axios.default.get(`${MCP_ROUTER_URL}/health`, { timeout: 5000 });
-
-      // MCP Router可用，调用真实的API
-      const response = await axios.default.get(
+      const qrResponse = await axios.default.get(
         `${MCP_ROUTER_URL}/api/xiaohongshu/login/qrcode?userId=${userId}`,
         { timeout: 10000 }
       );
 
-      console.log(`[XHS Login] QR code received for user ${userId}`);
+      if (qrResponse.data && qrResponse.data.qrcode_url) {
+        console.log(`[XHS Auto Login] QR code generated successfully`);
+
+        // 返回QR码给前端，前端弹窗显示
+        return res.json({
+          success: true,
+          message: '请扫码登录',
+          status: 'qr_code_generated',
+          data: {
+            userId,
+            qrcode_url: qrResponse.data.qrcode_url,
+            instructions: '请使用小红书App扫描二维码完成登录',
+            polling_endpoint: `/agent/xiaohongshu/login/status?userId=${userId}`
+          }
+        });
+      }
+    } catch (qrError: any) {
+      console.warn(`[XHS Auto Login] QR code generation failed:`, qrError.message);
+    }
+
+    // 步骤2: 如果QR码失败，尝试自动检测浏览器Cookie
+    console.log(`[XHS Auto Login] Fallback to browser cookie detection...`);
+    const detectionResult = await cookieDetector.autoDetectCookies();
+
+    if (detectionResult.success && detectionResult.cookies) {
+      console.log(`[XHS Auto Login] Successfully detected ${detectionResult.cookies.length} cookies`);
+
+      // 验证检测到的Cookie
+      const isValid = cookieDetector.validateCookies(detectionResult.cookies);
+      if (!isValid) {
+        return res.json({
+          success: false,
+          error: 'Detected cookies are missing required fields (a1, web_session)',
+          needManualLogin: true
+        });
+      }
+
+      // 转换为标准格式
+      const standardCookies = detectionResult.cookies.map(cookie => ({
+        name: cookie.name,
+        value: cookie.value,
+        domain: cookie.domain || '.xiaohongshu.com',
+        path: cookie.path || '/',
+        secure: true,
+        httpOnly: false,
+        sameSite: 'Lax' as const
+      }));
+
+      // 步骤3: AES-256加密保存到本地
+      await cookieManager.saveCookies(userId, standardCookies);
+      console.log(`[XHS Auto Login] Cookies encrypted and saved for user ${userId}`);
+
+      // 步骤4: 自动导入到cookies.json (MCP Router)
+      await this.importCookiesToMCPRouter(userId, standardCookies);
 
       res.json({
         success: true,
-        message: '登录二维码已生成',
-        data: response.data
-      });
-    } catch (mcpError: any) {
-      console.warn(`[XHS Login] MCP Router unavailable (${mcpError.message}), using demo mode`);
-
-      // MCP Router不可用，返回演示模式的二维码
-      res.json({
-        success: true,
-        message: '演示模式：请使用手机扫描二维码登录小红书',
+        message: '自动检测并保存登录状态成功',
+        status: 'auto_detected',
         data: {
-          qr_code: 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https://www.xiaohongshu.com/explore',
-          message: '演示模式 - 这是一个示例二维码',
-          demo_mode: true
+          userId,
+          cookieCount: standardCookies.length,
+          source: 'browser_detection',
+          encrypted: true,
+          imported_to_mcp: true
+        }
+      });
+
+    } else {
+      // 所有方法失败，提供手动登录选项
+      console.log(`[XHS Auto Login] All detection methods failed: ${detectionResult.error}`);
+
+      res.json({
+        success: false,
+        error: detectionResult.error || 'All login methods failed',
+        needManualLogin: true,
+        loginInstructions: {
+          step1: '在浏览器中访问 https://www.xiaohongshu.com/login',
+          step2: '完成登录',
+          step3: '再次点击"检测登录状态"',
+          autoRetrySeconds: 30
         }
       });
     }
+
   } catch (error: any) {
-    console.error('[XHS Login] Error getting QR code:', error.message);
+    console.error('[XHS Auto Login] Error during popup QR login:', error.message);
     res.status(500).json({
       success: false,
-      error: error.message || 'Failed to get login QR code',
+      error: error.message || 'Popup QR login failed',
     });
   }
 });
+
+// 辅助方法：导入Cookie到MCP Router的cookies.json
+async function importCookiesToMCPRouter(userId: string, cookies: any[]) {
+  try {
+    const axios = await import('axios');
+
+    // 同步到MCP Router的import-cookies端点
+    await axios.default.post(
+      `${MCP_ROUTER_URL}/api/xiaohongshu/login/import-cookies`,
+      {
+        userId: userId,
+        cookies: cookies
+      },
+      { timeout: 10000 }
+    );
+
+    console.log(`[XHS Auto Login] Cookies successfully imported to MCP Router cookies.json for user ${userId}`);
+    return true;
+  } catch (syncError: any) {
+    console.error(`[XHS Auto Login] Failed to import cookies to MCP Router:`, syncError.message);
+    return false;
+  }
+}
 
 // 小红书登录状态检查API
 app.get('/agent/xiaohongshu/login/status', async (req: Request, res: Response) => {
@@ -777,6 +898,80 @@ app.get('/agent/xiaohongshu/login/status', async (req: Request, res: Response) =
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to check login status',
+    });
+  }
+});
+
+// 小红书登出API
+app.post('/agent/xiaohongshu/logout', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required',
+      });
+    }
+
+    console.log(`[XHS Logout] Processing logout request for user ${userId}`);
+
+    try {
+      // 调用 MCP Router 清除登录状态
+      const axios = await import('axios');
+      const response = await axios.default.post(
+        `${MCP_ROUTER_URL}/api/xiaohongshu/logout`,
+        { userId },
+        {
+          timeout: 5000,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+
+      console.log(`[XHS Logout] MCP Router logout response:`, response.status);
+
+      res.json({
+        success: true,
+        message: 'Logout successful',
+        data: response.data
+      });
+    } catch (mcpError: any) {
+      console.warn(`[XHS Logout] MCP Router unavailable (${mcpError.message}), proceeding with local logout`);
+
+      // MCP Router不可用，清除本地数据
+      try {
+        // 导入Cookie管理器清除Cookie
+        const { CookieManager } = await import('./cookieManager.js');
+        const cookieManager = new CookieManager();
+        await cookieManager.deleteCookies(userId);
+
+        // 清除用户配置数据
+        const fs = await import('fs');
+        const path = await import('path');
+        const userDataPath = path.join(process.cwd(), 'data', `${userId}.json`);
+        if (fs.existsSync(userDataPath)) {
+          await fs.promises.unlink(userDataPath);
+          console.log(`[XHS Logout] Deleted user data file: ${userDataPath}`);
+        }
+      } catch (localError: any) {
+        console.error(`[XHS Logout] Local cleanup error:`, localError.message);
+      }
+
+      res.json({
+        success: true,
+        message: 'Local logout completed',
+        data: {
+          logged_out: true,
+          message: '本地登录状态已清除',
+          user_id: userId
+        }
+      });
+    }
+  } catch (error: any) {
+    console.error('[XHS Logout] Error processing logout:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to logout',
     });
   }
 });

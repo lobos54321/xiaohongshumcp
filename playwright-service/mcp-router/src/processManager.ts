@@ -242,6 +242,80 @@ export class XiaohongshuMCPProcessManager {
   }
 
   /**
+   * 刷新用户Cookie - 重启对应的MCP进程使用新Cookie
+   */
+  async refreshUserCookies(userId: string, cookies?: any[]): Promise<void> {
+    console.log(`[ProcessManager] Refreshing cookies for user ${userId}`);
+
+    try {
+      // 如果提供了cookies，先写入文件
+      if (cookies && cookies.length > 0) {
+        const userCookieDir = path.join(this.cookieDir, userId);
+        const cookieFile = path.join(userCookieDir, 'cookies.json');
+
+        // 确保用户目录存在
+        if (!fs.existsSync(userCookieDir)) {
+          fs.mkdirSync(userCookieDir, { recursive: true });
+        }
+
+        // 写入新的cookies
+        fs.writeFileSync(cookieFile, JSON.stringify(cookies, null, 2));
+        console.log(`[ProcessManager] Updated cookie file: ${cookieFile}`);
+      }
+
+      // 检查是否有运行中的进程
+      const managedProcess = this.processes.get(userId);
+      if (managedProcess) {
+        console.log(`[ProcessManager] Killing existing process for user ${userId} on port ${managedProcess.port}`);
+
+        // 清理定时器
+        if (managedProcess.cleanupTimer) {
+          clearTimeout(managedProcess.cleanupTimer);
+        }
+
+        // 终止进程
+        if (managedProcess.process && !managedProcess.process.killed) {
+          managedProcess.process.kill('SIGTERM');
+
+          // 等待进程优雅退出
+          await new Promise(resolve => {
+            const timeout = setTimeout(() => {
+              if (!managedProcess.process.killed) {
+                managedProcess.process.kill('SIGKILL');
+              }
+              resolve(void 0);
+            }, 3000);
+
+            managedProcess.process.once('exit', () => {
+              clearTimeout(timeout);
+              resolve(void 0);
+            });
+          });
+        }
+
+        // 从管理器中移除
+        this.processes.delete(userId);
+        console.log(`[ProcessManager] Removed process for user ${userId}`);
+      }
+
+      // 重新启动进程（延迟启动，让资源释放）
+      setTimeout(async () => {
+        try {
+          console.log(`[ProcessManager] Restarting process for user ${userId} with updated cookies`);
+          await this.getOrCreateProcess(userId);
+          console.log(`[ProcessManager] Successfully restarted process for user ${userId}`);
+        } catch (restartError) {
+          console.error(`[ProcessManager] Failed to restart process for user ${userId}:`, restartError);
+        }
+      }, 1000);
+
+    } catch (error) {
+      console.error(`[ProcessManager] Error refreshing cookies for user ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * 获取统计信息
    */
   getStats() {
