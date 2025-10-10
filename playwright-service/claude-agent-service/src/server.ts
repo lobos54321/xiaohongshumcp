@@ -1035,6 +1035,121 @@ app.get('/api/xiaohongshu/login/status', async (req: Request, res: Response) => 
   }
 });
 
+// Cookie同步API - 从ultra-simple-login同步Cookie到Claude Agent Service
+app.post('/agent/xiaohongshu/sync-cookies', async (req: Request, res: Response) => {
+  try {
+    const { userId, source } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required',
+      });
+    }
+
+    console.log(`[Cookie Sync] Starting cookie sync for user ${userId} from source: ${source || 'unknown'}`);
+
+    if (source === 'ultra-simple-login') {
+      // 从ultra-simple-login的latest.json读取Cookie
+      const fs = await import('fs');
+      const path = await import('path');
+
+      // 查找ultra-simple-login的Cookie文件
+      const possiblePaths = [
+        path.join(process.cwd(), 'playwright-service', 'mcp-router', 'latest.json'),
+        path.join(process.cwd(), '..', 'mcp-router', 'latest.json'),
+        path.join(process.cwd(), 'latest.json'),
+        '/tmp/latest.json'
+      ];
+
+      let cookieData = null;
+      let cookieFilePath = '';
+
+      for (const filePath of possiblePaths) {
+        try {
+          if (fs.existsSync(filePath)) {
+            const fileContent = await fs.promises.readFile(filePath, 'utf-8');
+            cookieData = JSON.parse(fileContent);
+            cookieFilePath = filePath;
+            console.log(`[Cookie Sync] Found cookie file at: ${filePath}`);
+            break;
+          }
+        } catch (readError) {
+          console.warn(`[Cookie Sync] Failed to read ${filePath}:`, readError instanceof Error ? readError.message : String(readError));
+        }
+      }
+
+      if (!cookieData || !cookieData.cookies) {
+        return res.status(404).json({
+          success: false,
+          error: 'No cookies found from ultra-simple-login',
+          searchedPaths: possiblePaths
+        });
+      }
+
+      // 验证是否为真实登录Session（非Guest）
+      const sessionCookie = cookieData.cookies.find((c: any) => c.name === 'web_session');
+      if (!sessionCookie || sessionCookie.value.includes('Guest')) {
+        return res.status(400).json({
+          success: false,
+          error: 'Only guest session detected, need real login',
+          sessionValue: sessionCookie?.value?.substring(0, 20) + '...'
+        });
+      }
+
+      console.log(`[Cookie Sync] Found ${cookieData.cookies.length} cookies, valid session detected`);
+
+      // 导入Cookie管理器
+      const { CookieManager } = await import('./cookieManager.js');
+      const cookieManager = new CookieManager();
+
+      // 标准化Cookie格式
+      const standardCookies = cookieData.cookies.map((cookie: any) => ({
+        name: cookie.name,
+        value: cookie.value,
+        domain: cookie.domain || '.xiaohongshu.com',
+        path: cookie.path || '/',
+        secure: cookie.secure !== false,
+        httpOnly: cookie.httpOnly || false,
+        sameSite: cookie.sameSite || 'Lax'
+      }));
+
+      // 保存到本地加密存储
+      await cookieManager.saveCookies(userId, standardCookies);
+      console.log(`[Cookie Sync] Saved ${standardCookies.length} cookies to local storage`);
+
+      // 同步到MCP Router
+      const syncSuccess = await importCookiesToMCPRouter(userId, standardCookies);
+
+      res.json({
+        success: true,
+        message: 'Cookie sync completed successfully',
+        data: {
+          userId,
+          cookieCount: standardCookies.length,
+          source: 'ultra-simple-login',
+          sourceFile: cookieFilePath,
+          mcpSyncSuccess: syncSuccess,
+          hasValidSession: true
+        }
+      });
+
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: 'Unsupported cookie source. Currently only supports: ultra-simple-login'
+      });
+    }
+
+  } catch (error: any) {
+    console.error('[Cookie Sync] Error during cookie sync:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Cookie sync failed',
+    });
+  }
+});
+
 // 捕获所有未匹配的路由，重定向到根路径（SPA fallback）
 app.get('*', (req: Request, res: Response) => {
   console.log(`[Server] Handling request: ${req.method} ${req.path}`);
