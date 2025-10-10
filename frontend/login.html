@@ -106,23 +106,35 @@
 
         async function checkLoginStatus() {
             try {
-                // 检查 ultra-simple-login 的状态
+                // 首先检查 ultra-simple-login 的状态
                 const qrResponse = await fetch(`${QR_LOGIN_URL}/api/status`);
                 const qrStatus = await qrResponse.json();
 
-                // 检查 Claude Agent Service 的状态
-                const claudeResponse = await fetch(`${CLAUDE_API}/api/xiaohongshu/login/status?userId=default`);
-                const claudeStatus = await claudeResponse.json();
+                // 检查 Claude Agent Service 的状态 (减少超时时间)
+                try {
+                    const claudeResponse = await fetch(`${CLAUDE_API}/api/xiaohongshu/login/status?userId=default`, {
+                        timeout: 3000 // 3秒超时
+                    });
+                    const claudeStatus = await claudeResponse.json();
 
-                if (claudeStatus.isLoggedIn) {
-                    updateLoginStatus('✅ 已登录', 'success');
-                    enableDashboard();
-                    isLoggedIn = true;
-                } else if (qrStatus.status === 'logged_in') {
+                    if (claudeStatus.success && claudeStatus.data.logged_in) {
+                        updateLoginStatus('✅ 已登录', 'success');
+                        enableDashboard();
+                        isLoggedIn = true;
+                        return;
+                    }
+                } catch (claudeError) {
+                    console.warn('Claude Agent Service check failed:', claudeError);
+                }
+
+                // 检查 ultra-simple-login 状态
+                if (qrStatus.status === 'logged_in') {
                     updateLoginStatus('🔄 正在同步登录状态...', 'syncing');
                     await syncLoginStatus();
-                } else {
+                } else if (qrStatus.status === 'no_session') {
                     updateLoginStatus('❗ 尚未登录', 'pending');
+                } else {
+                    updateLoginStatus('⚠️ 状态检查完成', 'pending');
                 }
             } catch (error) {
                 updateLoginStatus('⚠️ 状态检查失败', 'error');
@@ -154,23 +166,23 @@
             updateLoginStatus('🚀 启动 QR 码登录...', 'syncing');
 
             try {
-                // 启动 ultra-simple-login 服务
-                const response = await fetch(`${QR_LOGIN_URL}/api/start-login`, {
-                    method: 'POST'
-                });
-                const result = await response.json();
+                // 打开 ultra-simple-login 登录窗口
+                updateLoginStatus('📱 打开登录窗口，请完成登录', 'syncing');
+                window.open(`${QR_LOGIN_URL}/view`, '_blank', 'width=800,height=600');
 
-                if (result.success) {
-                    updateLoginStatus('📱 请在弹出窗口中扫描二维码', 'syncing');
-
-                    // 打开登录窗口
-                    window.open(`${QR_LOGIN_URL}/view`, '_blank', 'width=800,height=600');
-
-                    // 开始监控登录状态
-                    startLoginMonitoring();
-                } else {
-                    updateLoginStatus('❌ 启动失败: ' + result.error, 'error');
+                // 触发手动检测
+                try {
+                    const response = await fetch(`${QR_LOGIN_URL}/api/manual-check`, {
+                        method: 'POST'
+                    });
+                    console.log('Manual check triggered');
+                } catch (checkError) {
+                    console.warn('Manual check failed:', checkError);
                 }
+
+                // 开始监控登录状态
+                startLoginMonitoring();
+
             } catch (error) {
                 updateLoginStatus('❌ 连接失败', 'error');
                 console.error('QR login failed:', error);
@@ -196,11 +208,15 @@
                     } else if (status.status === 'timeout') {
                         clearInterval(checkInterval);
                         updateLoginStatus('⏰ 登录超时，请重试', 'error');
+                    } else if (status.status === 'no_session') {
+                        // 继续等待用户登录
+                        updateLoginStatus('📱 等待登录中...', 'syncing');
                     }
                 } catch (error) {
                     console.error('Status check failed:', error);
+                    // 继续监控，不要停止
                 }
-            }, 2000);
+            }, 3000); // 每3秒检查一次
         }
 
         async function syncLoginStatus() {
