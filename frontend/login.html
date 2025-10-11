@@ -116,8 +116,8 @@
                 console.log('Login status check result:', result);
 
                 if (result.success) {
-                    if (result.data.logged_in || result.data.demo_mode) {
-                        updateLoginStatus('✅ 登录状态已确认！', 'success');
+                    if (result.data.logged_in) {
+                        updateLoginStatus(`✅ 登录状态已确认！`, 'success');
                         enableDashboard();
                         isLoggedIn = true;
 
@@ -130,14 +130,42 @@
                         }, 2000);
                     } else {
                         updateLoginStatus('❗ 未检测到登录状态，请确保已完成登录', 'error');
+                        // 即使未检测到登录状态，也允许用户尝试进入管理面板
+                        showManualOptions();
                     }
                 } else {
-                    updateLoginStatus('⚠️ 状态检查失败: ' + (result.error || 'Unknown error'), 'error');
+                    console.log('Login check failed, but allowing manual entry');
+                    updateLoginStatus('⚠️ 无法验证登录状态，您可以尝试直接进入管理面板', 'pending');
+                    showManualOptions();
                 }
             } catch (error) {
                 console.error('Login status check failed:', error);
-                updateLoginStatus('⚠️ 网络连接失败，请重试', 'error');
+                updateLoginStatus('⚠️ 服务连接超时，您可以尝试直接进入管理面板', 'pending');
+                showManualOptions();
             }
+        }
+
+        function showManualOptions() {
+            // 即使检查失败，也允许用户手动进入
+            enableDashboard();
+            const statusDiv = document.getElementById('loginStatus');
+            statusDiv.innerHTML += `
+                <div class="mt-4 text-sm text-blue-600">
+                    💡 提示：您可以直接点击"进入管理面板"，系统会在管理页面重新检测登录状态
+                </div>
+            `;
+        }
+
+        function openManualLogin() {
+            // 打开小红书登录页面
+            window.open('https://www.xiaohongshu.com/login', '_blank', 'width=800,height=600');
+            updateLoginStatus('📱 请在新窗口中完成登录，然后点击"进入管理面板"', 'pending');
+            showManualOptions();
+        }
+
+        function goToDashboard() {
+            // 直接跳转到管理面板
+            window.location.href = DASHBOARD_URL;
         }
 
         function updateLoginStatus(message, type) {
