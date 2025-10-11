@@ -55,6 +55,44 @@
                         </div>
                     </div>
                 </div>
+
+                <div id="detectionArea" class="hidden mt-6"></div>
+
+                <div id="manualCookieSection" class="hidden mt-6 bg-white/90 border border-dashed border-purple-300 rounded-2xl p-6 space-y-4 text-left">
+                    <div>
+                        <h3 class="text-lg font-semibold text-purple-700">🛠️ 手动提交登录 Cookie</h3>
+                        <p class="text-sm text-gray-600 leading-relaxed">
+                            在浏览器完成登录后，打开开发者工具 (Chrome：<span class="font-mono">F12</span>) → Application → Cookies → <span class="font-mono">https://www.xiaohongshu.com</span>，复制关键 Cookie 的值并粘贴到下方。
+                        </p>
+                        <p class="text-xs text-gray-500 mt-1">
+                            至少提供 <span class="font-mono">web_session</span> 和 <span class="font-mono">a1</span>，可选再补充其他 Cookie，每行格式 <span class="font-mono">name=value</span>。
+                        </p>
+                    </div>
+                    <div class="grid md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="manualWebSession" class="block text-sm font-medium text-gray-700 mb-2">web_session (必填)</label>
+                            <textarea id="manualWebSession" rows="3" placeholder="粘贴 web_session 的值" class="w-full px-3 py-2 border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"></textarea>
+                        </div>
+                        <div>
+                            <label for="manualA1" class="block text-sm font-medium text-gray-700 mb-2">a1 (必填)</label>
+                            <textarea id="manualA1" rows="3" placeholder="粘贴 a1 的值" class="w-full px-3 py-2 border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"></textarea>
+                        </div>
+                    </div>
+                    <div>
+                        <label for="manualExtraCookies" class="block text-sm font-medium text-gray-700 mb-2">可选其他 Cookie</label>
+                        <textarea id="manualExtraCookies" rows="3" placeholder="例如：sec_poison_id=xxx" class="w-full px-3 py-2 border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"></textarea>
+                        <p class="text-xs text-gray-500 mt-1">若不确定，可留空；系统会自动补充默认值。</p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <button id="manualCookieSubmit" onclick="submitManualCookies()" class="bg-purple-500 hover:bg-purple-600 text-white font-medium py-2 px-4 rounded-lg transition">
+                            提交 Cookie 并验证
+                        </button>
+                        <button type="button" onclick="hideManualCookieForm(true)" class="text-sm text-gray-500 hover:text-gray-700 underline">
+                            关闭
+                        </button>
+                    </div>
+                    <div id="manualCookieStatus" class="text-sm text-gray-500"></div>
+                </div>
             </div>
 
             <!-- Step 2: Product Info -->
@@ -321,45 +359,50 @@
         // 尝试自动同步Cookie
         async function attemptAutoSync() {
             try {
+                hideManualCookieForm(false);
+                const detectionArea = document.getElementById('detectionArea');
+                if (detectionArea) {
+                    detectionArea.classList.add('hidden');
+                    detectionArea.innerHTML = '';
+                }
                 document.getElementById('loginStatus').innerHTML =
                     '<span class="text-blue-600">🔄 正在自动同步登录状态...</span>';
 
-                // 尝试从ultra-simple-login同步Cookie
-                const syncResponse = await fetch(`${CLAUDE_API}/agent/xiaohongshu/sync-cookies`, {
+                // 触发后台自动导入器读取最新Cookie并绑定到当前用户
+                const syncResponse = await fetch(`${CLAUDE_API}/agent/auto-import/manual`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        userId: currentUser,
-                        source: 'ultra-simple-login'
+                        userId: currentUser
                     })
                 });
 
                 const syncData = await syncResponse.json();
-                console.log('Cookie同步结果:', syncData);
+                console.log('Cookie自动导入结果:', syncData);
 
-                if (syncData.success) {
+                if (syncResponse.ok && syncData.success) {
                     // 同步成功，重新检查登录状态
-                    console.log('Cookie同步成功，重新检查登录状态...');
+                    console.log('Cookie自动导入成功，重新检查登录状态...');
                     setTimeout(async () => {
                         const recheckResponse = await fetch(`${CLAUDE_API}/agent/xiaohongshu/login/status?userId=${currentUser}`);
                         const recheckData = await recheckResponse.json();
 
                         if (recheckData.success && recheckData.data && recheckData.data.logged_in === true) {
                             document.getElementById('loginStatus').innerHTML =
-                                '<span class="text-green-600 text-xl">✅ 自动同步成功，已登录！</span>';
+                                '<span class="text-green-600 text-xl">✅ 自动导入成功，已登录！</span>';
                             document.getElementById('loginSuccess').classList.remove('hidden');
                             await checkExistingConfiguration();
                         } else {
-                            showLoginError('自动同步后仍未检测到有效登录状态');
+                            showLoginError('自动导入后仍未检测到有效登录状态');
                         }
                     }, 2000);
                 } else {
                     // 同步失败，显示手动登录选项
-                    showLoginError(syncData.error || '自动同步失败');
+                    showLoginError(syncData.error || '自动导入失败');
                 }
             } catch (error) {
-                console.error('自动同步失败:', error);
-                showLoginError('自动同步过程中发生错误');
+                console.error('自动导入失败:', error);
+                showLoginError('自动导入过程中发生错误');
             }
         }
 
@@ -368,14 +411,16 @@
             document.getElementById('loginStatus').innerHTML =
                 `<span class="text-red-600">${message}</span>`;
 
-            // 显示手动检测选项
             document.getElementById('loginStatus').innerHTML += `
                 <div class="mt-4 space-y-2">
                     <button onclick="autoDetectLogin()" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg">
-                        🔍 手动检测登录状态
+                        🔄 重新尝试自动检测
                     </button>
                     <button onclick="openXHSLogin()" class="w-full bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded-lg">
-                        🚀 前往小红书登录
+                        🚀 在新窗口登录
+                    </button>
+                    <button onclick="showManualCookieForm()" class="w-full border border-purple-400 text-purple-600 py-2 px-4 rounded-lg hover:bg-purple-50">
+                        🛠️ 改用手动提交 Cookie
                     </button>
                 </div>
             `;
@@ -431,12 +476,45 @@
         }
 
         // 自动检测登录状态
+        let loginStatusPoller = null;
+
+        function stopLoginPolling() {
+            if (loginStatusPoller) {
+                clearInterval(loginStatusPoller);
+                loginStatusPoller = null;
+            }
+        }
+
+        function startLoginPolling(intervalMs = 4000) {
+            stopLoginPolling();
+            loginStatusPoller = setInterval(async () => {
+                try {
+                    const res = await fetch(`${CLAUDE_API}/agent/xiaohongshu/login/status?userId=${currentUser}`);
+                    const data = await res.json();
+                    if (data.success && data.data && data.data.logged_in === true) {
+                        stopLoginPolling();
+                        confirmLogin();
+                    }
+                } catch (pollError) {
+                    console.warn('登录状态轮询失败:', pollError);
+                }
+            }, intervalMs);
+        }
+
         async function autoDetectLogin() {
+            const detectionArea = document.getElementById('detectionArea');
+            if (!detectionArea) {
+                console.warn('未找到检测结果展示区域');
+                return;
+            }
+
             try {
                 console.log('🔍 开始自动检测登录状态...');
+                hideManualCookieForm(false);
+                stopLoginPolling();
 
-                // 显示检测中状态
-                document.getElementById('detectionArea').innerHTML = `
+                detectionArea.classList.remove('hidden');
+                detectionArea.innerHTML = `
                     <div class="text-center py-4">
                         <div class="loading mx-auto mb-2"></div>
                         <div class="text-blue-600 font-medium">🔍 正在智能检测登录状态...</div>
@@ -447,9 +525,7 @@
                 const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/auto-login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        userId: currentUser
-                    })
+                    body: JSON.stringify({ userId: currentUser })
                 });
 
                 const data = await response.json();
@@ -457,22 +533,32 @@
 
                 if (data.success) {
                     if (data.status === 'already_logged_in') {
-                        // 已有有效登录状态
-                        document.getElementById('detectionArea').innerHTML = `
+                        detectionArea.innerHTML = `
                             <div class="bg-green-50 p-4 rounded-lg">
                                 <div class="text-green-600 text-lg mb-2">✅ 检测到有效登录状态</div>
                                 <div class="text-green-700 text-sm">无需重新登录，可以直接使用</div>
                             </div>
                         `;
 
-                        // 更新页面状态为已登录
                         setTimeout(() => {
                             confirmLogin();
                         }, 1500);
+                    } else if (data.status === 'qr_code_generated') {
+                        const qrUrl = data.data?.qrcode_url;
+                        detectionArea.innerHTML = `
+                            <div class="bg-blue-50 p-4 rounded-lg space-y-4 text-left">
+                                <div>
+                                    <div class="text-blue-600 text-lg font-semibold">📲 扫码登录</div>
+                                    <p class="text-sm text-blue-500">请使用小红书 App 扫描二维码完成登录，完成后系统会自动同步状态。</p>
+                                </div>
+                                ${qrUrl ? `<div class="flex justify-center"><img src="${qrUrl}" alt="登录二维码" class="w-48 h-48 rounded-xl border border-blue-200 shadow" /></div>` : ''}
+                                <div class="text-xs text-blue-500">提示：扫码成功后请保持页面打开，自动导入完成后会跳转到下一步。</div>
+                            </div>
+                        `;
 
+                        startLoginPolling();
                     } else if (data.status === 'auto_detected') {
-                        // 自动检测并保存成功
-                        document.getElementById('detectionArea').innerHTML = `
+                        detectionArea.innerHTML = `
                             <div class="bg-green-50 p-4 rounded-lg">
                                 <div class="text-green-600 text-lg mb-2">✅ 自动检测成功</div>
                                 <div class="text-green-700 text-sm mb-2">已检测到 ${data.data.cookieCount} 个登录凭证</div>
@@ -480,49 +566,199 @@
                             </div>
                         `;
 
-                        // 更新页面状态为已登录
                         setTimeout(() => {
                             confirmLogin();
                         }, 1500);
-
                     } else {
-                        // 检测失败，需要手动登录
-                        document.getElementById('detectionArea').innerHTML = `
-                            <div class="bg-orange-50 p-4 rounded-lg">
-                                <div class="text-orange-600 text-lg mb-2">⚠️ 未检测到登录状态</div>
-                                <div class="text-orange-700 text-sm mb-3">请先完成登录后再次检测</div>
-                                <button onclick="openXHSLogin()" class="w-full bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded-lg mb-2">
+                        detectionArea.innerHTML = `
+                            <div class="bg-orange-50 p-4 rounded-lg space-y-3">
+                                <div class="text-orange-600 text-lg">⚠️ 未检测到登录状态</div>
+                                <div class="text-orange-700 text-sm">请确认已经在浏览器中完成登录后再试。</div>
+                                <button onclick="openXHSLogin()" class="w-full bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded-lg">
                                     🚀 在新窗口登录
                                 </button>
                                 <button onclick="autoDetectLogin()" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg">
                                     🔄 重新检测
                                 </button>
+                                <button onclick="showManualCookieForm()" class="w-full border border-purple-400 text-purple-600 py-2 px-4 rounded-lg hover:bg-purple-50">
+                                    🛠️ 改为手动提交 Cookie
+                                </button>
                             </div>
                         `;
                     }
                 } else {
-                    // 检测出错
-                    document.getElementById('detectionArea').innerHTML = `
-                        <div class="bg-red-50 p-4 rounded-lg">
-                            <div class="text-red-600 text-lg mb-2">❌ 检测失败</div>
-                            <div class="text-red-700 text-sm mb-3">${data.error || '自动检测遇到问题'}</div>
+                    detectionArea.innerHTML = `
+                        <div class="bg-red-50 p-4 rounded-lg space-y-3">
+                            <div class="text-red-600 text-lg">❌ 检测失败</div>
+                            <div class="text-red-700 text-sm">${data.error || '自动检测遇到问题'}</div>
                             <button onclick="autoDetectLogin()" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg">
                                 🔄 重新检测
+                            </button>
+                                <button onclick="showManualCookieForm()" class="w-full border border-purple-400 text-purple-600 py-2 px-4 rounded-lg hover:bg-purple-50">
+                                🛠️ 改为手动提交 Cookie
                             </button>
                         </div>
                     `;
                 }
             } catch (error) {
                 console.error('自动检测登录失败:', error);
-                document.getElementById('detectionArea').innerHTML = `
-                    <div class="bg-red-50 p-4 rounded-lg">
-                        <div class="text-red-600 text-lg mb-2">❌ 网络错误</div>
-                        <div class="text-red-700 text-sm mb-3">请检查网络连接后重试</div>
+                stopLoginPolling();
+                detectionArea.innerHTML = `
+                    <div class="bg-red-50 p-4 rounded-lg space-y-3">
+                        <div class="text-red-600 text-lg">❌ 网络错误</div>
+                        <div class="text-red-700 text-sm">请检查网络连接后重试</div>
                         <button onclick="autoDetectLogin()" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg">
                             🔄 重新检测
                         </button>
+                        <button onclick="showManualCookieForm()" class="w-full border border-purple-400 text-purple-600 py-2 px-4 rounded-lg hover:bg-purple-50">
+                            🛠️ 改为手动提交 Cookie
+                        </button>
                     </div>
                 `;
+            }
+        }
+
+        function showManualCookieForm() {
+            const section = document.getElementById('manualCookieSection');
+            const status = document.getElementById('manualCookieStatus');
+            if (!section) return;
+
+            section.classList.remove('hidden');
+            if (status) {
+                status.classList.remove('text-red-500', 'text-green-600');
+                status.classList.add('text-gray-500');
+                status.textContent = '请按提示填写 Cookie 后点击提交。';
+            }
+
+            setTimeout(() => {
+                section.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 100);
+        }
+
+        function hideManualCookieForm(reset = false) {
+            const section = document.getElementById('manualCookieSection');
+            if (!section) return;
+
+            section.classList.add('hidden');
+
+            if (reset) {
+                const status = document.getElementById('manualCookieStatus');
+                if (status) {
+                    status.classList.remove('text-red-500', 'text-green-600');
+                    status.classList.add('text-gray-500');
+                    status.textContent = '';
+                }
+
+                ['manualWebSession', 'manualA1', 'manualExtraCookies'].forEach(id => {
+                    const field = document.getElementById(id);
+                    if (field) {
+                        field.value = '';
+                    }
+                });
+
+                const button = document.getElementById('manualCookieSubmit');
+                if (button) {
+                    button.disabled = false;
+                    button.innerHTML = button.dataset.originalText || '提交 Cookie 并验证';
+                }
+            }
+        }
+
+        async function submitManualCookies() {
+            const webSessionEl = document.getElementById('manualWebSession');
+            const a1El = document.getElementById('manualA1');
+            const extraEl = document.getElementById('manualExtraCookies');
+            const status = document.getElementById('manualCookieStatus');
+            const button = document.getElementById('manualCookieSubmit');
+
+            if (!webSessionEl || !a1El || !status || !button) {
+                console.warn('手动提交表单缺少必要元素');
+                return;
+            }
+
+            const webSession = webSessionEl.value.trim();
+            const a1 = a1El.value.trim();
+
+            status.classList.remove('text-green-600', 'text-red-500');
+            status.classList.add('text-gray-500');
+
+            if (!webSession || !a1) {
+                status.classList.remove('text-gray-500');
+                status.classList.add('text-red-500');
+                status.textContent = '请同时填写 web_session 和 a1 的值。';
+                return;
+            }
+
+            const cookies = [
+                { name: 'web_session', value: webSession, httpOnly: true },
+                { name: 'a1', value: a1, httpOnly: true }
+            ];
+
+            if (extraEl) {
+                const extraValue = extraEl.value.trim();
+                if (extraValue) {
+                    extraValue.split('\n').forEach(line => {
+                        const trimmed = line.trim();
+                        if (!trimmed) return;
+                        const [name, ...valueParts] = trimmed.split('=');
+                        if (!name || valueParts.length === 0) return;
+                        const value = valueParts.join('=').trim();
+                        if (!value) return;
+                        cookies.push({ name: name.trim(), value });
+                    });
+                }
+            }
+
+            button.dataset.originalText = button.dataset.originalText || button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<div class="loading inline-block mr-2"></div>正在提交...';
+            status.textContent = '正在提交并验证 Cookie...';
+
+            try {
+                const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/manual-cookies`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: currentUser,
+                        cookies
+                    })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    status.classList.remove('text-gray-500');
+                    status.classList.add('text-green-600');
+                    status.textContent = '✅ Cookie 已保存，正在验证登录状态...';
+
+                    const recheck = await fetch(`${CLAUDE_API}/agent/xiaohongshu/login/status?userId=${currentUser}`);
+                    const recheckData = await recheck.json();
+
+                    if (recheckData.success && recheckData.data && recheckData.data.logged_in === true) {
+                        document.getElementById('loginStatus').innerHTML =
+                            '<span class="text-green-600 text-xl">✅ 手动提交成功，已检测到真实登录！</span>';
+                        document.getElementById('loginSuccess').classList.remove('hidden');
+                        enableStep2();
+                        setTimeout(() => {
+                            document.getElementById('step2').scrollIntoView({ behavior: 'smooth' });
+                        }, 500);
+                    } else {
+                        status.classList.remove('text-green-600');
+                        status.classList.add('text-red-500');
+                        status.textContent = 'Cookie 已保存，但仍未检测到登录状态，请确认值是否正确。';
+                    }
+                } else {
+                    status.classList.remove('text-gray-500');
+                    status.classList.add('text-red-500');
+                    status.textContent = data.error || '提交失败，请检查 Cookie 是否填写完整。';
+                }
+            } catch (error) {
+                console.error('提交 Cookie 失败:', error);
+                status.classList.remove('text-gray-500');
+                status.classList.add('text-red-500');
+                status.textContent = '提交失败，请检查网络后重试。';
+            } finally {
+                button.disabled = false;
+                button.innerHTML = button.dataset.originalText || '提交 Cookie 并验证';
             }
         }
 
@@ -576,8 +812,14 @@
 
         // 确认登录完成
         function confirmLogin() {
+            stopLoginPolling();
             document.getElementById('loginStatus').innerHTML =
                 '<span class="text-green-600 text-xl">✅ 登录确认成功！</span>';
+            const detectionArea = document.getElementById('detectionArea');
+            if (detectionArea) {
+                detectionArea.classList.add('hidden');
+                detectionArea.innerHTML = '';
+            }
             document.getElementById('loginActions').classList.add('hidden');
             document.getElementById('loginSuccess').classList.remove('hidden');
 

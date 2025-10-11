@@ -6,12 +6,15 @@ import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import * as dotenv from 'dotenv';
 import path from 'path';
+import * as fs from 'fs';
+import { chromium, Browser, BrowserContext, Page, Cookie as PlaywrightCookie } from 'playwright';
 import { fileURLToPath } from 'url';
 import { ClaudeAgentHTTP, AgentRequest } from './claudeAgentHTTP.js';
 import AutoContentManager from './autoContentManager.js';
 import ImageGenerationService from './imageGenerationService.js';
 import { CookieOrchestrator } from './cookieOrchestrator.js';
 import { AutoCookieImporter } from './autoCookieImporter.js';
+import type { StandardCookie } from './autoCookieImporter.js';
 
 dotenv.config();
 
@@ -61,6 +64,250 @@ const autoCookieImporter = new AutoCookieImporter(MCP_ROUTER_URL);
 
 // 启动自动Cookie导入监控
 autoCookieImporter.startAutoImport(15000); // 每15秒检查一次
+
+type PersistCookiesFn = (userId: string, cookies: StandardCookie[], source?: string) => Promise<void>;
+
+interface LoginSession {
+  userId: string;
+  browser: Browser;
+  context: BrowserContext;
+  page: Page;
+  qrImage: string;
+  status: 'pending' | 'success' | 'failed';
+  createdAt: number;
+  expiresAt: number;
+  error?: string;
+  checkTimer?: NodeJS.Timeout;
+  timeoutTimer?: NodeJS.Timeout;
+}
+
+class PlaywrightLoginManager {
+  private sessions = new Map<string, LoginSession>();
+  private timeoutMs: number;
+
+  constructor(private readonly persistFn: PersistCookiesFn, timeoutMs = 3 * 60 * 1000) {
+    this.timeoutMs = timeoutMs;
+  }
+
+  async startLogin(userId: string): Promise<{ qrImage: string; expiresAt: string }> {
+    const existing = this.sessions.get(userId);
+    if (existing) {
+      if (existing.status === 'pending') {
+        return {
+          qrImage: existing.qrImage,
+          expiresAt: new Date(existing.expiresAt).toISOString()
+        };
+      }
+      await this.disposeSession(userId);
+    }
+
+    const session = await this.launchSession(userId);
+    this.sessions.set(userId, session);
+    this.startWatchers(session);
+
+    return {
+      qrImage: session.qrImage,
+      expiresAt: new Date(session.expiresAt).toISOString()
+    };
+  }
+
+  getSessionStatus(userId: string): LoginSession | null {
+    return this.sessions.get(userId) || null;
+  }
+
+  async shutdown(): Promise<void> {
+    const tasks = Array.from(this.sessions.keys()).map(userId => this.disposeSession(userId));
+    await Promise.all(tasks);
+  }
+
+  private async launchSession(userId: string): Promise<LoginSession> {
+    const browser = await chromium.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process']
+    });
+
+    const context = await browser.newContext({
+      viewport: { width: 1200, height: 900 },
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      locale: 'zh-CN'
+    });
+
+    const page = await context.newPage();
+    await page.goto('https://www.xiaohongshu.com/login', {
+      waitUntil: 'networkidle',
+      timeout: 45000
+    });
+
+    try {
+      const scanButton = page.locator('text=扫码登录');
+      if (await scanButton.count() > 0) {
+        await scanButton.first().click({ timeout: 5000 });
+        await page.waitForTimeout(1000);
+      }
+    } catch (error) {
+      console.warn('[PlaywrightLogin] 切换扫码模式失败:', error instanceof Error ? error.message : error);
+    }
+
+    const qrImage = await this.captureQRCode(page);
+    const now = Date.now();
+
+    return {
+      userId,
+      browser,
+      context,
+      page,
+      qrImage,
+      status: 'pending',
+      createdAt: now,
+      expiresAt: now + this.timeoutMs
+    };
+  }
+
+  private async captureQRCode(page: Page): Promise<string> {
+    try {
+      await page.waitForTimeout(1500);
+
+    const dataUrl = await page.evaluate(() => {
+      const doc = (globalThis as any).document;
+      if (!doc) return null;
+      const imgs = Array.from(doc.querySelectorAll('img') as any[]);
+      const candidate = imgs.find((img: any) => {
+        const src = (img?.getAttribute ? img.getAttribute('src') : img?.src) || '';
+        if (!src) return false;
+        const lower = String(src).toLowerCase();
+        return lower.startsWith('data:image') || lower.includes('qrcode') || lower.includes('qr-code');
+      });
+      if (!candidate) return null;
+      const getSrc = candidate.getAttribute ? candidate.getAttribute('src') : candidate.src;
+      return getSrc || null;
+    });
+
+      if (dataUrl && dataUrl.startsWith('data:image')) {
+        return dataUrl;
+      }
+
+      const selectors = ['canvas', 'img', '.login-qrcode', '.qrcode-img', '[class*="qr" i]'];
+      for (const selector of selectors) {
+        const locator = page.locator(selector).first();
+        if (await locator.count() > 0) {
+          try {
+            const buffer = await locator.screenshot({ omitBackground: true });
+            if (buffer?.length) {
+              return `data:image/png;base64,${buffer.toString('base64')}`;
+            }
+          } catch (error) {
+            // ignore and try next selector
+          }
+        }
+      }
+
+      const fallback = await page.screenshot({ fullPage: true });
+      return `data:image/png;base64,${fallback.toString('base64')}`;
+    } catch (error) {
+      console.error('[PlaywrightLogin] 捕获二维码失败，使用页面截图:', error instanceof Error ? error.message : error);
+      const fallback = await page.screenshot({ fullPage: true });
+      return `data:image/png;base64,${fallback.toString('base64')}`;
+    }
+  }
+
+  private startWatchers(session: LoginSession) {
+    session.checkTimer = setInterval(async () => {
+      if (session.status !== 'pending') {
+        return;
+      }
+
+      try {
+        const cookies = await session.context.cookies();
+        const standardCookies = this.toStandardCookies(cookies);
+        const hasSession = standardCookies.some(cookie => cookie.name === 'web_session' && cookie.value && !cookie.value.includes('Guest'));
+        const hasA1 = standardCookies.some(cookie => cookie.name === 'a1' && cookie.value);
+
+        if (hasSession && hasA1) {
+          await this.handleSuccess(session, standardCookies);
+        }
+      } catch (error) {
+        console.error('[PlaywrightLogin] 检查登录状态失败:', error instanceof Error ? error.message : error);
+      }
+    }, 2500);
+
+    session.timeoutTimer = setTimeout(async () => {
+      if (session.status === 'pending') {
+        session.status = 'failed';
+        session.error = '登录超时';
+        await this.disposeSession(session.userId);
+      }
+    }, this.timeoutMs);
+  }
+
+  private async handleSuccess(session: LoginSession, cookies: StandardCookie[]): Promise<void> {
+    session.status = 'success';
+    try {
+      await this.persistFn(session.userId, cookies, 'playwright');
+    } catch (error) {
+      console.error('[PlaywrightLogin] 保存Cookie失败:', error instanceof Error ? error.message : error);
+      session.error = error instanceof Error ? error.message : String(error);
+    } finally {
+      await this.disposeSession(session.userId);
+    }
+  }
+
+  private toStandardCookies(cookies: PlaywrightCookie[]): StandardCookie[] {
+    return cookies
+      .filter(cookie => (cookie.domain || '').includes('xiaohongshu.com'))
+      .map(cookie => {
+        const domain = cookie.domain?.startsWith('.') ? cookie.domain : `.${(cookie.domain || 'xiaohongshu.com').replace(/^\.+/, '')}`;
+        let sameSite: 'Lax' | 'Strict' | 'None' = 'Lax';
+        if (cookie.sameSite === 'Strict' || cookie.sameSite === 'Lax' || cookie.sameSite === 'None') {
+          sameSite = cookie.sameSite;
+        }
+        return {
+          name: cookie.name,
+          value: cookie.value,
+          domain,
+          path: cookie.path || '/',
+          secure: cookie.secure ?? true,
+          httpOnly: cookie.httpOnly ?? false,
+          sameSite
+        };
+      });
+  }
+
+  private async disposeSession(userId: string): Promise<void> {
+    const session = this.sessions.get(userId);
+    if (!session) {
+      return;
+    }
+
+    if (session.checkTimer) {
+      clearInterval(session.checkTimer);
+    }
+    if (session.timeoutTimer) {
+      clearTimeout(session.timeoutTimer);
+    }
+
+    try {
+      await session.page.close({ runBeforeUnload: false });
+    } catch (error) {
+      // ignore
+    }
+    try {
+      await session.context.close();
+    } catch (error) {
+      // ignore
+    }
+    try {
+      await session.browser.close();
+    } catch (error) {
+      // ignore
+    }
+
+    this.sessions.delete(userId);
+  }
+}
+
+const playwrightLoginManager = new PlaywrightLoginManager(async (userId: string, cookies: StandardCookie[], source = 'playwright') => {
+  await persistUserCookies(userId, cookies, source);
+});
 
 const app = express();
 app.use(express.json());
@@ -915,6 +1162,27 @@ app.post('/agent/xiaohongshu/auto-login', async (req: Request, res: Response) =>
       }
     } catch (qrError: any) {
       console.warn(`[XHS Auto Login] QR code generation failed:`, qrError.message);
+
+      try {
+        const fallback = await playwrightLoginManager.startLogin(userId);
+        if (fallback?.qrImage) {
+          console.log('[XHS Auto Login] Playwright fallback QR generated');
+          return res.json({
+            success: true,
+            message: '请扫码登录',
+            status: 'qr_code_generated',
+            data: {
+              userId,
+              qrcode_url: fallback.qrImage,
+              instructions: '请使用小红书App扫描二维码完成登录',
+              polling_endpoint: `/agent/xiaohongshu/login/status?userId=${userId}`,
+              source: 'playwright'
+            }
+          });
+        }
+      } catch (playwrightError: any) {
+        console.error('[XHS Auto Login] Playwright fallback failed:', playwrightError.message || playwrightError);
+      }
     }
 
     // 步骤2: 如果QR码失败，尝试自动检测浏览器Cookie
@@ -945,12 +1213,7 @@ app.post('/agent/xiaohongshu/auto-login', async (req: Request, res: Response) =>
         sameSite: 'Lax' as const
       }));
 
-      // 步骤3: AES-256加密保存到本地
-      await cookieManager.saveCookies(userId, standardCookies);
-      console.log(`[XHS Auto Login] Cookies encrypted and saved for user ${userId}`);
-
-      // 步骤4: 自动导入到cookies.json (MCP Router)
-      await importCookiesToMCPRouter(userId, standardCookies);
+      await persistUserCookies(userId, standardCookies, 'browser-detection');
 
       res.json({
         success: true,
@@ -987,6 +1250,98 @@ app.post('/agent/xiaohongshu/auto-login', async (req: Request, res: Response) =>
     res.status(500).json({
       success: false,
       error: error.message || 'Popup QR login failed',
+    });
+  }
+});
+
+// 手动提交Cookie（用于Zeabur等云端环境）
+app.post('/agent/xiaohongshu/manual-cookies', async (req: Request, res: Response) => {
+  try {
+    const { userId, cookies } = req.body as { userId?: string; cookies?: Array<any> };
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required'
+      });
+    }
+
+    if (!cookies || !Array.isArray(cookies) || cookies.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'cookies array is required'
+      });
+    }
+
+    const normalizedCookies = cookies
+      .filter(cookie => cookie && typeof cookie.name === 'string' && typeof cookie.value === 'string')
+      .map(cookie => {
+        const name = cookie.name.trim();
+        const value = cookie.value.trim();
+
+        const allowedSameSite: Array<'Lax' | 'Strict' | 'None'> = ['Lax', 'Strict', 'None'];
+        const rawSameSite = typeof cookie.sameSite === 'string' ? cookie.sameSite : '';
+        const sameSite = allowedSameSite.includes(rawSameSite as 'Lax' | 'Strict' | 'None')
+          ? (rawSameSite as 'Lax' | 'Strict' | 'None')
+          : 'Lax';
+
+        return {
+          name,
+          value,
+          domain: (cookie.domain && typeof cookie.domain === 'string' && cookie.domain.trim().length > 0)
+            ? cookie.domain.trim()
+            : '.xiaohongshu.com',
+          path: (cookie.path && typeof cookie.path === 'string' && cookie.path.trim().length > 0)
+            ? cookie.path.trim()
+            : '/',
+          secure: cookie.secure !== false,
+          httpOnly: typeof cookie.httpOnly === 'boolean' ? cookie.httpOnly : ['web_session', 'a1'].includes(name),
+          sameSite
+        } as {
+          name: string;
+          value: string;
+          domain: string;
+          path: string;
+          secure: boolean;
+          httpOnly: boolean;
+          sameSite: 'Lax' | 'Strict' | 'None';
+        };
+      })
+      .filter(cookie => cookie.name && cookie.value);
+
+    if (normalizedCookies.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No valid cookies provided'
+      });
+    }
+
+    const requiredCookies = ['web_session', 'a1'];
+    const missingRequired = requiredCookies.filter(required => !normalizedCookies.some(cookie => cookie.name === required));
+
+    if (missingRequired.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `缺少必要的Cookie: ${missingRequired.join(', ')}`
+      });
+    }
+
+    const persistResult = await persistUserCookies(userId, normalizedCookies, 'manual-upload');
+
+    res.json({
+      success: true,
+      message: 'Cookie已成功保存并同步',
+      data: {
+        userId,
+        cookieCount: normalizedCookies.length,
+        mcpSynced: persistResult.mcpSynced
+      }
+    });
+  } catch (error: any) {
+    console.error('[XHS Manual Cookie] Error saving cookies:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to save cookies'
     });
   }
 });
@@ -1497,10 +1852,54 @@ app.listen(PORT, '0.0.0.0', () => {
 });
 
 // 优雅关闭
-const shutdown = () => {
+const shutdown = async () => {
   console.log('[Claude Agent Service] Shutting down...');
+  await playwrightLoginManager.shutdown();
   process.exit(0);
 };
 
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.on('SIGINT', () => { shutdown(); });
+process.on('SIGTERM', () => { shutdown(); });
+
+async function persistUserCookies(userId: string, cookies: StandardCookie[], source = 'unknown'): Promise<{ mcpSynced: boolean; writtenPaths: string[] }> {
+  const { CookieManager } = await import('./cookieManager.js');
+  const cookieManager = new CookieManager();
+  await cookieManager.saveCookies(userId, cookies);
+
+  const cookiePayload = {
+    userId,
+    source,
+    savedAt: new Date().toISOString(),
+    cookies
+  };
+
+  const pathsToWrite = [
+    path.join(process.cwd(), '..', 'mcp-router', 'cookies', userId, 'cookies.json'),
+    path.join(process.cwd(), '..', 'mcp-router', 'latest.json'),
+    path.join('/app', 'mcp-router', 'cookies', userId, 'cookies.json'),
+    path.join('/app', 'mcp-router', 'latest.json'),
+    path.join(process.cwd(), 'playwright-service', 'mcp-router', 'cookies', userId, 'cookies.json'),
+    path.join(process.cwd(), 'playwright-service', 'mcp-router', 'latest.json')
+  ];
+
+  const writtenPaths: string[] = [];
+
+  for (const filePath of pathsToWrite) {
+    try {
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.promises.writeFile(filePath, JSON.stringify(cookiePayload, null, 2), 'utf8');
+      writtenPaths.push(filePath);
+    } catch (error: any) {
+      console.warn(`[Cookie Persist] Failed to write ${filePath}:`, error.message || error);
+    }
+  }
+
+  let mcpSynced = false;
+  try {
+    mcpSynced = await importCookiesToMCPRouter(userId, cookies);
+  } catch (error: any) {
+    console.warn('[Cookie Persist] MCP sync failed:', error.message || error);
+  }
+
+  return { mcpSynced, writtenPaths };
+}

@@ -474,6 +474,16 @@ document.cookie
   async autoDetectCookies(): Promise<CookieDetectionResult> {
     console.log(`[AutoCookieDetector] Starting comprehensive automatic cookie detection...`);
 
+    // 云端容器(如Zeabur)多为Linux环境，不支持AppleScript等本地浏览器抓取能力
+    if (process.platform !== 'darwin') {
+      const message = '自动检测仅在本地macOS环境可用，请通过手动上传或ultra-simple-login同步Cookie。';
+      console.log(`[AutoCookieDetector] Skipping auto detection on ${process.platform}: ${message}`);
+      return {
+        success: false,
+        error: message
+      };
+    }
+
     // 方法1: 尝试Safari AppleScript
     console.log(`[AutoCookieDetector] Trying Safari AppleScript...`);
     const safariResult = await this.detectSafariCookies();
