@@ -5,6 +5,7 @@ import express from 'express';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import * as fs from 'fs';
+import { spawn } from 'child_process';
 import { chromium } from 'playwright';
 import { fileURLToPath } from 'url';
 import { ClaudeAgentHTTP } from './claudeAgentHTTP.js';
@@ -50,6 +51,74 @@ const cookieOrchestrator = new CookieOrchestrator(MCP_ROUTER_URL);
 const autoCookieImporter = new AutoCookieImporter(MCP_ROUTER_URL);
 // 启动自动Cookie导入监控
 autoCookieImporter.startAutoImport(15000); // 每15秒检查一次
+const SHOULD_AUTO_INSTALL_PLAYWRIGHT = process.env.PLAYWRIGHT_AUTO_INSTALL !== 'false';
+let ensureChromiumPromise = null;
+function runCommand(command, args, options = {}) {
+    return new Promise((resolve, reject) => {
+        const child = spawn(command, args, {
+            stdio: 'pipe',
+            env: { ...process.env, ...options.env },
+            cwd: options.cwd || process.cwd(),
+            shell: options.shell,
+        });
+        child.stdout?.on('data', data => {
+            const output = data.toString().trim();
+            if (output) {
+                console.log(`[PlaywrightInstall] ${output}`);
+            }
+        });
+        child.stderr?.on('data', data => {
+            const output = data.toString().trim();
+            if (output) {
+                console.warn(`[PlaywrightInstall] ${output}`);
+            }
+        });
+        child.on('error', error => {
+            reject(error);
+        });
+        child.on('close', code => {
+            if (code === 0) {
+                resolve();
+            }
+            else {
+                reject(new Error(`Command ${command} ${args.join(' ')} exited with code ${code}`));
+            }
+        });
+    });
+}
+async function ensurePlaywrightChromiumInstalled() {
+    if (ensureChromiumPromise) {
+        return ensureChromiumPromise;
+    }
+    ensureChromiumPromise = (async () => {
+        const executablePath = chromium.executablePath();
+        if (executablePath && fs.existsSync(executablePath)) {
+            return;
+        }
+        if (!SHOULD_AUTO_INSTALL_PLAYWRIGHT) {
+            throw new Error('Playwright Chromium executable not found and auto-install is disabled.');
+        }
+        console.warn('[PlaywrightLogin] Chromium executable missing, attempting automatic installation via npx playwright install chromium');
+        try {
+            await runCommand('npx', ['playwright', 'install', 'chromium']);
+        }
+        catch (error) {
+            console.error('[PlaywrightLogin] Automatic Playwright installation failed:', error);
+            throw error;
+        }
+        const installedPath = chromium.executablePath();
+        if (!installedPath || !fs.existsSync(installedPath)) {
+            throw new Error('Playwright Chromium installation did not produce a valid executable path.');
+        }
+    })();
+    try {
+        await ensureChromiumPromise;
+    }
+    catch (error) {
+        ensureChromiumPromise = null;
+        throw error;
+    }
+}
 class PlaywrightLoginManager {
     persistFn;
     sessions = new Map();
@@ -85,6 +154,7 @@ class PlaywrightLoginManager {
         await Promise.all(tasks);
     }
     async launchSession(userId) {
+        await ensurePlaywrightChromiumInstalled();
         const browser = await chromium.launch({
             headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process']
@@ -986,6 +1056,7 @@ app.post('/agent/xiaohongshu/auto-login', async (req, res) => {
         // 启动弹窗扫码登录流程
         console.log(`[XHS Auto Login] Starting popup QR code login process...`);
         // 步骤1: 调用MCP Router获取QR码
+        let playwrightFallbackError = null;
         try {
             const axios = await import('axios');
             const qrResponse = await axios.default.get(`${MCP_ROUTER_URL}/api/xiaohongshu/login/qrcode?userId=${userId}`, { timeout: 10000 });
@@ -1026,7 +1097,10 @@ app.post('/agent/xiaohongshu/auto-login', async (req, res) => {
                 }
             }
             catch (playwrightError) {
-                console.error('[XHS Auto Login] Playwright fallback failed:', playwrightError.message || playwrightError);
+                const errorMessage = playwrightError?.message || String(playwrightError || '');
+                const normalizedMessage = errorMessage.replace(/\s+/g, ' ').trim();
+                playwrightFallbackError = normalizedMessage;
+                console.error('[XHS Auto Login] Playwright fallback failed:', normalizedMessage);
             }
         }
         // 步骤2: 如果QR码失败，尝试自动检测浏览器Cookie
@@ -1070,9 +1144,13 @@ app.post('/agent/xiaohongshu/auto-login', async (req, res) => {
         else {
             // 所有方法失败，提供手动登录选项
             console.log(`[XHS Auto Login] All detection methods failed: ${detectionResult.error}`);
+            const baseMessage = detectionResult.error || 'All login methods failed';
+            const enrichedMessage = playwrightFallbackError
+                ? `Playwright fallback error: ${playwrightFallbackError}. 请在服务器上运行 "npx playwright install chromium" 安装浏览器后重试，或设置 PLAYWRIGHT_AUTO_INSTALL=false 禁用自动安装尝试。`
+                : baseMessage;
             res.json({
                 success: false,
-                error: detectionResult.error || 'All login methods failed',
+                error: enrichedMessage,
                 needManualLogin: true,
                 loginInstructions: {
                     step1: '在浏览器中访问 https://www.xiaohongshu.com/login',
