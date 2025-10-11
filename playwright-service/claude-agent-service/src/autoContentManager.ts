@@ -3,7 +3,7 @@
  * 基于Claude AI的智能内容策略制定和执行
  */
 
-import { CustomAnthropicClient } from './customAnthropicClient.js';
+import Anthropic from '@anthropic-ai/sdk';
 import ImageGenerationService from './imageGenerationService.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -44,7 +44,7 @@ interface DailyTask {
 }
 
 export class AutoContentManager {
-  private anthropic: CustomAnthropicClient;
+  private anthropic: Anthropic;
   private imageService: ImageGenerationService;
   private mcpClient: any;
   private userProfiles: Map<string, UserProfile> = new Map();
@@ -59,7 +59,9 @@ export class AutoContentManager {
     imageService: ImageGenerationService;
     mcpClient: any;
   }) {
-    this.anthropic = new CustomAnthropicClient(config.anthropicKey);
+    this.anthropic = new Anthropic({
+      apiKey: config.anthropicKey,
+    });
     this.imageService = config.imageService;
     this.mcpClient = config.mcpClient;
     this.allowDemoMode = process.env.ALLOW_DEMO_MODE !== 'false';
