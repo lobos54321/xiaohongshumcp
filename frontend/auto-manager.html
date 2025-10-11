@@ -42,40 +42,16 @@
                         <div class="loading mx-auto mb-2"></div>
                         正在检查登录状态...
                     </div>
-                    <div id="loginActions" class="hidden">
-                        <div class="bg-orange-50 p-4 rounded-lg mb-4">
-                            <p class="text-orange-800 font-medium mb-2">❗ 尚未检测到登录状态</p>
-                            <p class="text-orange-700 text-sm">请先登录小红书，系统将自动检测并保存登录状态</p>
-                        </div>
-
-                        <div class="space-y-3">
-                            <button onclick="autoDetectLogin()" class="w-full bg-green-500 hover:bg-green-600 text-white font-medium py-3 px-6 rounded-lg transition">
-                                🔍 智能检测登录状态
-                            </button>
-                            <button onclick="openXHSLogin()" class="w-full bg-red-500 hover:bg-red-600 text-white font-medium py-3 px-6 rounded-lg transition">
-                                🚀 在新窗口登录小红书
-                            </button>
-                            <button onclick="showManualCookieInput()" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 px-6 rounded-lg transition">
-                                📋 手动导入Cookie
-                            </button>
-                            <div id="detectionArea" class="w-full p-4 border-2 border-dashed border-gray-300 rounded-lg text-center text-gray-400">
-                                <div class="mb-2">💡 使用说明</div>
-                                <div class="text-sm text-left">
-                                    <div>1. 点击"在新窗口登录"或手动访问 xiaohongshu.com</div>
-                                    <div>2. 完成登录操作</div>
-                                    <div>3. 点击"智能检测"自动保存登录状态</div>
-                                    <div>4. 或使用"手动导入Cookie"选项</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                     <div id="loginSuccess" class="hidden">
                         <div class="bg-green-50 p-4 rounded-lg">
                             <p class="text-green-800 font-medium mb-2">✅ 已成功登录小红书</p>
                             <p class="text-green-700 text-sm">可以继续配置产品信息开始运营</p>
-                            <button onclick="clearXHSCookies()" class="mt-3 text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 px-3 py-1 rounded transition">
-                                🧹 清除浏览器Cookie（重新登录）
-                            </button>
+                        </div>
+                    </div>
+                    <div id="loginError" class="hidden">
+                        <div class="bg-red-50 p-4 rounded-lg">
+                            <p class="text-red-800 font-medium mb-2">❌ 未检测到登录状态</p>
+                            <p class="text-red-700 text-sm">请返回 <a href="/login.html" class="underline text-red-600 hover:text-red-800">登录页面</a> 重新登录</p>
                         </div>
                     </div>
                 </div>
@@ -504,16 +480,16 @@
         async function checkLoginStatus() {
             try {
                 console.log('🔍 检查登录状态...');
-                const response = await fetch(`${CLAUDE_API}/api/xiaohongshu/login/status?userId=${currentUser}`);
-                const data = await response.json();
+                const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/login/status?userId=${currentUser}`);
+                const result = await response.json();
 
-                console.log('登录状态检查结果:', data);
+                console.log('登录状态检查结果:', result);
 
-                if (data.logged_in === true || (data.success && !data.error && !data.message?.includes('未登录'))) {
-                    // 登录成功
+                // 只检查真实登录状态，不接受演示模式
+                if (result.success && result.data && result.data.logged_in === true) {
+                    // 真实登录成功
                     document.getElementById('loginStatus').innerHTML =
                         '<span class="text-green-600 text-xl">✅ 登录成功！</span>';
-                    document.getElementById('loginActions').classList.add('hidden');
                     document.getElementById('loginSuccess').classList.remove('hidden');
 
                     // 启用第二步
@@ -522,12 +498,16 @@
                         document.getElementById('step2').scrollIntoView({ behavior: 'smooth' });
                     }, 500);
                 } else {
-                    // 还未登录，显示提示
-                    alert('还未检测到登录状态，请确保已完成扫码登录');
+                    // 未登录或演示模式，要求真实登录
+                    document.getElementById('loginStatus').innerHTML =
+                        '<span class="text-red-600 text-xl">❌ 未检测到真实登录状态</span>';
+                    document.getElementById('loginError').classList.remove('hidden');
                 }
             } catch (error) {
                 console.error('检查登录状态失败:', error);
-                alert('检查登录状态失败，请重试');
+                document.getElementById('loginStatus').innerHTML =
+                    '<span class="text-red-600 text-xl">❌ 网络连接失败</span>';
+                document.getElementById('loginError').classList.remove('hidden');
             }
         }
 
