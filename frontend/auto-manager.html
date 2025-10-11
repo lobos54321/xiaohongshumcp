@@ -291,7 +291,9 @@
 
         async function checkLoginOnLoad() {
             try {
-                // 使用专门的登录状态检查端点
+                console.log('🔍 开始检查登录状态...');
+
+                // 首先尝试检查现有登录状态
                 const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/login/status?userId=${currentUser}`);
                 const data = await response.json();
                 console.log('登录状态检查结果:', data);
@@ -305,17 +307,78 @@
                     // 检查是否已有运营配置
                     await checkExistingConfiguration();
                 } else {
-                    // 未登录
-                    document.getElementById('loginStatus').innerHTML =
-                        '<span class="text-orange-600">未检测到登录状态</span>';
-                    document.getElementById('loginActions').classList.remove('hidden');
+                    // 未登录，尝试自动同步Cookie
+                    console.log('未检测到登录状态，尝试自动同步Cookie...');
+                    await attemptAutoSync();
                 }
             } catch (error) {
                 console.error('检查登录状态失败:', error);
-                document.getElementById('loginStatus').innerHTML =
-                    '<span class="text-red-600">检查登录失败，请手动检测</span>';
-                document.getElementById('loginActions').classList.remove('hidden');
+                // 网络错误时，尝试自动同步
+                await attemptAutoSync();
             }
+        }
+
+        // 尝试自动同步Cookie
+        async function attemptAutoSync() {
+            try {
+                document.getElementById('loginStatus').innerHTML =
+                    '<span class="text-blue-600">🔄 正在自动同步登录状态...</span>';
+
+                // 尝试从ultra-simple-login同步Cookie
+                const syncResponse = await fetch(`${CLAUDE_API}/agent/xiaohongshu/sync-cookies`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: currentUser,
+                        source: 'ultra-simple-login'
+                    })
+                });
+
+                const syncData = await syncResponse.json();
+                console.log('Cookie同步结果:', syncData);
+
+                if (syncData.success) {
+                    // 同步成功，重新检查登录状态
+                    console.log('Cookie同步成功，重新检查登录状态...');
+                    setTimeout(async () => {
+                        const recheckResponse = await fetch(`${CLAUDE_API}/agent/xiaohongshu/login/status?userId=${currentUser}`);
+                        const recheckData = await recheckResponse.json();
+
+                        if (recheckData.success && recheckData.data && recheckData.data.logged_in === true) {
+                            document.getElementById('loginStatus').innerHTML =
+                                '<span class="text-green-600 text-xl">✅ 自动同步成功，已登录！</span>';
+                            document.getElementById('loginSuccess').classList.remove('hidden');
+                            await checkExistingConfiguration();
+                        } else {
+                            showLoginError('自动同步后仍未检测到有效登录状态');
+                        }
+                    }, 2000);
+                } else {
+                    // 同步失败，显示手动登录选项
+                    showLoginError(syncData.error || '自动同步失败');
+                }
+            } catch (error) {
+                console.error('自动同步失败:', error);
+                showLoginError('自动同步过程中发生错误');
+            }
+        }
+
+        // 显示登录错误状态
+        function showLoginError(message) {
+            document.getElementById('loginStatus').innerHTML =
+                `<span class="text-red-600">${message}</span>`;
+
+            // 显示手动检测选项
+            document.getElementById('loginStatus').innerHTML += `
+                <div class="mt-4 space-y-2">
+                    <button onclick="autoDetectLogin()" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg">
+                        🔍 手动检测登录状态
+                    </button>
+                    <button onclick="openXHSLogin()" class="w-full bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded-lg">
+                        🚀 前往小红书登录
+                    </button>
+                </div>
+            `;
         }
 
         // 检查是否已有配置
