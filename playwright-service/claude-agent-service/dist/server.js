@@ -9,6 +9,7 @@ import { ClaudeAgentHTTP } from './claudeAgentHTTP.js';
 import AutoContentManager from './autoContentManager.js';
 import ImageGenerationService from './imageGenerationService.js';
 import { CookieOrchestrator } from './cookieOrchestrator.js';
+import { AutoCookieImporter } from './autoCookieImporter.js';
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,6 +44,10 @@ const autoContentManager = new AutoContentManager({
 });
 // 创建Cookie协调器
 const cookieOrchestrator = new CookieOrchestrator(MCP_ROUTER_URL);
+// 创建自动Cookie导入器
+const autoCookieImporter = new AutoCookieImporter(MCP_ROUTER_URL);
+// 启动自动Cookie导入监控
+autoCookieImporter.startAutoImport(15000); // 每15秒检查一次
 const app = express();
 app.use(express.json());
 // Basic CORS + preflight handler so browser fetch requests succeed in hosted envs
@@ -1180,6 +1185,88 @@ app.post('/agent/xiaohongshu/sync-cookies', async (req, res) => {
         res.status(500).json({
             success: false,
             error: error.message || 'Cookie sync failed',
+        });
+    }
+});
+// ============ 自动Cookie导入API ============
+// 获取自动导入状态
+app.get('/agent/auto-import/status', async (req, res) => {
+    try {
+        const status = autoCookieImporter.getStatus();
+        res.json({
+            success: true,
+            status
+        });
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+// 手动触发Cookie导入
+app.post('/agent/auto-import/manual', async (req, res) => {
+    try {
+        const { userId } = req.body;
+        console.log(`[Auto Import] Manual import triggered for userId: ${userId || 'auto'}`);
+        const result = await autoCookieImporter.manualImport(userId);
+        if (result.success) {
+            res.json({
+                success: true,
+                message: result.message,
+                data: {
+                    userId: result.userId,
+                    cookieCount: result.cookieCount,
+                    source: result.source
+                }
+            });
+        }
+        else {
+            res.status(400).json({
+                success: false,
+                error: result.message,
+                details: result.error
+            });
+        }
+    }
+    catch (error) {
+        console.error('[Auto Import] Manual import error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+// 启动/停止自动导入监控
+app.post('/agent/auto-import/toggle', async (req, res) => {
+    try {
+        const { action, intervalMs } = req.body;
+        if (action === 'start') {
+            autoCookieImporter.startAutoImport(intervalMs || 15000);
+            res.json({
+                success: true,
+                message: `自动导入监控已启动，监控间隔: ${intervalMs || 15000}ms`
+            });
+        }
+        else if (action === 'stop') {
+            autoCookieImporter.stopAutoImport();
+            res.json({
+                success: true,
+                message: '自动导入监控已停止'
+            });
+        }
+        else {
+            res.status(400).json({
+                success: false,
+                error: 'Invalid action. Use "start" or "stop"'
+            });
+        }
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
         });
     }
 });
