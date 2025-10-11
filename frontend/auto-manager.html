@@ -393,21 +393,21 @@
                             document.getElementById('loginSuccess').classList.remove('hidden');
                             await checkExistingConfiguration();
                         } else {
-                            showLoginError('自动导入后仍未检测到有效登录状态');
+                            showLoginError('自动导入后仍未检测到有效登录状态', true);
                         }
                     }, 2000);
                 } else {
                     // 同步失败，显示手动登录选项
-                    showLoginError(syncData.error || '自动导入失败');
+                    showLoginError(syncData.error || '自动导入失败', true);
                 }
             } catch (error) {
                 console.error('自动导入失败:', error);
-                showLoginError('自动导入过程中发生错误');
+                showLoginError('自动导入过程中发生错误', true);
             }
         }
 
         // 显示登录错误状态
-        function showLoginError(message) {
+        function showLoginError(message, autoTrigger = false) {
             document.getElementById('loginStatus').innerHTML =
                 `<span class="text-red-600">${message}</span>`;
 
@@ -424,6 +424,12 @@
                     </button>
                 </div>
             `;
+
+            if (autoTrigger) {
+                setTimeout(() => {
+                    autoDetectLogin();
+                }, 400);
+            }
         }
 
         // 检查是否已有配置
