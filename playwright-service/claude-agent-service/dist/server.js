@@ -750,6 +750,61 @@ app.get('/agent/xiaohongshu/login/status', async (req, res) => {
         }
         console.log(`[XHS Login] Checking login status for user ${userId}`);
         try {
+            // 先检查本地是否有Cookie文件（表示已经登录过）
+            const fs = await import('fs');
+            const path = await import('path');
+            // Zeabur生产环境优化的Cookie文件路径查找
+            const cookieFilePaths = [
+                // 当前项目结构路径（Zeabur部署时的主要路径）
+                path.join(process.cwd(), '..', 'mcp-router', 'cookies', userId, 'cookies.json'),
+                path.join(process.cwd(), '..', 'mcp-router', 'latest.json'),
+                // 容器内可能的路径
+                path.join('/app', 'mcp-router', 'cookies', userId, 'cookies.json'),
+                path.join('/app', 'mcp-router', 'latest.json'),
+                // 工作目录相对路径
+                path.join(process.cwd(), 'cookies', userId, 'cookies.json'),
+                // 本地开发路径
+                path.join(process.cwd(), 'playwright-service', 'mcp-router', 'cookies', userId, 'cookies.json'),
+                path.join(process.cwd(), 'playwright-service', 'mcp-router', 'latest.json')
+            ];
+            console.log(`[XHS Login] Current working directory: ${process.cwd()}`);
+            console.log(`[XHS Login] Searching for cookies in paths:`, cookieFilePaths);
+            let hasValidCookies = false;
+            for (const cookieFile of cookieFilePaths) {
+                try {
+                    if (fs.existsSync(cookieFile)) {
+                        const fileContent = fs.readFileSync(cookieFile, 'utf-8');
+                        const cookieData = JSON.parse(fileContent);
+                        // 检查是否有必要的登录Cookie
+                        const cookies = cookieData.cookies || cookieData;
+                        if (Array.isArray(cookies)) {
+                            const hasSessionCookie = cookies.some(c => c.name === 'web_session' && c.value && !c.value.includes('Guest'));
+                            const hasA1Cookie = cookies.some(c => c.name === 'a1' && c.value);
+                            if (hasSessionCookie && hasA1Cookie) {
+                                hasValidCookies = true;
+                                console.log(`[XHS Login] Found valid cookies in ${cookieFile}`);
+                                break;
+                            }
+                        }
+                    }
+                }
+                catch (cookieError) {
+                    console.warn(`[XHS Login] Error reading cookie file ${cookieFile}:`, cookieError instanceof Error ? cookieError.message : String(cookieError));
+                }
+            }
+            if (hasValidCookies) {
+                // 有有效Cookie，返回登录状态
+                res.json({
+                    success: true,
+                    data: {
+                        logged_in: true,
+                        message: 'Cookie登录状态检测成功',
+                        user_id: userId,
+                        source: 'local_cookies'
+                    }
+                });
+                return;
+            }
             // 调用 MCP Router 检查登录状态
             const axios = await import('axios');
             const response = await axios.default.get(`${MCP_ROUTER_URL}/api/xiaohongshu/login/status?userId=${userId}`, { timeout: 5000 });
@@ -759,16 +814,13 @@ app.get('/agent/xiaohongshu/login/status', async (req, res) => {
             });
         }
         catch (mcpError) {
-            console.warn(`[XHS Login] MCP Router unavailable (${mcpError.message}), using demo status`);
-            // MCP Router不可用，返回演示模式状态
-            res.json({
-                success: true,
-                data: {
-                    logged_in: false,
-                    message: '演示模式 - 请在生产环境中使用真实登录',
-                    demo_mode: true,
-                    user_id: userId
-                }
+            console.error(`[XHS Login] MCP Router unavailable (${mcpError.message}), login failed`);
+            // MCP Router不可用，返回登录失败状态
+            res.status(503).json({
+                success: false,
+                error: 'Login service unavailable',
+                message: 'MCP Router服务不可用，请检查服务状态',
+                user_id: userId
             });
         }
     }
@@ -903,13 +955,22 @@ app.post('/agent/xiaohongshu/sync-cookies', async (req, res) => {
             // 从ultra-simple-login的latest.json读取Cookie
             const fs = await import('fs');
             const path = await import('path');
-            // 查找ultra-simple-login的Cookie文件
+            // 查找ultra-simple-login的Cookie文件 - Zeabur优化版本
             const possiblePaths = [
-                path.join(process.cwd(), 'playwright-service', 'mcp-router', 'latest.json'),
+                // Zeabur生产环境主要路径
                 path.join(process.cwd(), '..', 'mcp-router', 'latest.json'),
+                path.join('/app', 'mcp-router', 'latest.json'),
+                // 本地开发路径
+                path.join(process.cwd(), 'playwright-service', 'mcp-router', 'latest.json'),
                 path.join(process.cwd(), 'latest.json'),
-                '/tmp/latest.json'
+                // 临时目录
+                '/tmp/latest.json',
+                // 其他可能的容器路径
+                '/workspace/mcp-router/latest.json',
+                '/workspace/latest.json'
             ];
+            console.log(`[Cookie Sync] Current working directory: ${process.cwd()}`);
+            console.log(`[Cookie Sync] Searching for cookie files in:`, possiblePaths);
             let cookieData = null;
             let cookieFilePath = '';
             for (const filePath of possiblePaths) {

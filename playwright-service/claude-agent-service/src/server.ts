@@ -872,22 +872,37 @@ app.get('/agent/xiaohongshu/login/status', async (req: Request, res: Response) =
       const fs = await import('fs');
       const path = await import('path');
 
+      // Zeabur生产环境优化的Cookie文件路径查找
       const cookieFilePaths = [
+        // 当前项目结构路径（Zeabur部署时的主要路径）
+        path.join(process.cwd(), '..', 'mcp-router', 'cookies', userId, 'cookies.json'),
+        path.join(process.cwd(), '..', 'mcp-router', 'latest.json'),
+        // 容器内可能的路径
+        path.join('/app', 'mcp-router', 'cookies', userId, 'cookies.json'),
+        path.join('/app', 'mcp-router', 'latest.json'),
+        // 工作目录相对路径
+        path.join(process.cwd(), 'cookies', userId, 'cookies.json'),
+        // 本地开发路径
         path.join(process.cwd(), 'playwright-service', 'mcp-router', 'cookies', userId, 'cookies.json'),
-        path.join(process.cwd(), 'playwright-service', 'mcp-router', 'latest.json'),
-        path.join(process.cwd(), 'cookies', userId, 'cookies.json')
+        path.join(process.cwd(), 'playwright-service', 'mcp-router', 'latest.json')
       ];
+
+      console.log(`[XHS Login] Current working directory: ${process.cwd()}`);
+      console.log(`[XHS Login] Searching for cookies in paths:`, cookieFilePaths);
 
       let hasValidCookies = false;
       for (const cookieFile of cookieFilePaths) {
         try {
           if (fs.existsSync(cookieFile)) {
-            const cookieData = JSON.parse(fs.readFileSync(cookieFile, 'utf-8'));
+            const fileContent = fs.readFileSync(cookieFile, 'utf-8');
+            const cookieData = JSON.parse(fileContent);
             // 检查是否有必要的登录Cookie
             const cookies = cookieData.cookies || cookieData;
+
             if (Array.isArray(cookies)) {
               const hasSessionCookie = cookies.some(c => c.name === 'web_session' && c.value && !c.value.includes('Guest'));
               const hasA1Cookie = cookies.some(c => c.name === 'a1' && c.value);
+
               if (hasSessionCookie && hasA1Cookie) {
                 hasValidCookies = true;
                 console.log(`[XHS Login] Found valid cookies in ${cookieFile}`);
@@ -896,7 +911,7 @@ app.get('/agent/xiaohongshu/login/status', async (req: Request, res: Response) =
             }
           }
         } catch (cookieError) {
-          // 忽略单个文件读取错误，继续检查下一个
+          console.warn(`[XHS Login] Error reading cookie file ${cookieFile}:`, cookieError instanceof Error ? cookieError.message : String(cookieError));
         }
       }
 
@@ -926,17 +941,14 @@ app.get('/agent/xiaohongshu/login/status', async (req: Request, res: Response) =
         data: response.data
       });
     } catch (mcpError: any) {
-      console.warn(`[XHS Login] MCP Router unavailable (${mcpError.message}), using demo status`);
+      console.error(`[XHS Login] MCP Router unavailable (${mcpError.message}), login failed`);
 
-      // MCP Router不可用，返回演示模式状态
-      res.json({
-        success: true,
-        data: {
-          logged_in: false,
-          message: '演示模式 - 请在生产环境中使用真实登录',
-          demo_mode: true,
-          user_id: userId
-        }
+      // MCP Router不可用，返回登录失败状态
+      res.status(503).json({
+        success: false,
+        error: 'Login service unavailable',
+        message: 'MCP Router服务不可用，请检查服务状态',
+        user_id: userId
       });
     }
   } catch (error: any) {
@@ -1100,13 +1112,23 @@ app.post('/agent/xiaohongshu/sync-cookies', async (req: Request, res: Response) 
       const fs = await import('fs');
       const path = await import('path');
 
-      // 查找ultra-simple-login的Cookie文件
+      // 查找ultra-simple-login的Cookie文件 - Zeabur优化版本
       const possiblePaths = [
-        path.join(process.cwd(), 'playwright-service', 'mcp-router', 'latest.json'),
+        // Zeabur生产环境主要路径
         path.join(process.cwd(), '..', 'mcp-router', 'latest.json'),
+        path.join('/app', 'mcp-router', 'latest.json'),
+        // 本地开发路径
+        path.join(process.cwd(), 'playwright-service', 'mcp-router', 'latest.json'),
         path.join(process.cwd(), 'latest.json'),
-        '/tmp/latest.json'
+        // 临时目录
+        '/tmp/latest.json',
+        // 其他可能的容器路径
+        '/workspace/mcp-router/latest.json',
+        '/workspace/latest.json'
       ];
+
+      console.log(`[Cookie Sync] Current working directory: ${process.cwd()}`);
+      console.log(`[Cookie Sync] Searching for cookie files in:`, possiblePaths);
 
       let cookieData = null;
       let cookieFilePath = '';
