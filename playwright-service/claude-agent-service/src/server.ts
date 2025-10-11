@@ -68,6 +68,9 @@ const SHOULD_AUTO_INSTALL_PLAYWRIGHT = process.env.PLAYWRIGHT_AUTO_INSTALL !== '
 // 启动自动Cookie导入监控
 autoCookieImporter.startAutoImport(15000); // 每15秒检查一次
 
+// 声明变量必须在使用之前
+let ensureChromiumPromise: Promise<void> | null = null;
+
 if (SHOULD_AUTO_INSTALL_PLAYWRIGHT) {
   ensurePlaywrightChromiumInstalled()
     .then(() => {
@@ -77,7 +80,6 @@ if (SHOULD_AUTO_INSTALL_PLAYWRIGHT) {
       console.warn('[PlaywrightLogin] Pre-installation of Chromium failed:', error instanceof Error ? error.message : error);
     });
 }
-let ensureChromiumPromise: Promise<void> | null = null;
 
 function runCommand(command: string, args: string[], options: SpawnOptions = {}): Promise<void> {
   return new Promise((resolve, reject) => {
