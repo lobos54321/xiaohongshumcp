@@ -868,6 +868,52 @@ app.get('/agent/xiaohongshu/login/status', async (req: Request, res: Response) =
     console.log(`[XHS Login] Checking login status for user ${userId}`);
 
     try {
+      // 先检查本地是否有Cookie文件（表示已经登录过）
+      const fs = await import('fs');
+      const path = await import('path');
+
+      const cookieFilePaths = [
+        path.join(process.cwd(), 'playwright-service', 'mcp-router', 'cookies', userId, 'cookies.json'),
+        path.join(process.cwd(), 'playwright-service', 'mcp-router', 'latest.json'),
+        path.join(process.cwd(), 'cookies', userId, 'cookies.json')
+      ];
+
+      let hasValidCookies = false;
+      for (const cookieFile of cookieFilePaths) {
+        try {
+          if (fs.existsSync(cookieFile)) {
+            const cookieData = JSON.parse(fs.readFileSync(cookieFile, 'utf-8'));
+            // 检查是否有必要的登录Cookie
+            const cookies = cookieData.cookies || cookieData;
+            if (Array.isArray(cookies)) {
+              const hasSessionCookie = cookies.some(c => c.name === 'web_session' && c.value && !c.value.includes('Guest'));
+              const hasA1Cookie = cookies.some(c => c.name === 'a1' && c.value);
+              if (hasSessionCookie && hasA1Cookie) {
+                hasValidCookies = true;
+                console.log(`[XHS Login] Found valid cookies in ${cookieFile}`);
+                break;
+              }
+            }
+          }
+        } catch (cookieError) {
+          // 忽略单个文件读取错误，继续检查下一个
+        }
+      }
+
+      if (hasValidCookies) {
+        // 有有效Cookie，返回登录状态
+        res.json({
+          success: true,
+          data: {
+            logged_in: true,
+            message: 'Cookie登录状态检测成功',
+            user_id: userId,
+            source: 'local_cookies'
+          }
+        });
+        return;
+      }
+
       // 调用 MCP Router 检查登录状态
       const axios = await import('axios');
       const response = await axios.default.get(
