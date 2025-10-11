@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import { ClaudeAgentHTTP, AgentRequest } from './claudeAgentHTTP.js';
 import AutoContentManager from './autoContentManager.js';
 import ImageGenerationService from './imageGenerationService.js';
+import { CookieOrchestrator } from './cookieOrchestrator.js';
 
 dotenv.config();
 
@@ -51,6 +52,9 @@ const autoContentManager = new AutoContentManager({
   mcpClient: null // 需要从agent传递
 });
 
+// 创建Cookie协调器
+const cookieOrchestrator = new CookieOrchestrator(MCP_ROUTER_URL);
+
 const app = express();
 app.use(express.json());
 
@@ -77,6 +81,10 @@ app.get('/api', (_req: Request, res: Response) => {
     description: 'Claude AI驱动的小红书内容创作与发布平台',
     endpoints: {
       health: 'GET /health - 健康检查',
+      // 统一状态管理API
+      userStatus: 'GET /api/user/status/:userId - 获取用户完整状态',
+      userInitialize: 'POST /api/user/initialize - 初始化用户状态',
+      // 智能对话和创作API
       chat: 'POST /agent/chat - 智能对话 {userId, prompt, systemPrompt?}',
       createPost: 'POST /agent/xiaohongshu/create-post - 创作发布 {userId, topic, style?, length?}',
       research: 'POST /agent/xiaohongshu/research - 内容研究 {userId, keyword, task?}',
@@ -90,8 +98,8 @@ app.get('/api', (_req: Request, res: Response) => {
       autoResume: 'POST /agent/auto/resume/:userId - 恢复自动运营',
       // 图片生成API
       generateImage: 'POST /agent/image/generate - 生成图片 {prompt, style?, aspectRatio?}',
-      // 小红书自动登录API
-      xiaohongshuAutoLogin: 'POST /agent/xiaohongshu/auto-login - 自动检测并保存登录状态 {userId}',
+      // 登录和认证API (已优化)
+      xiaohongshuAutoLogin: 'POST /agent/xiaohongshu/auto-login - 智能登录检测 {userId}',
       xiaohongshuLoginStatus: 'GET /agent/xiaohongshu/login/status - 检查登录状态 {userId}',
     },
     documentation: 'https://github.com/lobos54321/xiaohongshumcp',
@@ -115,6 +123,152 @@ app.get('/health', (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+// ============ 统一状态管理API ============
+
+// 获取用户完整状态 - 核心统一入口
+app.get('/api/user/status/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    console.log(`[UserStatus] 获取用户${userId}的完整状态...`);
+
+    // 1. 获取认证状态
+    const authStatus = await cookieOrchestrator.getAuthStatus(userId);
+
+    // 2. 检查配置状态
+    let configurationStatus = {
+      isConfigured: false,
+      productName: undefined as string | undefined,
+      settings: undefined as any
+    };
+
+    try {
+      const strategy = autoContentManager.getStrategy(userId);
+      if (strategy) {
+        configurationStatus.isConfigured = true;
+        configurationStatus.productName = '已配置产品'; // TODO: 从策略中提取产品名
+      }
+    } catch (error) {
+      // 配置不存在是正常情况
+    }
+
+    // 3. 检查运营状态
+    let operationStatus = {
+      isRunning: false,
+      startTime: undefined as string | undefined,
+      stats: undefined as any
+    };
+
+    try {
+      const stats = autoContentManager.getOperationStats(userId);
+      if (stats && stats.postsPublished >= 0) {
+        operationStatus.isRunning = true;
+        operationStatus.stats = stats;
+      }
+    } catch (error) {
+      // 运营未启动是正常情况
+    }
+
+    // 4. 返回统一状态
+    const userStatus = {
+      authentication: {
+        isLoggedIn: authStatus.isAuthenticated,
+        cookieSource: authStatus.source,
+        lastValidated: authStatus.lastValidated.toISOString(),
+        sessionInfo: authStatus.sessionInfo
+      },
+      configuration: configurationStatus,
+      operation: operationStatus,
+      // 智能推荐下一步操作
+      nextAction: getNextAction(authStatus.isAuthenticated, configurationStatus.isConfigured, operationStatus.isRunning)
+    };
+
+    res.json({
+      success: true,
+      userId,
+      status: userStatus,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error: any) {
+    console.error('[UserStatus] 获取用户状态失败:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to get user status'
+    });
+  }
+});
+
+// 用户状态初始化 - 智能引导用户完成设置
+app.post('/api/user/initialize', async (req: Request, res: Response) => {
+  try {
+    const { userId, forceRefresh } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required'
+      });
+    }
+
+    console.log(`[UserInit] 初始化用户${userId}状态，强制刷新：${forceRefresh || false}`);
+
+    // 使用CookieOrchestrator进行完整的认证流程处理
+    const authResult = await cookieOrchestrator.processUserAuthentication(userId);
+
+    res.json({
+      success: authResult.success,
+      message: authResult.message,
+      authStatus: authResult.authStatus,
+      actions: authResult.actions,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error: any) {
+    console.error('[UserInit] 用户初始化失败:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'User initialization failed'
+    });
+  }
+});
+
+// 智能推荐下一步操作的辅助函数
+function getNextAction(isAuthenticated: boolean, isConfigured: boolean, isRunning: boolean): {
+  action: string;
+  description: string;
+  endpoint?: string;
+} {
+  if (!isAuthenticated) {
+    return {
+      action: 'authenticate',
+      description: '需要完成小红书登录认证',
+      endpoint: 'POST /api/user/initialize'
+    };
+  }
+
+  if (!isConfigured) {
+    return {
+      action: 'configure',
+      description: '需要设置产品信息和运营参数',
+      endpoint: 'POST /agent/auto/start'
+    };
+  }
+
+  if (!isRunning) {
+    return {
+      action: 'start_operation',
+      description: '可以启动自动运营模式',
+      endpoint: 'POST /agent/auto/start'
+    };
+  }
+
+  return {
+    action: 'monitor',
+    description: '系统正在运行，可以查看运营数据',
+    endpoint: 'GET /agent/auto/stats/:userId'
+  };
+}
 
 // 处理智能请求
 app.post('/agent/chat', async (req: Request, res: Response) => {
