@@ -1343,6 +1343,8 @@
 
         // 更新帖子预览卡片
         function updatePostPreview(post) {
+            console.log('[Preview DEBUG] updatePostPreview called with:', post);
+
             if (!post) {
                 document.getElementById('postPreview').innerHTML = `
                     <div class="text-center py-6 text-gray-500">
@@ -1353,23 +1355,32 @@
                 return;
             }
 
+            console.log('[Preview DEBUG] Post image_url:', post.image_url);
+            console.log('[Preview DEBUG] Post image_prompt:', post.image_prompt);
+
             let previewHTML = '';
 
             // 显示AI生成的图片
             if (post.image_url) {
+                console.log('[Preview DEBUG] Showing image with URL:', post.image_url);
                 previewHTML += `
                     <div class="mb-4">
-                        <img src="${post.image_url}" class="w-full rounded-lg shadow-md" alt="AI生成的配图">
+                        <img src="${post.image_url}" class="w-full rounded-lg shadow-md" alt="AI生成的配图"
+                             onerror="console.error('Image load error:', this.src); this.src='https://via.placeholder.com/800x800/667eea/FFFFFF?text=Image+Error';">
                         <p class="text-xs text-gray-500 mt-2">🎨 AI生成的配图</p>
+                        <p class="text-xs text-gray-400 mt-1">URL: ${post.image_url.substring(0, 50)}...</p>
                     </div>
                 `;
             } else if (post.image_prompt) {
+                console.log('[Preview DEBUG] No image_url, showing prompt instead');
                 previewHTML += `
                     <div class="mb-4 p-3 bg-blue-50 rounded-lg">
                         <p class="text-xs text-blue-600">🎨 正在生成图片...</p>
                         <p class="text-xs text-gray-600 mt-1">${post.image_prompt}</p>
                     </div>
                 `;
+            } else {
+                console.log('[Preview DEBUG] No image_url and no image_prompt');
             }
 
             // 显示标题和内容

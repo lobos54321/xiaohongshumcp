@@ -750,18 +750,27 @@ export class AutoContentManager {
    * 生成图片
    */
   private async generateImage(prompt: string): Promise<string> {
+    console.log(`🎨 [Image DEBUG] 开始生成图片，提示词: ${prompt.substring(0, 100)}...`);
     try {
+      const fullPrompt = `${prompt}, high quality, suitable for social media, vibrant colors`;
+      console.log(`🎨 [Image DEBUG] 完整提示词: ${fullPrompt.substring(0, 100)}...`);
+
       const result = await this.imageService.generateImage({
-        prompt: `${prompt}, high quality, suitable for social media, vibrant colors`,
+        prompt: fullPrompt,
         style: 'realistic',
         aspectRatio: '1:1'
       });
 
+      console.log(`🎨 [Image DEBUG] 图片生成成功！URL: ${result.url}`);
+      console.log(`🎨 [Image DEBUG] 图片来源: ${result.source}`);
       return result.url;
-    } catch (error) {
-      console.error('图片生成失败:', error);
+    } catch (error: any) {
+      console.error('🎨 [Image DEBUG] 图片生成失败:', error.message);
+      console.error('🎨 [Image DEBUG] 错误详情:', error);
       // 使用备用图片
-      return await this.getFallbackImage(prompt);
+      const fallbackUrl = await this.getFallbackImage(prompt);
+      console.log(`🎨 [Image DEBUG] 使用备用图片: ${fallbackUrl}`);
+      return fallbackUrl;
     }
   }
 
