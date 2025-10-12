@@ -1508,8 +1508,72 @@
             }
         }
 
-        function editPost(postId) {
-            alert('编辑功能开发中，当前可通过"重新生成"来调整内容');
+        async function editPost(postId) {
+            // 获取当前任务数据
+            const planUrl = `${CLAUDE_API}/agent/auto/plan/${currentUser}`;
+            const planRes = await fetch(planUrl);
+            const planData = await planRes.json();
+
+            if (!planData.success || !planData.plan || !planData.plan.tasks) {
+                alert('无法获取内容数据');
+                return;
+            }
+
+            // 找到当前任务
+            const task = planData.plan.tasks.find(t =>
+                t.id === postId ||
+                planData.plan.tasks.indexOf(t).toString() === postId ||
+                (planData.plan.tasks.indexOf(t) + 1).toString() === postId
+            );
+
+            if (!task) {
+                alert('找不到任务数据');
+                return;
+            }
+
+            // 创建编辑对话框
+            const title = prompt('编辑标题:', task.title || '');
+            if (title === null) return; // 用户取消
+
+            const content = prompt('编辑正文:', task.content || '');
+            if (content === null) return;
+
+            const imagePrompt = prompt('编辑图片描述（留空跳过）:', task.image_prompt || '');
+
+            const hashtagsStr = prompt('编辑标签（用逗号分隔）:', task.hashtags ? task.hashtags.join(', ') : '');
+            const hashtags = hashtagsStr ? hashtagsStr.split(',').map(tag => tag.trim()).filter(tag => tag) : task.hashtags;
+
+            // 发送更新请求
+            addActivityLog('✏️ 正在更新内容...');
+
+            try {
+                const response = await fetch(`${CLAUDE_API}/agent/auto/edit/${currentUser}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        taskId: postId,
+                        title: title || task.title,
+                        content: content || task.content,
+                        imagePrompt: imagePrompt || task.image_prompt,
+                        hashtags: hashtags || task.hashtags
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    addActivityLog('✅ 内容已更新');
+                    // 刷新显示
+                    loadTodayPlan();
+                } else {
+                    addActivityLog('❌ 更新失败: ' + data.error);
+                    alert('更新失败: ' + data.error);
+                }
+            } catch (error) {
+                console.error('更新错误:', error);
+                addActivityLog('❌ 更新失败');
+                alert('更新失败，请重试');
+            }
         }
 
         async function regeneratePost(postId) {

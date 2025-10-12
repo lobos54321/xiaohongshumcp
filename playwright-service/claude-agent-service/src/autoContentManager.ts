@@ -627,6 +627,30 @@ export class AutoContentManager {
   }
 
   /**
+   * 清理Claude响应，提取JSON内容
+   */
+  private cleanJSONResponse(responseText: string): string {
+    let cleanedText = responseText.trim();
+
+    // 移除markdown代码块标记
+    cleanedText = cleanedText.replace(/```json\s*/gi, '');
+    cleanedText = cleanedText.replace(/```\s*/g, '');
+
+    // 查找JSON块的开始和结束
+    const jsonStart = cleanedText.indexOf('{');
+    const jsonEnd = cleanedText.lastIndexOf('}') + 1;
+
+    if (jsonStart !== -1 && jsonEnd > jsonStart) {
+      cleanedText = cleanedText.substring(jsonStart, jsonEnd);
+    }
+
+    // 移除控制字符
+    cleanedText = cleanedText.replace(/[\x00-\x1F\x7F]/g, '');
+
+    return cleanedText;
+  }
+
+  /**
    * 生成详细的每日任务
    */
   private async generateDailyTasks(profile: UserProfile, weeklyPlan: WeeklyPlan): Promise<DailyTask[]> {
@@ -678,23 +702,11 @@ export class AutoContentManager {
 
     try {
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
-      console.log('Claude响应原文:', responseText);
+      console.log('📝 [任务创建] Claude响应原文:', responseText.substring(0, 200) + '...');
 
-      // 清理响应文本，移除可能的控制字符和非JSON内容
-      let cleanedText = responseText.trim();
-
-      // 查找JSON块的开始和结束
-      const jsonStart = cleanedText.indexOf('{');
-      const jsonEnd = cleanedText.lastIndexOf('}') + 1;
-
-      if (jsonStart !== -1 && jsonEnd > jsonStart) {
-        cleanedText = cleanedText.substring(jsonStart, jsonEnd);
-      }
-
-      // 移除控制字符
-      cleanedText = cleanedText.replace(/[\x00-\x1F\x7F]/g, '');
-
-      console.log('清理后的JSON:', cleanedText);
+      // 使用统一的JSON清理方法
+      const cleanedText = this.cleanJSONResponse(responseText);
+      console.log('📝 [任务创建] 清理后的JSON:', cleanedText.substring(0, 200) + '...');
 
       const taskDetails = JSON.parse(cleanedText);
 
@@ -1396,6 +1408,57 @@ export class AutoContentManager {
   /**
    * 重新生成任务内容
    */
+  /**
+   * 更新任务内容（手动编辑）
+   */
+  public async updateTaskContent(userId: string, taskId: string, updates: {
+    title?: string;
+    content?: string;
+    imagePrompt?: string;
+    hashtags?: string[];
+  }): Promise<DailyTask> {
+    const plan = this.contentPlans.get(userId);
+
+    if (!plan || !plan.dailyTasks || plan.dailyTasks.length === 0) {
+      throw new Error('用户数据不存在');
+    }
+
+    // 找到要更新的任务
+    const taskIndex = plan.dailyTasks.findIndex((t, index) =>
+      index.toString() === taskId || (index + 1).toString() === taskId
+    );
+
+    if (taskIndex === -1) {
+      throw new Error('任务不存在');
+    }
+
+    const task = plan.dailyTasks[taskIndex];
+    console.log(`✏️ [编辑任务] 更新任务: ${task.title}`);
+
+    // 更新任务内容
+    if (updates.title) task.title = updates.title;
+    if (updates.content) task.content = updates.content;
+    if (updates.imagePrompt) task.imagePrompt = updates.imagePrompt;
+    if (updates.hashtags) task.hashtags = updates.hashtags;
+
+    // 如果imagePrompt更新了，重新生成图片
+    if (updates.imagePrompt && updates.imagePrompt !== task.imagePrompt) {
+      try {
+        const newImageUrl = await this.generateImage(updates.imagePrompt);
+        task.imageUrl = newImageUrl;
+        console.log(`✅ [编辑任务] 图片已重新生成: ${newImageUrl}`);
+      } catch (error: any) {
+        console.error(`❌ [编辑任务] 图片生成失败:`, error.message);
+      }
+    }
+
+    task.status = 'ready';
+    this.saveData(userId);
+    this.addRealTimeActivity(userId, `✏️ 内容已更新: ${task.title}`, 'generation');
+
+    return task;
+  }
+
   public async regenerateTask(userId: string, taskId?: string): Promise<DailyTask> {
     const plan = this.contentPlans.get(userId);
     const profile = this.userProfiles.get(userId);
@@ -1447,7 +1510,13 @@ export class AutoContentManager {
       });
 
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
-      const newContent = JSON.parse(responseText);
+      console.log('🔄 [重新生成] Claude响应原文:', responseText.substring(0, 200) + '...');
+
+      // 使用统一的JSON清理方法
+      const cleanedText = this.cleanJSONResponse(responseText);
+      console.log('🔄 [重新生成] 清理后的JSON:', cleanedText.substring(0, 200) + '...');
+
+      const newContent = JSON.parse(cleanedText);
 
       // 生成新图片
       const imageUrl = await this.generateImage(newContent.imagePrompt || oldTask.imagePrompt);

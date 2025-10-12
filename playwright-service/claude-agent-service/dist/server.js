@@ -952,6 +952,33 @@ app.post('/agent/auto/update-time/:userId', async (req, res) => {
     }
 });
 // 重新生成内容
+// 更新任务内容（编辑）
+app.post('/agent/auto/edit/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { taskId, title, content, imagePrompt, hashtags } = req.body;
+        console.log(`[Auto Mode] Editing content for user ${userId}, task ${taskId}`);
+        // 调用autoContentManager的更新方法
+        const updatedTask = await autoContentManager.updateTaskContent(userId, taskId, {
+            title,
+            content,
+            imagePrompt,
+            hashtags
+        });
+        res.json({
+            success: true,
+            task: updatedTask,
+            message: '内容已更新'
+        });
+    }
+    catch (error) {
+        console.error('[Auto Mode] Error editing content:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+        });
+    }
+});
 app.post('/agent/auto/regenerate/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
