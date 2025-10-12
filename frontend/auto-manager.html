@@ -1531,19 +1531,48 @@
                 return;
             }
 
-            // 创建编辑对话框
-            const title = prompt('编辑标题:', task.title || '');
-            if (title === null) return; // 用户取消
+            // 创建简单的编辑界面
+            const editDialog = `
+                <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:white;padding:20px;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.3);z-index:9999;max-width:600px;width:90%;">
+                    <h3 style="margin-bottom:15px;font-size:18px;font-weight:bold;">✏️ 编辑内容</h3>
+                    <div style="margin-bottom:10px;">
+                        <label style="display:block;margin-bottom:5px;font-weight:500;">标题:</label>
+                        <input type="text" id="edit-title" value="${(task.title || '').replace(/"/g, '&quot;')}" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:5px;">
+                    </div>
+                    <div style="margin-bottom:10px;">
+                        <label style="display:block;margin-bottom:5px;font-weight:500;">正文:</label>
+                        <textarea id="edit-content" rows="6" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:5px;resize:vertical;">${(task.content || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+                    </div>
+                    <div style="margin-bottom:10px;">
+                        <label style="display:block;margin-bottom:5px;font-weight:500;">标签（逗号分隔）:</label>
+                        <input type="text" id="edit-hashtags" value="${task.hashtags ? task.hashtags.join(', ') : ''}" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:5px;">
+                    </div>
+                    <div style="display:flex;gap:10px;margin-top:15px;">
+                        <button onclick="saveEdit('${postId}')" style="flex:1;padding:10px;background:#10b981;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:500;">✅ 保存</button>
+                        <button onclick="closeEditDialog()" style="flex:1;padding:10px;background:#6b7280;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:500;">❌ 取消</button>
+                    </div>
+                </div>
+                <div onclick="closeEditDialog()" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9998;"></div>
+            `;
 
-            const content = prompt('编辑正文:', task.content || '');
-            if (content === null) return;
+            const dialogContainer = document.createElement('div');
+            dialogContainer.id = 'edit-dialog-container';
+            dialogContainer.innerHTML = editDialog;
+            document.body.appendChild(dialogContainer);
+        }
 
-            const imagePrompt = prompt('编辑图片描述（留空跳过）:', task.image_prompt || '');
+        function closeEditDialog() {
+            const dialog = document.getElementById('edit-dialog-container');
+            if (dialog) dialog.remove();
+        }
 
-            const hashtagsStr = prompt('编辑标签（用逗号分隔）:', task.hashtags ? task.hashtags.join(', ') : '');
-            const hashtags = hashtagsStr ? hashtagsStr.split(',').map(tag => tag.trim()).filter(tag => tag) : task.hashtags;
+        async function saveEdit(postId) {
+            const title = document.getElementById('edit-title').value;
+            const content = document.getElementById('edit-content').value;
+            const hashtagsStr = document.getElementById('edit-hashtags').value;
+            const hashtags = hashtagsStr ? hashtagsStr.split(',').map(tag => tag.trim()).filter(tag => tag) : [];
 
-            // 发送更新请求
+            closeEditDialog();
             addActivityLog('✏️ 正在更新内容...');
 
             try {
@@ -1552,10 +1581,9 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         taskId: postId,
-                        title: title || task.title,
-                        content: content || task.content,
-                        imagePrompt: imagePrompt || task.image_prompt,
-                        hashtags: hashtags || task.hashtags
+                        title,
+                        content,
+                        hashtags
                     })
                 });
 
@@ -1563,7 +1591,6 @@
 
                 if (data.success) {
                     addActivityLog('✅ 内容已更新');
-                    // 刷新显示
                     loadTodayPlan();
                 } else {
                     addActivityLog('❌ 更新失败: ' + data.error);

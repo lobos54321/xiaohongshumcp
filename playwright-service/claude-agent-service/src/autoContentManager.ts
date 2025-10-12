@@ -417,6 +417,15 @@ export class AutoContentManager {
     const postsPerDay = frequencyMap[profile.postFrequency] || 1;
     console.log(`📊 [DEBUG] 发布频率设置: ${profile.postFrequency}, 每天发布 ${postsPerDay} 篇`);
 
+    // 获取今天的日期
+    const today = new Date();
+    const exampleDates = [];
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(today);
+      date.setDate(today.getDate() + i);
+      exampleDates.push(date.toISOString().split('T')[0]);
+    }
+
     const prompt = `
 基于以下内容策略，为${profile.productName}制定本周(7天)的详细发布计划：
 
@@ -427,38 +436,61 @@ export class AutoContentManager {
 最佳时间：${strategy.optimalTimes.join(', ')}
 
 要求：
-1. 严格按照发布频率：每天安排${postsPerDay}篇内容
-2. 确保主题分布均衡，避免重复
-3. 考虑周末和工作日的用户行为差异
-4. 每个内容要有明确的目标和预期效果
-5. 发布时间要根据最佳时间来安排
+1. **必须返回完整的7天计划**，从${exampleDates[0]}到${exampleDates[6]}
+2. 严格按照发布频率：每天安排${postsPerDay}篇内容
+3. 确保主题分布均衡，避免重复
+4. 考虑周末和工作日的用户行为差异
+5. 每个内容要有明确的目标和预期效果
+6. 发布时间要根据最佳时间来安排
 
-请以JSON格式返回7天的计划，每天包含${postsPerDay}个内容，格式如下：
+请以JSON格式返回完整的7天计划，每天包含${postsPerDay}个内容。
+使用标准日期格式YYYY-MM-DD，不要使用星期名称。
+
+示例格式：
 {
   "days": [
     {
-      "date": "2024-10-08",
+      "date": "${exampleDates[0]}",
       "posts": [
         {
-          "theme": "内容主题",
+          "theme": "内容主题1",
           "type": "图文",
           "scheduledTime": "09:30"
         }
       ]
+    },
+    {
+      "date": "${exampleDates[1]}",
+      "posts": [
+        {
+          "theme": "内容主题2",
+          "type": "图文",
+          "scheduledTime": "15:00"
+        }
+      ]
     }
+    ... 继续到第7天
   ]
 }
+
+只返回JSON，不要有其他文字。
 `;
 
     const response = await this.anthropic.messages.create({
       model: process.env.CLAUDE_MODEL || 'claude-3-haiku-20240307',
-      max_tokens: 3000,
+      max_tokens: 4000,
       messages: [{ role: 'user', content: prompt }]
     });
 
     try {
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
-      const rawPlan = JSON.parse(responseText);
+      console.log('📅 [DEBUG] Claude原始周计划响应:', responseText.substring(0, 300) + '...');
+
+      // 使用统一的JSON清理方法
+      const cleanedText = this.cleanJSONResponse(responseText);
+      console.log('📅 [DEBUG] 清理后的JSON:', cleanedText.substring(0, 300) + '...');
+
+      const rawPlan = JSON.parse(cleanedText);
       console.log('📅 [DEBUG] Claude原始周计划数据:', JSON.stringify(rawPlan, null, 2));
 
       // 处理各种可能的返回格式
