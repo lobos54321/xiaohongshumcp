@@ -523,8 +523,33 @@ export class AutoContentManager {
             }];
           }
 
-          // 确保日期正确设置
-          const dayDate = day.date ? new Date(day.date) : new Date(Date.now() + index * 24 * 60 * 60 * 1000);
+          // 确保日期正确设置 - 智能解析日期
+          let dayDate: Date;
+          if (day.date) {
+            // 尝试解析日期
+            if (typeof day.date === 'string') {
+              // 检查是否是星期名称（中文或英文）
+              if (['周一', '周二', '周三', '周四', '周五', '周六', '周日',
+                   '星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日',
+                   'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].includes(day.date)) {
+                dayDate = this.getDateFromDayName(day.date);
+                console.log(`📅 [DEBUG] 第${index + 1}天: ${day.date} -> ${dayDate.toISOString().split('T')[0]}`);
+              } else {
+                // 尝试标准日期格式
+                dayDate = new Date(day.date);
+                if (isNaN(dayDate.getTime())) {
+                  // 解析失败，使用索引计算
+                  dayDate = new Date(Date.now() + index * 24 * 60 * 60 * 1000);
+                  console.log(`⚠️ [DEBUG] 日期解析失败: ${day.date}, 使用索引 ${index}`);
+                }
+              }
+            } else {
+              dayDate = new Date(day.date);
+            }
+          } else {
+            // 没有日期，使用索引计算
+            dayDate = new Date(Date.now() + index * 24 * 60 * 60 * 1000);
+          }
           console.log(`📅 [DEBUG] 第${index + 1}天日期: ${dayDate.toISOString().split('T')[0]}, 帖子数量: ${posts.length}`);
 
           return {
@@ -572,16 +597,27 @@ export class AutoContentManager {
   }
 
   /**
-   * 将星期名转换为日期
+   * 将星期名转换为日期（支持中英文）
    */
   private getDateFromDayName(dayName: string): Date {
     const today = new Date();
     const dayMap: {[key: string]: number} = {
+      // 英文
       'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4,
-      'Friday': 5, 'Saturday': 6, 'Sunday': 0
+      'Friday': 5, 'Saturday': 6, 'Sunday': 0,
+      // 中文
+      '周一': 1, '周二': 2, '周三': 3, '周四': 4,
+      '周五': 5, '周六': 6, '周日': 0,
+      '星期一': 1, '星期二': 2, '星期三': 3, '星期四': 4,
+      '星期五': 5, '星期六': 6, '星期日': 0
     };
 
     const targetDay = dayMap[dayName];
+    if (targetDay === undefined) {
+      console.log(`⚠️ [日期解析] 无法识别的星期名: ${dayName}, 使用当前日期`);
+      return today;
+    }
+
     const currentDay = today.getDay();
     const daysUntilTarget = (targetDay - currentDay + 7) % 7;
 
