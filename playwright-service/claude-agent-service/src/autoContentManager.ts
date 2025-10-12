@@ -188,6 +188,23 @@ export class AutoContentManager {
       console.log(`🚀 [DEBUG] 步骤3完成: 生成了 ${dailyTasks.length} 个每日任务`);
       this.addRealTimeActivity(userProfile.userId, `✅ 生成了${dailyTasks.length}个每日任务`, 'generation');
 
+      // 3.5. 为第一个任务预生成图片（用于预览）
+      if (dailyTasks.length > 0) {
+        const firstTask = dailyTasks[0];
+        console.log(`🚀 [DEBUG] 步骤3.5: 为第一个任务预生成图片...`);
+        this.addRealTimeActivity(userProfile.userId, '🎨 正在生成第一篇内容的配图...', 'generation');
+        try {
+          const imageUrl = await this.generateImage(firstTask.imagePrompt);
+          firstTask.imageUrl = imageUrl;
+          firstTask.status = 'ready'; // 标记为已准备好
+          this.addRealTimeActivity(userProfile.userId, '✅ 首篇内容配图已生成，可以预览', 'generation');
+          console.log(`🚀 [DEBUG] 步骤3.5完成: 首张图片已生成 ${imageUrl}`);
+        } catch (error: any) {
+          console.error(`❌ [DEBUG] 预生成图片失败:`, error.message);
+          this.addRealTimeActivity(userProfile.userId, '⚠️ 配图生成失败，将在发布时重试', 'generation');
+        }
+      }
+
       // 4. 保存完整计划
       console.log(`🚀 [DEBUG] 步骤4: 保存完整计划到 contentPlans...`);
       this.contentPlans.set(userProfile.userId, {
