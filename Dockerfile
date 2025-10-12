@@ -1,9 +1,9 @@
 # 使用Node.js 18作为基础镜像
 FROM node:18-slim
 
-# 强制重建所有Docker层 - 支持Playwright自动登录
-ARG CACHEBUST=production-v6-playwright-auto-login-rebuild
-RUN echo "Force rebuild with Playwright support at $(date)" > /tmp/rebuild.txt
+# 强制重建所有Docker层 - 支持Playwright自动登录 - FORCE REBUILD NOW
+ARG CACHEBUST=v7-force-install-playwright-deps-20251012-0145
+RUN echo "CRITICAL: Installing Playwright dependencies" > /tmp/rebuild.txt
 
 # 安装必要的系统依赖（包括Playwright浏览器依赖）
 RUN apt-get update && apt-get install -y \
