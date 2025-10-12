@@ -69,20 +69,84 @@ export class ImageGenerationService {
   }
 
   /**
-   * 使用 Gemini Imagen 生成图片
+   * 使用 Gemini 2.5 Flash Image (Nano Banana) 生成图片
    */
   private async generateWithGemini(request: ImageRequest): Promise<ImageResult | null> {
     try {
-      if (!this.geminiKey) return null;
+      if (!this.geminiKey) {
+        console.log('⚠️ [Gemini] 未配置GEMINI_API_KEY');
+        return null;
+      }
 
-      // 注意：Gemini目前主要是文本模型，图片生成可能需要不同的API
-      // 这里先使用备用方案，直接通过Unsplash获取图片
-      console.log('🔄 Gemini图片生成暂时使用Unsplash作为实现');
+      console.log('🎨 [Gemini] 开始使用 gemini-2.5-flash-image 生成图片');
+      const stylePrompt = this.getStylePrompt(request.style);
+      const fullPrompt = `${request.prompt}, ${stylePrompt}, high quality, vibrant colors, social media ready`;
+      console.log('🎨 [Gemini] 提示词:', fullPrompt.substring(0, 100) + '...');
 
-      return await this.getFromUnsplash(request);
+      // 调用 Gemini 2.5 Flash Image API
+      const response = await fetch(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent',
+        {
+          method: 'POST',
+          headers: {
+            'x-goog-api-key': this.geminiKey,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{
+                text: fullPrompt
+              }]
+            }]
+          })
+        }
+      );
 
-    } catch (error) {
-      console.error('Gemini 生成失败:', error);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('🎨 [Gemini] API错误:', response.status, errorText);
+        return null;
+      }
+
+      const data = await response.json() as any;
+      console.log('🎨 [Gemini] API响应状态:', response.status);
+
+      // 从响应中提取图片数据（base64）
+      if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+        const parts = data.candidates[0].content.parts;
+
+        // 查找inlineData类型的part（包含图片）
+        const imagePart = parts.find((part: any) => part.inlineData && part.inlineData.mimeType?.startsWith('image/'));
+
+        if (imagePart && imagePart.inlineData && imagePart.inlineData.data) {
+          const base64Data = imagePart.inlineData.data;
+          const mimeType = imagePart.inlineData.mimeType || 'image/png';
+
+          console.log('🎨 [Gemini] 成功获取图片数据，mimeType:', mimeType);
+
+          // 保存base64图片到本地
+          const localPath = await this.saveBase64Image(base64Data, 'gemini', mimeType);
+
+          // 返回本地路径作为URL（生产环境需要配置静态文件服务）
+          const imageUrl = localPath; // 简化处理，直接返回本地路径
+
+          console.log('🎨 [Gemini] 图片保存成功:', localPath);
+
+          return {
+            url: imageUrl,
+            localPath,
+            source: 'gemini',
+            cost: 0.03 // Gemini定价：$0.03 per image
+          };
+        }
+      }
+
+      console.error('🎨 [Gemini] 响应中未找到图片数据');
+      return null;
+
+    } catch (error: any) {
+      console.error('🎨 [Gemini] 生成失败:', error.message);
+      console.error('🎨 [Gemini] 错误详情:', error);
       return null;
     }
   }
@@ -191,6 +255,40 @@ export class ImageGenerationService {
       source: 'placeholder',
       cost: 0
     };
+  }
+
+  /**
+   * 保存base64图片到本地
+   */
+  private async saveBase64Image(base64Data: string, source: string, mimeType: string): Promise<string> {
+    try {
+      // 创建下载目录
+      const downloadDir = path.join(process.cwd(), 'downloads', 'images');
+      if (!fs.existsSync(downloadDir)) {
+        fs.mkdirSync(downloadDir, { recursive: true });
+      }
+
+      // 根据mimeType确定扩展名
+      const extension = mimeType.includes('png') ? '.png' :
+                       mimeType.includes('jpeg') || mimeType.includes('jpg') ? '.jpg' :
+                       '.png';
+
+      // 生成文件名
+      const timestamp = Date.now();
+      const filename = `${source}_${timestamp}${extension}`;
+      const filepath = path.join(downloadDir, filename);
+
+      // 将base64转换为buffer并保存
+      const buffer = Buffer.from(base64Data, 'base64');
+      fs.writeFileSync(filepath, buffer);
+
+      console.log(`📁 [Gemini] 图片已保存: ${filepath}`);
+      return filepath;
+
+    } catch (error) {
+      console.error('📁 [Gemini] 保存图片失败:', error);
+      throw error;
+    }
   }
 
   /**

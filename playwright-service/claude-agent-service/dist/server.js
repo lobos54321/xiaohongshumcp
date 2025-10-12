@@ -826,7 +826,10 @@ app.get('/agent/auto/plan/:userId', async (req, res) => {
                 status: task.status === 'published' ? 'completed' :
                     task.status === 'generating' || task.status === 'ready' ? 'in-progress' :
                         'pending',
-                type: task.contentType || '图文'
+                type: task.contentType || '图文',
+                content: task.content || '',
+                image_url: task.imageUrl || null,
+                image_prompt: task.imagePrompt || null
             };
         });
         const plan = {
