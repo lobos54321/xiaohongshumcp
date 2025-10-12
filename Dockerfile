@@ -2,7 +2,7 @@
 FROM node:18-slim
 
 # 强制重建所有Docker层 - 支持Playwright自动登录
-ARG CACHEBUST=production-v6-playwright-auto-login
+ARG CACHEBUST=production-v6-playwright-auto-login-rebuild
 RUN echo "Force rebuild with Playwright support at $(date)" > /tmp/rebuild.txt
 
 # 安装必要的系统依赖（包括Playwright浏览器依赖）
