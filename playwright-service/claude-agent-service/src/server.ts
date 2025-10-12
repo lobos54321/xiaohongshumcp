@@ -923,6 +923,58 @@ app.get('/agent/auto/activity/:userId', async (req: Request, res: Response) => {
   }
 });
 
+// 获取周计划
+app.get('/agent/auto/week-plan/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    // 从autoContentManager获取周计划
+    const weeklyPlan = autoContentManager.getWeeklyPlan(userId);
+
+    if (!weeklyPlan) {
+      return res.status(404).json({
+        success: false,
+        error: 'No weekly plan found for this user. Please start auto mode first.'
+      });
+    }
+
+    // 格式化周计划数据
+    const formattedPlan = {
+      days: weeklyPlan.days.map(day => {
+        const dateStr = day.date instanceof Date
+          ? day.date.toISOString().split('T')[0]
+          : new Date().toISOString().split('T')[0];
+
+        return {
+          date: dateStr,
+          dayOfWeek: day.date instanceof Date
+            ? ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][day.date.getDay()]
+            : '周一',
+          posts: day.posts.map((post, index) => ({
+            id: `${dateStr}-${index}`,
+            theme: post.theme,
+            type: post.type,
+            scheduledTime: post.scheduledTime instanceof Date
+              ? post.scheduledTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+              : '09:00'
+          }))
+        };
+      })
+    };
+
+    res.json({
+      success: true,
+      weeklyPlan: formattedPlan
+    });
+  } catch (error: any) {
+    console.error('[Auto Mode] Error getting weekly plan:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 // 获取今日计划
 app.get('/agent/auto/plan/:userId', async (req: Request, res: Response) => {
   try {
@@ -1014,6 +1066,30 @@ app.post('/agent/auto/approve/:userId', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('[Auto Mode] Error approving post:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// 更新发布时间
+app.post('/agent/auto/update-time/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const { taskId, newTime } = req.body;
+
+    console.log(`[Auto Mode] Updating time for user ${userId}, task ${taskId}, new time: ${newTime}`);
+
+    // 调用autoContentManager的更新时间方法
+    await autoContentManager.updateTaskTime(userId, taskId, newTime);
+
+    res.json({
+      success: true,
+      message: '发布时间已更新'
+    });
+  } catch (error: any) {
+    console.error('[Auto Mode] Error updating time:', error);
     res.status(500).json({
       success: false,
       error: error.message,

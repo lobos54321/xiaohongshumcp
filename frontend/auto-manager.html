@@ -232,9 +232,9 @@
                 <!-- Today's Plan -->
                 <div class="card rounded-xl p-6 shadow-lg">
                     <h3 class="text-lg font-bold mb-4 flex items-center">
-                        📅 今日计划
+                        📅 本周计划
                     </h3>
-                    <div id="todayPlan" class="space-y-3 text-sm">
+                    <div id="weekPlan" class="space-y-3 text-sm">
                         <div class="flex items-center justify-between p-2 bg-green-50 rounded-lg">
                             <span>早餐搭配推荐</span>
                             <span class="text-green-600 text-xs">✓ 已发布</span>
@@ -1187,30 +1187,23 @@
                     console.error('[Frontend DEBUG] 策略请求失败:', error);
                 }
 
-                // 加载今日计划
-                console.log('[Frontend DEBUG] 请求今日计划...');
+                // 加载周计划
+                console.log('[Frontend DEBUG] 请求周计划...');
                 try {
-                    const planUrl = `${CLAUDE_API}/agent/auto/plan/${currentUser}`;
-                    console.log('[Frontend DEBUG] 计划请求URL:', planUrl);
+                    const weekPlanUrl = `${CLAUDE_API}/agent/auto/week-plan/${currentUser}`;
+                    console.log('[Frontend DEBUG] 周计划请求URL:', weekPlanUrl);
 
-                    const planRes = await fetch(planUrl);
-                    console.log('[Frontend DEBUG] 计划响应状态:', planRes.status);
+                    const weekPlanRes = await fetch(weekPlanUrl);
+                    console.log('[Frontend DEBUG] 周计划响应状态:', weekPlanRes.status);
 
-                    const planData = await planRes.json();
-                    console.log('[Frontend DEBUG] 计划数据响应:', JSON.stringify(planData, null, 2));
+                    const weekPlanData = await weekPlanRes.json();
+                    console.log('[Frontend DEBUG] 周计划数据响应:', JSON.stringify(weekPlanData, null, 2));
 
-                    if (planData.success) {
-                        if (planData.generating) {
-                            // 仍在生成中，显示生成状态
-                            console.log('[Frontend DEBUG] 计划仍在生成中...');
-                        } else if (planData.plan) {
-                            console.log('[Frontend DEBUG] 计划数据获取成功，更新界面');
-                            updateTodayPlan(planData.plan);
-                        } else {
-                            console.log('[Frontend DEBUG] 计划响应成功但没有数据');
-                        }
+                    if (weekPlanData.success && weekPlanData.weeklyPlan) {
+                        console.log('[Frontend DEBUG] 周计划数据获取成功，更新界面');
+                        updateWeekPlan(weekPlanData.weeklyPlan);
                     } else {
-                        console.error('[Frontend DEBUG] 计划数据失败:', planData.error);
+                        console.error('[Frontend DEBUG] 周计划数据失败:', weekPlanData.error);
                         // 保持显示加载状态，将在后续重试中更新
                     }
                 } catch (error) {
@@ -1306,38 +1299,108 @@
             `;
         }
 
-        // 更新今日计划
-        function updateTodayPlan(plan) {
-            if (!plan || !plan.tasks || plan.tasks.length === 0) {
-                document.getElementById('todayPlan').innerHTML = `
+        // 更新周计划
+        function updateWeekPlan(weekPlan) {
+            if (!weekPlan || !weekPlan.days || weekPlan.days.length === 0) {
+                document.getElementById('weekPlan').innerHTML = `
                     <div class="bg-yellow-50 p-3 rounded-lg text-center">
                         <div class="font-medium text-yellow-800">⏳ 计划制定中</div>
-                        <div class="text-yellow-600 text-sm mt-1">Claude正在为您安排今日任务...</div>
+                        <div class="text-xs text-yellow-600 mt-1">AI正在为您准备内容...</div>
                     </div>
                 `;
                 return;
             }
 
-            const statusMap = {
-                'completed': { text: '✓ 已完成', class: 'bg-green-50 text-green-600' },
-                'in-progress': { text: '⏱ 进行中', class: 'bg-yellow-50 text-yellow-600' },
-                'pending': { text: '⏳ 计划中', class: 'bg-gray-50 text-gray-600' }
-            };
-
-            document.getElementById('todayPlan').innerHTML = plan.tasks.map(task => {
-                const status = statusMap[task.status] || statusMap['pending'];
-                return `
-                    <div class="flex items-center justify-between p-2 ${status.class.split(' ')[0]} rounded-lg">
-                        <span>${task.title}</span>
-                        <span class="${status.class.split(' ')[1]} text-xs">${status.text}</span>
+            document.getElementById('weekPlan').innerHTML = weekPlan.days.map(day => `
+                <div class="border border-gray-200 rounded-lg p-3 mb-2">
+                    <div class="font-bold text-gray-800 mb-2">
+                        ${day.date} ${day.dayOfWeek}
                     </div>
-                `;
-            }).join('');
+                    ${day.posts.map(post => `
+                        <div class="flex items-center justify-between p-2 bg-gray-50 rounded-lg mb-2 hover:bg-gray-100 transition">
+                            <div class="flex-1">
+                                <div class="font-medium text-gray-700">${post.theme}</div>
+                                <div class="text-xs text-gray-500 mt-1">
+                                    <span class="time-editable cursor-pointer hover:text-blue-600" data-task-id="${post.id}" data-time="${post.scheduledTime}">
+                                        ⏰ ${post.scheduledTime}
+                                    </span>
+                                     · ${post.type}
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `).join('');
 
+            // 为时间添加点击事件
+            document.querySelectorAll('.time-editable').forEach(el => {
+                el.addEventListener('click', function() {
+                    const taskId = this.getAttribute('data-task-id');
+                    const currentTime = this.getAttribute('data-time');
+                    editScheduleTime(taskId, currentTime);
+                });
+            });
+        }
+
+        // 编辑发布时间
+        async function editScheduleTime(taskId, currentTime) {
+            const newTime = prompt(`请输入新的发布时间 (格式: HH:mm)`, currentTime);
+
+            if (!newTime || newTime === currentTime) {
+                return;
+            }
+
+            // 验证时间格式
+            if (!/^\d{2}:\d{2}$/.test(newTime)) {
+                alert('时间格式不正确，请使用 HH:mm 格式（例如：09:30）');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/agent/auto/update-time/${currentUser}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ taskId, newTime })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    addActivityLog(`⏰ 发布时间已更新为 ${newTime}`);
+                    // 重新加载周计划
+                    location.reload();
+                } else {
+                    alert('更新时间失败: ' + data.error);
+                }
+            } catch (error) {
+                console.error('更新时间错误:', error);
+                alert('更新时间失败，请重试');
+            }
+        }
+
+        // 加载今日计划（用于刷新预览）
+        async function loadTodayPlan() {
+            try {
+                const planUrl = `${CLAUDE_API}/agent/auto/plan/${currentUser}`;
+                const planRes = await fetch(planUrl);
+                const planData = await planRes.json();
+
+                if (planData.success && planData.plan) {
+                    updateTodayPlan(planData.plan);
+                }
+            } catch (error) {
+                console.error('加载今日计划失败:', error);
+            }
+        }
+
+        // 更新今日计划（保留用于预览刷新）
+        function updateTodayPlan(plan) {
             // 同时更新帖子预览（显示下一个待发布的内容）
-            const nextPost = plan.tasks.find(t => t.status === 'pending' || t.status === 'in-progress');
-            if (nextPost && (nextPost.content || nextPost.image_url)) {
-                updatePostPreview(nextPost);
+            if (plan && plan.tasks) {
+                const nextPost = plan.tasks.find(t => t.status === 'pending' || t.status === 'in-progress' || t.status === 'ready');
+                if (nextPost && (nextPost.content || nextPost.image_url)) {
+                    updatePostPreview(nextPost);
+                }
             }
         }
 

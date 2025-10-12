@@ -1308,6 +1308,39 @@ export class AutoContentManager {
   }
 
   /**
+   * 更新任务发布时间
+   */
+  public async updateTaskTime(userId: string, taskId: string, newTime: string): Promise<void> {
+    const plan = this.contentPlans.get(userId);
+    if (!plan || !plan.dailyTasks || plan.dailyTasks.length === 0) {
+      throw new Error('没有找到任务');
+    }
+
+    // 找到要更新的任务
+    const taskIndex = plan.dailyTasks.findIndex((t, index) =>
+      index.toString() === taskId || (index + 1).toString() === taskId
+    );
+
+    if (taskIndex === -1) {
+      throw new Error('任务不存在');
+    }
+
+    const task = plan.dailyTasks[taskIndex];
+    console.log(`⏰ [更新时间] 任务 "${task.title}" 时间从 ${task.scheduledTime} 更新为 ${newTime}`);
+
+    // 解析新时间（格式：HH:mm）
+    const [hours, minutes] = newTime.split(':').map(Number);
+    const newScheduledTime = new Date(task.scheduledTime);
+    newScheduledTime.setHours(hours, minutes, 0, 0);
+
+    task.scheduledTime = newScheduledTime;
+    this.saveData(userId);
+
+    this.addRealTimeActivity(userId, `⏰ 发布时间已更新为 ${newTime}`, 'execution');
+    console.log(`✅ [更新时间] 时间更新成功`);
+  }
+
+  /**
    * 重新生成任务内容
    */
   public async regenerateTask(userId: string, taskId?: string): Promise<DailyTask> {
