@@ -255,7 +255,7 @@
                     <h3 class="text-lg font-bold mb-4 flex items-center">
                         ✨ 下一篇内容预览
                     </h3>
-                    <div id="postPreview" class="text-sm">
+                    <div id="postPreview" class="text-sm overflow-y-auto max-h-96">
                         <div class="text-center py-6 text-gray-500">
                             <div class="text-4xl mb-2">⏳</div>
                             <p>内容创作中...</p>
@@ -1357,7 +1357,7 @@
             }
 
             try {
-                const response = await fetch(`${API_BASE_URL}/agent/auto/update-time/${currentUser}`, {
+                const response = await fetch(`${CLAUDE_API}/agent/auto/update-time/${currentUser}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ taskId, newTime })
@@ -1485,7 +1485,7 @@
             addActivityLog('✅ 正在发布内容到小红书...');
 
             try {
-                const response = await fetch(`${API_BASE_URL}/agent/auto/approve/${currentUser}`, {
+                const response = await fetch(`${CLAUDE_API}/agent/auto/approve/${currentUser}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ taskId: postId })
@@ -1521,7 +1521,7 @@
             addActivityLog('🔄 正在重新生成内容...');
 
             try {
-                const response = await fetch(`${API_BASE_URL}/agent/auto/regenerate/${currentUser}`, {
+                const response = await fetch(`${CLAUDE_API}/agent/auto/regenerate/${currentUser}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ taskId: postId })

@@ -124,6 +124,23 @@ export class AutoContentManager {
                 }
               });
             }
+
+            // 恢复weeklyPlan中的Date对象
+            if (data.contentPlan.weeklyPlan && data.contentPlan.weeklyPlan.days) {
+              data.contentPlan.weeklyPlan.days.forEach((day: any) => {
+                if (day.date) {
+                  day.date = new Date(day.date);
+                }
+                if (day.posts) {
+                  day.posts.forEach((post: any) => {
+                    if (post.scheduledTime) {
+                      post.scheduledTime = new Date(post.scheduledTime);
+                    }
+                  });
+                }
+              });
+            }
+
             this.contentPlans.set(userId, data.contentPlan);
           }
 
