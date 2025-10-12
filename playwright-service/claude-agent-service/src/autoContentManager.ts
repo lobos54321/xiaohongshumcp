@@ -909,7 +909,7 @@ export class AutoContentManager {
       task.status = 'published';
     } else {
       // 拒绝，重新生成
-      await this.regenerateTask(userId, task);
+      await this.regenerateTask(userId, taskId);
     }
   }
 
@@ -1018,11 +1018,6 @@ export class AutoContentManager {
   private async generateNextDayTasks(profile: UserProfile, strategy: ContentStrategy): Promise<DailyTask[]> {
     // 实现明日任务生成逻辑
     return [];
-  }
-
-  private async regenerateTask(userId: string, task: DailyTask): Promise<void> {
-    // 实现任务重新生成逻辑
-    console.log(`🔄 重新生成任务: ${task.title}`);
   }
 
   /**
@@ -1268,6 +1263,127 @@ export class AutoContentManager {
       this.saveData(userId);
 
       console.log(`📊 为用户 ${userId} 添加了热门话题:`, trendingTopics);
+    }
+  }
+
+  /**
+   * 批准并发布内容
+   */
+  public async approveAndPublish(userId: string, taskId?: string): Promise<void> {
+    const plan = this.contentPlans.get(userId);
+    if (!plan || !plan.dailyTasks || plan.dailyTasks.length === 0) {
+      throw new Error('没有找到待发布的任务');
+    }
+
+    // 如果没有指定taskId，发布第一个ready状态的任务
+    const task = taskId
+      ? plan.dailyTasks.find((t, index) => index.toString() === taskId || (index + 1).toString() === taskId)
+      : plan.dailyTasks.find(t => t.status === 'ready');
+
+    if (!task) {
+      throw new Error('没有找到可发布的任务');
+    }
+
+    if (!task.imageUrl) {
+      throw new Error('任务缺少图片，无法发布');
+    }
+
+    console.log(`📝 [批准发布] 开始发布任务: ${task.title}`);
+    this.addRealTimeActivity(userId, `📝 正在发布: ${task.title}`, 'execution');
+
+    try {
+      // 调用发布函数
+      await this.publishContent(userId, task, task.imageUrl);
+
+      // 更新任务状态
+      task.status = 'published';
+      this.saveData(userId);
+
+      this.addRealTimeActivity(userId, `✅ 发布成功: ${task.title}`, 'execution');
+      console.log(`✅ [批准发布] 发布成功: ${task.title}`);
+    } catch (error: any) {
+      this.addRealTimeActivity(userId, `❌ 发布失败: ${error.message}`, 'execution');
+      throw error;
+    }
+  }
+
+  /**
+   * 重新生成任务内容
+   */
+  public async regenerateTask(userId: string, taskId?: string): Promise<DailyTask> {
+    const plan = this.contentPlans.get(userId);
+    const profile = this.userProfiles.get(userId);
+
+    if (!plan || !profile) {
+      throw new Error('用户数据不存在');
+    }
+
+    if (!plan.dailyTasks || plan.dailyTasks.length === 0) {
+      throw new Error('没有找到任务');
+    }
+
+    // 找到要重新生成的任务
+    const taskIndex = taskId
+      ? plan.dailyTasks.findIndex((t, index) => index.toString() === taskId || (index + 1).toString() === taskId)
+      : 0;
+
+    if (taskIndex === -1) {
+      throw new Error('任务不存在');
+    }
+
+    const oldTask = plan.dailyTasks[taskIndex];
+    console.log(`🔄 [重新生成] 开始重新生成任务: ${oldTask.title}`);
+    this.addRealTimeActivity(userId, `🔄 正在重新生成内容...`, 'generation');
+
+    try {
+      // 使用相同的主题和类型重新生成内容
+      const prompt = `
+请为以下产品创作一篇小红书${oldTask.contentType}内容：
+
+产品信息：
+- 产品/服务：${profile.productName}
+- 目标客户：${profile.targetAudience}
+- 品牌风格：${profile.brandStyle}
+
+要求：
+- 主题：重新创作，保持吸引力
+- 内容类型：${oldTask.contentType}
+- 字数：150-200字
+- 风格：${profile.brandStyle}
+
+请以JSON格式返回，包含：title, content, imagePrompt, hashtags
+`;
+
+      const response = await this.anthropic.messages.create({
+        model: process.env.CLAUDE_MODEL || 'claude-3-haiku-20240307',
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: prompt }]
+      });
+
+      const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
+      const newContent = JSON.parse(responseText);
+
+      // 生成新图片
+      const imageUrl = await this.generateImage(newContent.imagePrompt || oldTask.imagePrompt);
+
+      // 更新任务
+      plan.dailyTasks[taskIndex] = {
+        ...oldTask,
+        title: newContent.title || oldTask.title,
+        content: newContent.content || oldTask.content,
+        imagePrompt: newContent.imagePrompt || oldTask.imagePrompt,
+        imageUrl: imageUrl,
+        hashtags: newContent.hashtags || oldTask.hashtags,
+        status: 'ready'
+      };
+
+      this.saveData(userId);
+      this.addRealTimeActivity(userId, `✅ 内容已重新生成`, 'generation');
+
+      return plan.dailyTasks[taskIndex];
+    } catch (error: any) {
+      this.addRealTimeActivity(userId, `❌ 重新生成失败: ${error.message}`, 'generation');
+      throw error;
     }
   }
 }

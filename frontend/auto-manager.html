@@ -1413,11 +1413,35 @@
         }
 
         // 审核操作函数
-        function approvePost(postId) {
-            if (confirm('确认批准发布此内容？')) {
-                console.log('批准发布:', postId);
-                addActivityLog('✅ 内容已批准，准备发布');
-                // TODO: 调用API发布内容
+        async function approvePost(postId) {
+            if (!confirm('确认批准发布此内容？')) {
+                return;
+            }
+
+            console.log('批准发布:', postId);
+            addActivityLog('✅ 正在发布内容到小红书...');
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/agent/auto/approve/${currentUser}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ taskId: postId })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    addActivityLog('✅ 发布成功！');
+                    // 刷新今日计划
+                    loadTodayPlan();
+                } else {
+                    addActivityLog('❌ 发布失败: ' + data.error);
+                    alert('发布失败: ' + data.error);
+                }
+            } catch (error) {
+                console.error('发布错误:', error);
+                addActivityLog('❌ 发布失败: ' + error.message);
+                alert('发布失败，请重试');
             }
         }
 
@@ -1425,11 +1449,35 @@
             alert('编辑功能开发中，当前可通过"重新生成"来调整内容');
         }
 
-        function regeneratePost(postId) {
-            if (confirm('确认重新生成此内容？')) {
-                console.log('重新生成:', postId);
-                addActivityLog('🔄 正在重新生成内容...');
-                // TODO: 调用API重新生成
+        async function regeneratePost(postId) {
+            if (!confirm('确认重新生成此内容？')) {
+                return;
+            }
+
+            console.log('重新生成:', postId);
+            addActivityLog('🔄 正在重新生成内容...');
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/agent/auto/regenerate/${currentUser}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ taskId: postId })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    addActivityLog('✅ 内容已重新生成');
+                    // 刷新今日计划显示新内容
+                    loadTodayPlan();
+                } else {
+                    addActivityLog('❌ 重新生成失败: ' + data.error);
+                    alert('重新生成失败: ' + data.error);
+                }
+            } catch (error) {
+                console.error('重新生成错误:', error);
+                addActivityLog('❌ 重新生成失败: ' + error.message);
+                alert('重新生成失败，请重试');
             }
         }
 

@@ -997,6 +997,55 @@ app.get('/agent/auto/plan/:userId', async (req: Request, res: Response) => {
   }
 });
 
+// 批准发布内容
+app.post('/agent/auto/approve/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const { taskId } = req.body;
+
+    console.log(`[Auto Mode] Approving post for user ${userId}, task ${taskId}`);
+
+    // 调用autoContentManager的批准发布方法
+    await autoContentManager.approveAndPublish(userId, taskId);
+
+    res.json({
+      success: true,
+      message: '内容已批准并发布'
+    });
+  } catch (error: any) {
+    console.error('[Auto Mode] Error approving post:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// 重新生成内容
+app.post('/agent/auto/regenerate/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const { taskId } = req.body;
+
+    console.log(`[Auto Mode] Regenerating content for user ${userId}, task ${taskId}`);
+
+    // 调用autoContentManager的重新生成方法
+    const newContent = await autoContentManager.regenerateTask(userId, taskId);
+
+    res.json({
+      success: true,
+      content: newContent,
+      message: '内容已重新生成'
+    });
+  } catch (error: any) {
+    console.error('[Auto Mode] Error regenerating content:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 // 获取运营数据
 app.get('/agent/auto/stats/:userId', async (req: Request, res: Response) => {
   try {
