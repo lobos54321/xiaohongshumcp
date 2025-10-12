@@ -163,20 +163,30 @@ export class AutoContentManager {
     console.log(`🚀 [DEBUG] 当前 contentPlans 大小: ${this.contentPlans.size}`);
 
     try {
+      // 初始化活动记录
+      this.addRealTimeActivity(userProfile.userId, '🚀 自动运营系统已启动', 'execution');
+
       // 1. 制定内容策略
       console.log(`🚀 [DEBUG] 步骤1: 开始制定内容策略...`);
+      this.addRealTimeActivity(userProfile.userId, '🧠 正在分析市场趋势和热门话题...', 'analysis');
       const strategy = await this.createContentStrategy(userProfile);
       console.log(`🚀 [DEBUG] 步骤1完成: 内容策略制定成功`, JSON.stringify(strategy, null, 2));
+      const topicsCount = (strategy as any).weeklyTopics?.length || (strategy as any).topics?.length || 0;
+      this.addRealTimeActivity(userProfile.userId, `✅ 内容策略制定完成，识别到${topicsCount}个本周主题`, 'analysis');
 
       // 2. 生成周计划
       console.log(`🚀 [DEBUG] 步骤2: 开始生成周计划...`);
+      this.addRealTimeActivity(userProfile.userId, '📅 正在规划本周内容发布计划...', 'generation');
       const weeklyPlan = await this.generateWeeklyPlan(userProfile, strategy);
       console.log(`🚀 [DEBUG] 步骤2完成: 周计划生成成功，包含 ${weeklyPlan.days.length} 天计划`);
+      this.addRealTimeActivity(userProfile.userId, `✅ 周计划生成成功，规划了${weeklyPlan.days.length}天的内容`, 'generation');
 
       // 3. 生成详细的每日任务
       console.log(`🚀 [DEBUG] 步骤3: 开始生成详细任务...`);
+      this.addRealTimeActivity(userProfile.userId, '📝 正在创建详细的每日任务...', 'generation');
       const dailyTasks = await this.generateDailyTasks(userProfile, weeklyPlan);
       console.log(`🚀 [DEBUG] 步骤3完成: 生成了 ${dailyTasks.length} 个每日任务`);
+      this.addRealTimeActivity(userProfile.userId, `✅ 生成了${dailyTasks.length}个每日任务`, 'generation');
 
       // 4. 保存完整计划
       console.log(`🚀 [DEBUG] 步骤4: 保存完整计划到 contentPlans...`);
@@ -191,6 +201,7 @@ export class AutoContentManager {
       console.log(`🚀 [DEBUG] 步骤5: 持久化数据到文件...`);
       this.saveData(userProfile.userId);
       console.log(`🚀 [DEBUG] 步骤5完成: 数据持久化完成`);
+      this.addRealTimeActivity(userProfile.userId, '💾 计划数据已保存', 'optimization');
 
       // 6. 设置完成状态
       console.log(`🚀 [DEBUG] 步骤6: 设置生成状态为 completed...`);
@@ -201,8 +212,10 @@ export class AutoContentManager {
       console.log(`🚀 [DEBUG] 步骤7: 启动定时执行器...`);
       this.startScheduler(userProfile.userId);
       console.log(`🚀 [DEBUG] 步骤7完成: 定时执行器已启动`);
+      this.addRealTimeActivity(userProfile.userId, '⏰ 定时发布系统已启动', 'execution');
 
       console.log(`✅ [DEBUG] 自动运营模式启动成功！已为接下来7天规划了${dailyTasks.length}个任务`);
+      this.addRealTimeActivity(userProfile.userId, `🎉 系统准备就绪！已为您规划${dailyTasks.length}个任务`, 'execution');
     } catch (error: any) {
       console.error(`❌ [DEBUG] 启动自动运营失败:`, error.message);
       console.error(`❌ [DEBUG] 错误详情:`, error);

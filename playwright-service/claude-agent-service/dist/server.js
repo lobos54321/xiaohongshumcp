@@ -49,10 +49,20 @@ const autoContentManager = new AutoContentManager({
 const cookieOrchestrator = new CookieOrchestrator(MCP_ROUTER_URL);
 // 创建自动Cookie导入器
 const autoCookieImporter = new AutoCookieImporter(MCP_ROUTER_URL);
+const SHOULD_AUTO_INSTALL_PLAYWRIGHT = process.env.PLAYWRIGHT_AUTO_INSTALL !== 'false';
 // 启动自动Cookie导入监控
 autoCookieImporter.startAutoImport(15000); // 每15秒检查一次
-const SHOULD_AUTO_INSTALL_PLAYWRIGHT = process.env.PLAYWRIGHT_AUTO_INSTALL !== 'false';
+// 声明变量必须在使用之前
 let ensureChromiumPromise = null;
+if (SHOULD_AUTO_INSTALL_PLAYWRIGHT) {
+    ensurePlaywrightChromiumInstalled()
+        .then(() => {
+        console.log('[PlaywrightLogin] Chromium executable ready for fallback QR login');
+    })
+        .catch(error => {
+        console.warn('[PlaywrightLogin] Pre-installation of Chromium failed:', error instanceof Error ? error.message : error);
+    });
+}
 function runCommand(command, args, options = {}) {
     return new Promise((resolve, reject) => {
         const child = spawn(command, args, {
@@ -1718,6 +1728,12 @@ async function persistUserCookies(userId, cookies, source = 'unknown') {
         catch (error) {
             console.warn(`[Cookie Persist] Failed to write ${filePath}:`, error.message || error);
         }
+    }
+    if (writtenPaths.length > 0) {
+        console.log(`[Cookie Persist] Saved ${cookies.length} cookies for ${userId} via ${source}. Paths: ${writtenPaths.join(', ')}`);
+    }
+    else {
+        console.warn(`[Cookie Persist] No cookie files were written for ${userId}; please check filesystem permissions.`);
     }
     let mcpSynced = false;
     try {

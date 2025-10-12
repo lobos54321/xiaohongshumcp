@@ -250,6 +250,19 @@
                     </div>
                 </div>
 
+                <!-- Post Preview Card -->
+                <div class="card rounded-xl p-6 shadow-lg">
+                    <h3 class="text-lg font-bold mb-4 flex items-center">
+                        ✨ 下一篇内容预览
+                    </h3>
+                    <div id="postPreview" class="text-sm">
+                        <div class="text-center py-6 text-gray-500">
+                            <div class="text-4xl mb-2">⏳</div>
+                            <p>内容创作中...</p>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Performance -->
                 <div class="card rounded-xl p-6 shadow-lg">
                     <h3 class="text-lg font-bold mb-4 flex items-center">
@@ -909,11 +922,27 @@
                         '<span class="text-green-600 text-xl">✅ 登录成功！</span>';
                     document.getElementById('loginSuccess').classList.remove('hidden');
 
-                    // 启用第二步
-                    enableStep2();
-                    setTimeout(() => {
-                        document.getElementById('step2').scrollIntoView({ behavior: 'smooth' });
-                    }, 500);
+                    // 检查是否有保存的配置
+                    const savedConfig = localStorage.getItem(`userConfig_${currentUser}`);
+                    if (savedConfig) {
+                        console.log('💾 发现已保存的配置，直接进入运营页面');
+                        const config = JSON.parse(savedConfig);
+
+                        // 直接跳转到运营页面
+                        document.getElementById('setupWizard').classList.add('hidden');
+                        document.getElementById('autoManagerDashboard').classList.remove('hidden');
+
+                        autoModeEnabled = true;
+                        startAutoMode(config);
+                        loadRealData();
+                    } else {
+                        console.log('📝 未找到配置，进入配置流程');
+                        // 启用第二步
+                        enableStep2();
+                        setTimeout(() => {
+                            document.getElementById('step2').scrollIntoView({ behavior: 'smooth' });
+                        }, 500);
+                    }
                 } else {
                     // 未登录或演示模式，要求真实登录
                     document.getElementById('loginStatus').innerHTML =
@@ -964,6 +993,10 @@
                 alert('请填写产品/服务信息');
                 return;
             }
+
+            // 保存配置到localStorage
+            localStorage.setItem(`userConfig_${currentUser}`, JSON.stringify(config));
+            console.log('💾 配置已保存到本地缓存');
 
             // 显示加载状态
             const button = document.querySelector('#step2 button');
@@ -1300,38 +1333,143 @@
                     </div>
                 `;
             }).join('');
+
+            // 同时更新帖子预览（显示下一个待发布的内容）
+            const nextPost = plan.tasks.find(t => t.status === 'pending' || t.status === 'in-progress');
+            if (nextPost && (nextPost.content || nextPost.image_url)) {
+                updatePostPreview(nextPost);
+            }
+        }
+
+        // 更新帖子预览卡片
+        function updatePostPreview(post) {
+            if (!post) {
+                document.getElementById('postPreview').innerHTML = `
+                    <div class="text-center py-6 text-gray-500">
+                        <div class="text-4xl mb-2">⏳</div>
+                        <p>内容创作中...</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let previewHTML = '';
+
+            // 显示AI生成的图片
+            if (post.image_url) {
+                previewHTML += `
+                    <div class="mb-4">
+                        <img src="${post.image_url}" class="w-full rounded-lg shadow-md" alt="AI生成的配图">
+                        <p class="text-xs text-gray-500 mt-2">🎨 AI生成的配图</p>
+                    </div>
+                `;
+            } else if (post.image_prompt) {
+                previewHTML += `
+                    <div class="mb-4 p-3 bg-blue-50 rounded-lg">
+                        <p class="text-xs text-blue-600">🎨 正在生成图片...</p>
+                        <p class="text-xs text-gray-600 mt-1">${post.image_prompt}</p>
+                    </div>
+                `;
+            }
+
+            // 显示标题和内容
+            if (post.title) {
+                previewHTML += `<h4 class="font-bold text-base mb-2">${post.title}</h4>`;
+            }
+
+            if (post.content) {
+                const shortContent = post.content.length > 150 ?
+                    post.content.substring(0, 150) + '...' : post.content;
+                previewHTML += `<p class="text-gray-700 text-sm mb-3 whitespace-pre-wrap">${shortContent}</p>`;
+            }
+
+            // 添加操作按钮
+            previewHTML += `
+                <div class="mt-4 flex gap-2 border-t pt-3">
+                    <button onclick="approvePost('${post.id || currentUser}')" class="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs py-2 px-3 rounded transition">
+                        ✅ 批准发布
+                    </button>
+                    <button onclick="editPost('${post.id || currentUser}')" class="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs py-2 px-3 rounded transition">
+                        ✏️ 修改
+                    </button>
+                    <button onclick="regeneratePost('${post.id || currentUser}')" class="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-xs py-2 px-3 rounded transition">
+                        🔄 重新生成
+                    </button>
+                </div>
+            `;
+
+            document.getElementById('postPreview').innerHTML = previewHTML;
+        }
+
+        // 审核操作函数
+        function approvePost(postId) {
+            if (confirm('确认批准发布此内容？')) {
+                console.log('批准发布:', postId);
+                addActivityLog('✅ 内容已批准，准备发布');
+                // TODO: 调用API发布内容
+            }
+        }
+
+        function editPost(postId) {
+            alert('编辑功能开发中，当前可通过"重新生成"来调整内容');
+        }
+
+        function regeneratePost(postId) {
+            if (confirm('确认重新生成此内容？')) {
+                console.log('重新生成:', postId);
+                addActivityLog('🔄 正在重新生成内容...');
+                // TODO: 调用API重新生成
+            }
         }
 
         // 更新运营数据
         function updateStats(stats) {
             if (!stats) {
                 document.getElementById('performance').innerHTML = `
-                    <div class="text-center py-4">
-                        <div class="text-yellow-600 font-medium">⏳ 数据收集中</div>
-                        <div class="text-yellow-500 text-sm mt-1">Claude正在收集运营数据...</div>
+                    <div class="text-center py-8">
+                        <div class="text-6xl mb-3">🚀</div>
+                        <div class="text-gray-700 font-medium mb-2">AI正在为您准备内容</div>
+                        <div class="text-sm text-gray-500">预计3-5分钟完成策略分析和内容创作</div>
+                        <div class="mt-4">
+                            <div class="loading inline-block mr-2"></div>
+                            <span class="text-xs text-gray-400">Claude正在思考中...</span>
+                        </div>
                     </div>
                 `;
                 return;
             }
 
-            document.getElementById('performance').innerHTML = `
-                <div class="flex justify-between">
-                    <span>今日发布</span>
-                    <span class="font-medium text-blue-600">${stats.todayPosts || 0} / ${stats.plannedPosts || 0}</span>
-                </div>
-                <div class="flex justify-between">
-                    <span>本周阅读</span>
-                    <span class="font-medium text-green-600">${stats.weeklyReads || '统计中'}</span>
-                </div>
-                <div class="flex justify-between">
-                    <span>新增粉丝</span>
-                    <span class="font-medium text-purple-600">+${stats.newFollowers || 0}</span>
-                </div>
-                <div class="flex justify-between">
-                    <span>互动率</span>
-                    <span class="font-medium text-orange-600">${stats.engagementRate || 0}%</span>
-                </div>
-            `;
+            // 检查是否所有数据都为0
+            const hasData = (stats.todayPosts > 0 || stats.weeklyReads > 0 || stats.newFollowers > 0);
+
+            if (!hasData) {
+                document.getElementById('performance').innerHTML = `
+                    <div class="text-center py-6">
+                        <div class="text-4xl mb-2">⏳</div>
+                        <div class="text-gray-600 mb-1">内容创作中</div>
+                        <div class="text-xs text-gray-500">第一篇内容准备好后，数据将开始统计</div>
+                    </div>
+                `;
+            } else {
+                document.getElementById('performance').innerHTML = `
+                    <div class="flex justify-between">
+                        <span>今日发布</span>
+                        <span class="font-medium text-blue-600">${stats.todayPosts || 0} / ${stats.plannedPosts || 0}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>本周阅读</span>
+                        <span class="font-medium text-green-600">${stats.weeklyReads || '统计中'}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>新增粉丝</span>
+                        <span class="font-medium text-purple-600">+${stats.newFollowers || 0}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>互动率</span>
+                        <span class="font-medium text-orange-600">${stats.engagementRate || 0}%</span>
+                    </div>
+                `;
+            }
         }
 
         // 执行定时任务
