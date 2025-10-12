@@ -263,6 +263,19 @@
                     </div>
                 </div>
 
+                <!-- Ready Queue -->
+                <div class="card rounded-xl p-6 shadow-lg">
+                    <h3 class="text-lg font-bold mb-4 flex items-center">
+                        📋 待发布队列
+                        <span id="queueCount" class="ml-2 text-sm font-normal text-gray-600">(0)</span>
+                    </h3>
+                    <div id="readyQueue" class="text-sm space-y-3">
+                        <div class="text-center py-4 text-gray-500">
+                            暂无待发布内容
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Performance -->
                 <div class="card rounded-xl p-6 shadow-lg">
                     <h3 class="text-lg font-bold mb-4 flex items-center">
@@ -1395,13 +1408,73 @@
 
         // 更新今日计划（保留用于预览刷新）
         function updateTodayPlan(plan) {
-            // 同时更新帖子预览（显示下一个待发布的内容）
+            // 更新帖子预览（显示下一个待发布的内容）
             if (plan && plan.tasks) {
                 const nextPost = plan.tasks.find(t => t.status === 'pending' || t.status === 'in-progress' || t.status === 'ready');
                 if (nextPost && (nextPost.content || nextPost.image_url)) {
                     updatePostPreview(nextPost);
                 }
+
+                // 更新待发布队列（显示所有ready状态的任务）
+                const readyTasks = plan.tasks.filter(t => t.status === 'ready');
+                updateReadyQueue(readyTasks);
             }
+        }
+
+        // 更新待发布队列
+        function updateReadyQueue(tasks) {
+            const queueContainer = document.getElementById('readyQueue');
+            const queueCount = document.getElementById('queueCount');
+
+            if (!tasks || tasks.length === 0) {
+                queueContainer.innerHTML = `
+                    <div class="text-center py-4 text-gray-500">
+                        暂无待发布内容
+                    </div>
+                `;
+                queueCount.textContent = '(0)';
+                return;
+            }
+
+            queueCount.textContent = `(${tasks.length})`;
+
+            queueContainer.innerHTML = tasks.map((task, index) => `
+                <div class="border border-gray-200 rounded-lg p-3 hover:border-blue-400 transition">
+                    <div class="flex gap-3">
+                        ${task.image_url ? `
+                            <div class="flex-shrink-0">
+                                <img src="${task.image_url}"
+                                     class="w-24 h-24 object-cover rounded-lg"
+                                     alt="内容配图"
+                                     onerror="this.src='https://via.placeholder.com/150x150/667eea/FFFFFF?text=No+Image'">
+                            </div>
+                        ` : ''}
+                        <div class="flex-1 min-w-0">
+                            <div class="font-medium text-gray-900 mb-1 truncate">${task.title || '无标题'}</div>
+                            <div class="text-xs text-gray-600 line-clamp-2 mb-2">${(task.content || '').substring(0, 80)}...</div>
+                            <div class="flex items-center gap-2 text-xs text-gray-500">
+                                <span>⏰ ${task.scheduled_time || '待定'}</span>
+                                <span>·</span>
+                                <span>${task.content_type || '图文'}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 mt-3 pt-3 border-t border-gray-100">
+                        <button onclick="approvePost('${task.id || index}')"
+                                class="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs py-2 px-3 rounded transition">
+                            ✅ 发布
+                        </button>
+                        <button onclick="editPost('${task.id || index}')"
+                                class="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs py-2 px-3 rounded transition">
+                            ✏️ 编辑
+                        </button>
+                        <button onclick="regeneratePost('${task.id || index}')"
+                                class="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-xs py-2 px-3 rounded transition">
+                            🔄 重生成
+                        </button>
+                    </div>
+                </div>
+            `).join('');
         }
 
         // 更新帖子预览卡片
