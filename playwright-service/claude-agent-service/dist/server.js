@@ -13,6 +13,7 @@ import AutoContentManager from './autoContentManager.js';
 import ImageGenerationService from './imageGenerationService.js';
 import { CookieOrchestrator } from './cookieOrchestrator.js';
 import { AutoCookieImporter } from './autoCookieImporter.js';
+import { MCPAuthClient } from './mcpAuthClient.js';
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,11 +40,13 @@ const agent = new ClaudeAgentHTTP({
     maxTokens: parseInt(process.env.MAX_TOKENS || '4096'),
     mcpRouterURL: MCP_ROUTER_URL,
 });
+// 创建MCP客户端
+const mcpAuthClient = new MCPAuthClient(MCP_ROUTER_URL);
 // 创建自动内容管理器
 const autoContentManager = new AutoContentManager({
     anthropicKey: ANTHROPIC_API_KEY,
     imageService: imageService,
-    mcpClient: null // 需要从agent传递
+    mcpClient: mcpAuthClient
 });
 // 创建Cookie协调器
 const cookieOrchestrator = new CookieOrchestrator(MCP_ROUTER_URL);

@@ -16,6 +16,7 @@ import ImageGenerationService from './imageGenerationService.js';
 import { CookieOrchestrator } from './cookieOrchestrator.js';
 import { AutoCookieImporter } from './autoCookieImporter.js';
 import type { StandardCookie } from './autoCookieImporter.js';
+import { MCPAuthClient } from './mcpAuthClient.js';
 
 dotenv.config();
 
@@ -50,11 +51,14 @@ const agent = new ClaudeAgentHTTP({
   mcpRouterURL: MCP_ROUTER_URL,
 });
 
+// 创建MCP客户端
+const mcpAuthClient = new MCPAuthClient(MCP_ROUTER_URL);
+
 // 创建自动内容管理器
 const autoContentManager = new AutoContentManager({
   anthropicKey: ANTHROPIC_API_KEY,
   imageService: imageService,
-  mcpClient: null // 需要从agent传递
+  mcpClient: mcpAuthClient
 });
 
 // 创建Cookie协调器

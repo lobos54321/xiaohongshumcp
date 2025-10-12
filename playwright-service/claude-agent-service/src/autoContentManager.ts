@@ -368,6 +368,16 @@ export class AutoContentManager {
       };
 
       console.log('📋 [DEBUG] 解析后的策略数据:', JSON.stringify(strategy, null, 2));
+
+      // 尝试从小红书获取真实的热门话题
+      if (strategy.keyThemes && strategy.keyThemes.length > 0) {
+        const realTrending = await this.fetchRealTrendingTopics(profile.userId, strategy.keyThemes);
+        if (realTrending.length > 0) {
+          strategy.trendingTopics = realTrending;
+          console.log('✅ [热门话题] 已更新为真实热门话题:', realTrending);
+        }
+      }
+
       return strategy;
     } catch (error) {
       console.error('策略解析失败:', error);
@@ -797,31 +807,32 @@ export class AutoContentManager {
    */
   private async publishContent(userId: string, task: DailyTask, imageUrl: string): Promise<void> {
     try {
-      // 下载图片到本地
-      const imagePath = await this.downloadImage(imageUrl);
+      console.log(`📝 [发布] 准备发布内容: ${task.title}`);
+      console.log(`📷 [发布] 使用图片: ${imageUrl}`);
+      console.log(`🏷️ [发布] 标签: ${task.hashtags.join(', ')}`);
 
-      // 模拟调用小红书发布工具
-      console.log(`📝 发布内容: ${task.title}`);
-      console.log(`📷 使用图片: ${imagePath}`);
-      console.log(`🏷️ 标签: ${task.hashtags.join(', ')}`);
+      if (!this.mcpClient) {
+        console.log('⚠️ [发布] MCP客户端未配置，无法发布');
+        throw new Error('MCP客户端未配置');
+      }
 
-      // 实际项目中这里会调用真实的MCP工具
-      /*
-      const result = await this.mcpClient.callTool({
-        name: 'xiaohongshu_publish_content',
-        arguments: {
-          userId: userId,
-          title: task.title,
-          content: task.content,
-          images: [imagePath],
-          tags: task.hashtags
-        }
-      });
-      */
+      // 调用真实的小红书发布工具
+      const result = await this.mcpClient.publishContent(
+        userId,
+        task.title,
+        task.content,
+        [imageUrl], // 传递图片URL数组
+        task.hashtags
+      );
 
-      console.log('✅ 发布成功');
-    } catch (error) {
-      console.error('❌ 发布失败:', error);
+      if (result.success) {
+        console.log('✅ [发布] 发布成功:', result.data);
+      } else {
+        console.error('❌ [发布] 发布失败:', result.error);
+        throw new Error(result.error || '发布失败');
+      }
+    } catch (error: any) {
+      console.error('❌ [发布] 发布失败:', error.message);
       throw error;
     }
   }
@@ -1187,6 +1198,53 @@ export class AutoContentManager {
     // 只保留最新的10条记录
     if (activities.length > 10) {
       activities.splice(0, activities.length - 10);
+    }
+  }
+
+  /**
+   * 从小红书获取真实的热门话题
+   */
+  private async fetchRealTrendingTopics(userId: string, keywords: string[]): Promise<string[]> {
+    try {
+      if (!this.mcpClient) {
+        console.log('⚠️ [热门话题] MCP客户端未配置，使用默认话题');
+        return [];
+      }
+
+      console.log(`🔍 [热门话题] 正在搜索关键词: ${keywords.join(', ')}`);
+      const trendingTopics: string[] = [];
+
+      // 搜索每个关键词，获取热门内容
+      for (const keyword of keywords.slice(0, 3)) { // 只搜索前3个关键词
+        try {
+          const result = await this.mcpClient.searchContent(userId, keyword, 5);
+
+          if (result.success && result.data && Array.isArray(result.data)) {
+            // 从搜索结果中提取话题标签
+            result.data.forEach((feed: any) => {
+              if (feed.title) {
+                // 简单提取：将标题转换为话题格式
+                const topic = `#${feed.title.substring(0, 15)}`;
+                if (!trendingTopics.includes(topic)) {
+                  trendingTopics.push(topic);
+                }
+              }
+            });
+          }
+        } catch (error: any) {
+          console.error(`❌ [热门话题] 搜索 "${keyword}" 失败:`, error.message);
+        }
+      }
+
+      if (trendingTopics.length > 0) {
+        console.log(`✅ [热门话题] 获取到 ${trendingTopics.length} 个真实话题`);
+        return trendingTopics.slice(0, 5); // 最多返回5个
+      }
+
+      return [];
+    } catch (error: any) {
+      console.error('❌ [热门话题] 获取失败:', error.message);
+      return [];
     }
   }
 
