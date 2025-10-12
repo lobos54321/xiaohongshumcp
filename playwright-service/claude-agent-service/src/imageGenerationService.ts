@@ -127,8 +127,9 @@ export class ImageGenerationService {
           // 保存base64图片到本地
           const localPath = await this.saveBase64Image(base64Data, 'gemini', mimeType);
 
-          // 返回本地路径作为URL（生产环境需要配置静态文件服务）
-          const imageUrl = localPath; // 简化处理，直接返回本地路径
+          // 转换为可访问的URL路径
+          const filename = path.basename(localPath);
+          const imageUrl = `/images/${filename}`;
 
           console.log('🎨 [Gemini] 图片保存成功:', localPath);
 

@@ -405,6 +405,9 @@ const playwrightLoginManager = new PlaywrightLoginManager(async (userId: string,
 const app = express();
 app.use(express.json());
 
+// 配置静态文件服务 - 提供图片访问
+app.use('/images', express.static(path.join(process.cwd(), 'downloads', 'images')));
+
 // Basic CORS + preflight handler so browser fetch requests succeed in hosted envs
 app.use((req: Request, res: Response, next: NextFunction) => {
   const allowOrigin = req.headers.origin || '*';
