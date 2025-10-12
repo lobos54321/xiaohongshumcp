@@ -1,17 +1,39 @@
 # 使用Node.js 18作为基础镜像
 FROM node:18-slim
 
-# 强制重建所有Docker层 - 解决缓存问题
-ARG CACHEBUST=production-v5-auto-cookie-detection
-RUN echo "Force rebuild AUTO COOKIE SYSTEM at $(date)" > /tmp/rebuild.txt
+# 强制重建所有Docker层 - 支持Playwright自动登录
+ARG CACHEBUST=production-v6-playwright-auto-login
+RUN echo "Force rebuild with Playwright support at $(date)" > /tmp/rebuild.txt
 
-# 安装必要的系统依赖（移除浏览器相关依赖）
+# 安装必要的系统依赖（包括Playwright浏览器依赖）
 RUN apt-get update && apt-get install -y \
     wget \
     curl \
     ca-certificates \
     python3 \
     procps \
+    # Playwright Chromium依赖
+    libglib2.0-0 \
+    libnspr4 \
+    libnss3 \
+    libdbus-1-3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libatspi2.0-0 \
+    libx11-6 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libxcb1 \
+    libxkbcommon0 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2 \
+    fonts-liberation \
+    fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 # 设置工作目录
@@ -31,6 +53,9 @@ RUN npm install --include=dev
 
 WORKDIR /app/playwright-service/claude-agent-service
 RUN npm install --include=dev
+
+# 安装Playwright Chromium浏览器
+RUN npx playwright install chromium
 
 # 回到根目录
 WORKDIR /app

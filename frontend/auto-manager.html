@@ -49,9 +49,34 @@
                         </div>
                     </div>
                     <div id="loginError" class="hidden">
-                        <div class="bg-red-50 p-4 rounded-lg">
-                            <p class="text-red-800 font-medium mb-2">❌ 未检测到登录状态</p>
-                            <p class="text-red-700 text-sm">请返回 <a href="/login.html" class="underline text-red-600 hover:text-red-800">登录页面</a> 重新登录</p>
+                        <div class="bg-red-50 p-4 rounded-lg space-y-3">
+                            <p class="text-red-800 font-medium">❌ 未检测到登录状态</p>
+                            <div class="flex flex-wrap gap-3 justify-center">
+                                <button onclick="startAutoLogin()" class="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-medium py-2 px-6 rounded-lg transition shadow-md hover:shadow-lg">
+                                    🚀 一键自动登录
+                                </button>
+                                <button onclick="showManualCookieForm()" class="bg-white text-purple-600 hover:bg-purple-50 font-medium py-2 px-6 rounded-lg border border-purple-300 transition">
+                                    🔧 手动导入Cookie
+                                </button>
+                            </div>
+                            <p class="text-red-700 text-sm">或返回 <a href="/login.html" class="underline text-red-600 hover:text-red-800">传统登录页面</a></p>
+                        </div>
+                    </div>
+
+                    <!-- 自动登录二维码弹窗 -->
+                    <div id="qrLoginModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                        <div class="bg-white rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl">
+                            <div class="text-center space-y-4">
+                                <h3 class="text-2xl font-bold text-purple-700">📱 扫码登录</h3>
+                                <p class="text-gray-600">请使用小红书App扫描下方二维码</p>
+                                <div id="qrCodeContainer" class="bg-gray-100 rounded-xl p-4 min-h-[300px] flex items-center justify-center">
+                                    <div class="loading"></div>
+                                </div>
+                                <div id="qrStatus" class="text-sm text-gray-500"></div>
+                                <button onclick="closeQRModal()" class="text-gray-500 hover:text-gray-700 underline">
+                                    取消
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -779,6 +804,93 @@
             if (!loginWindow) {
                 alert('弹窗被浏览器拦截，请手动打开 https://www.xiaohongshu.com/login');
             }
+        }
+
+        // 一键自动登录
+        async function startAutoLogin() {
+            try {
+                console.log('🚀 启动自动登录...');
+
+                // 显示二维码弹窗
+                document.getElementById('qrLoginModal').classList.remove('hidden');
+                document.getElementById('qrCodeContainer').innerHTML = '<div class="loading"></div>';
+                document.getElementById('qrStatus').textContent = '正在生成二维码...';
+
+                // 调用自动登录API
+                const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/auto-login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: currentUser })
+                });
+
+                const result = await response.json();
+                console.log('自动登录响应:', result);
+
+                if (result.success && result.data && result.data.qrcode_url) {
+                    // 显示二维码
+                    document.getElementById('qrCodeContainer').innerHTML =
+                        `<img src="${result.data.qrcode_url}" alt="登录二维码" class="max-w-full rounded-lg">`;
+                    document.getElementById('qrStatus').innerHTML =
+                        '✨ <span class="text-purple-600 font-medium">请使用小红书App扫描二维码登录</span>';
+
+                    // 开始轮询检查登录状态
+                    startQRLoginPolling();
+                } else {
+                    document.getElementById('qrCodeContainer').innerHTML =
+                        '<p class="text-red-600">❌ 二维码生成失败</p>';
+                    document.getElementById('qrStatus').textContent = result.error || '请稍后重试';
+                }
+            } catch (error) {
+                console.error('自动登录失败:', error);
+                document.getElementById('qrCodeContainer').innerHTML =
+                    '<p class="text-red-600">❌ 网络连接失败</p>';
+                document.getElementById('qrStatus').textContent = error.message;
+            }
+        }
+
+        // 关闭二维码弹窗
+        function closeQRModal() {
+            document.getElementById('qrLoginModal').classList.add('hidden');
+            stopQRLoginPolling();
+        }
+
+        // 二维码登录轮询
+        let qrLoginPollingInterval = null;
+        function startQRLoginPolling() {
+            stopQRLoginPolling(); // 先清除可能存在的定时器
+
+            qrLoginPollingInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/login/status?userId=${currentUser}`);
+                    const result = await response.json();
+
+                    if (result.success && result.data && result.data.logged_in === true) {
+                        // 登录成功
+                        document.getElementById('qrStatus').innerHTML =
+                            '✅ <span class="text-green-600 font-bold">登录成功！</span>';
+
+                        setTimeout(() => {
+                            closeQRModal();
+                            checkLoginStatus(); // 刷新登录状态
+                        }, 1500);
+                    }
+                } catch (error) {
+                    console.error('轮询登录状态失败:', error);
+                }
+            }, 3000); // 每3秒检查一次
+        }
+
+        function stopQRLoginPolling() {
+            if (qrLoginPollingInterval) {
+                clearInterval(qrLoginPollingInterval);
+                qrLoginPollingInterval = null;
+            }
+        }
+
+        // 显示手动Cookie表单
+        function showManualCookieForm() {
+            document.getElementById('manualCookieSection').classList.remove('hidden');
+            document.getElementById('manualCookieSection').scrollIntoView({ behavior: 'smooth' });
         }
 
         // 检查登录状态
