@@ -21,7 +21,7 @@ export interface MCPPublishResult {
 export class MCPAuthClient {
   private mcpRouterUrl: string;
 
-  constructor(mcpRouterUrl = 'http://localhost:3001') {
+  constructor(mcpRouterUrl = 'http://127.0.0.1:3001') {
     this.mcpRouterUrl = mcpRouterUrl;
   }
 
