@@ -234,6 +234,8 @@ export class AutoContentManager {
         dailyTasks
       });
       console.log(`🚀 [DEBUG] 步骤4完成: 计划已保存，contentPlans 大小: ${this.contentPlans.size}`);
+      console.log(`🚀 [DEBUG] 策略内容:`, JSON.stringify(strategy, null, 2));
+      console.log(`🚀 [DEBUG] 周计划内容:`, JSON.stringify(weeklyPlan, null, 2));
 
       // 5. 持久化数据
       console.log(`🚀 [DEBUG] 步骤5: 持久化数据到文件...`);
@@ -1496,10 +1498,12 @@ export class AutoContentManager {
         try {
           const imageUrl = await this.generateImage(task.imagePrompts[i]);
           task.imageUrls.push(imageUrl);
-          console.log(`✅ [批准发布] 第${i + 1}张图片生成成功`);
+          console.log(`✅ [批准发布] 第${i + 1}张图片生成成功: ${imageUrl}`);
         } catch (error: any) {
           console.error(`❌ [批准发布] 第${i + 1}张图片生成失败: ${error.message}`);
-          task.imageUrls.push(`https://via.placeholder.com/1080x1080/667eea/FFFFFF?text=Image+${i + 1}+Failed`);
+          // 【修复】使用data URI而非外部URL
+          const fallbackSvg = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTA4MCIgaGVpZ2h0PSIxMDgwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxMDgwIiBoZWlnaHQ9IjEwODAiIGZpbGw9IiNlZWYyZmYiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjQ4IiBmaWxsPSIjNjY3ZWVhIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+8J+OqCBJbWFnZTwvdGV4dD48L3N2Zz4=';
+          task.imageUrls.push(fallbackSvg);
         }
       }
     }

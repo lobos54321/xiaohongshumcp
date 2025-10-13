@@ -746,15 +746,18 @@ app.post('/agent/auto/start', async (req, res) => {
 app.get('/agent/auto/strategy/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
+        console.log(`[API] GET /agent/auto/strategy/${userId} - 开始处理请求`);
         // 从autoContentManager获取真实策略
         const strategy = autoContentManager.getStrategy(userId);
+        console.log(`[API] 获取策略结果:`, strategy ? '✅ 找到策略' : '❌ 未找到策略');
         if (!strategy) {
+            console.log(`[API] 返回404 - 用户${userId}没有策略`);
             return res.status(404).json({
                 success: false,
                 error: 'No strategy found for this user. Please start auto mode first.'
             });
         }
-        res.json({
+        const responseData = {
             success: true,
             strategy: {
                 keyThemes: strategy.keyThemes,
@@ -763,7 +766,9 @@ app.get('/agent/auto/strategy/:userId', async (req, res) => {
                 contentTypes: strategy.contentTypes,
                 hashtags: strategy.hashtags
             }
-        });
+        };
+        console.log(`[API] 返回策略数据:`, JSON.stringify(responseData, null, 2));
+        res.json(responseData);
     }
     catch (error) {
         console.error('[Auto Mode] Error getting strategy:', error);

@@ -991,6 +991,10 @@
             autoModeEnabled = true;
             startAutoMode(config);
 
+            // 【修复】立即加载数据，不等待API
+            console.log('🚀 立即开始加载真实数据...');
+            loadRealData();
+
             // 异步调用API启动自动运营（在后台进行）
             (async () => {
                 try {
@@ -1004,8 +1008,8 @@
                     const data = await response.json();
                     if (data.success) {
                         console.log('✅ 自动运营API启动成功:', data.message);
-                        // 开始加载真实数据
-                        setTimeout(() => loadRealData(), 1000);
+                        // API成功后不需要再次加载，因为已经在上面立即加载了
+                        // 轮询会自动更新数据
                     } else {
                         console.error('❌ 自动运营API启动失败:', data.error);
                         // 即使API失败也不打断用户体验，继续显示界面
