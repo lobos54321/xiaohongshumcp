@@ -1306,8 +1306,13 @@
                     <div class="text-green-600">${Array.isArray(strategy.trendingTopics) ? strategy.trendingTopics.join(' ') : strategy.trendingTopics || '分析中...'}</div>
                 </div>
                 <div class="bg-purple-50 p-3 rounded-lg">
-                    <div class="font-medium text-purple-800">发布时机</div>
-                    <div class="text-purple-600">${Array.isArray(strategy.optimalTimes) ? strategy.optimalTimes.join(', ') : strategy.optimalTimes || '优化中...'}</div>
+                    <div class="flex justify-between items-center mb-1">
+                        <div class="font-medium text-purple-800">发布时机</div>
+                        <button onclick="editOptimalTimes()" class="text-purple-600 hover:text-purple-800 text-xs px-2 py-1 rounded border border-purple-300 hover:border-purple-500 transition">
+                            ✏️ 编辑
+                        </button>
+                    </div>
+                    <div id="optimalTimesDisplay" class="text-purple-600">${Array.isArray(strategy.optimalTimes) ? strategy.optimalTimes.join(', ') : strategy.optimalTimes || '优化中...'}</div>
                 </div>
             `;
         }
@@ -1441,12 +1446,17 @@
             queueContainer.innerHTML = tasks.map((task, index) => `
                 <div class="border border-gray-200 rounded-lg p-3 hover:border-blue-400 transition">
                     <div class="flex gap-3">
-                        ${task.image_url ? `
-                            <div class="flex-shrink-0">
-                                <img src="${task.image_url}"
+                        ${task.image_urls && task.image_urls.length > 0 ? `
+                            <div class="flex-shrink-0 relative">
+                                <img src="${task.image_urls[0]}"
                                      class="w-24 h-24 object-cover rounded-lg"
                                      alt="内容配图"
                                      onerror="this.src='https://via.placeholder.com/150x150/667eea/FFFFFF?text=No+Image'">
+                                ${task.image_urls.length > 1 ? `
+                                    <span class="absolute bottom-1 right-1 bg-black bg-opacity-70 text-white text-xs px-1.5 py-0.5 rounded">
+                                        ${task.image_urls.length}张
+                                    </span>
+                                ` : ''}
                             </div>
                         ` : ''}
                         <div class="flex-1 min-w-0">
@@ -1491,32 +1501,40 @@
                 return;
             }
 
-            console.log('[Preview DEBUG] Post image_url:', post.image_url);
-            console.log('[Preview DEBUG] Post image_prompt:', post.image_prompt);
+            console.log('[Preview DEBUG] Post image_urls:', post.image_urls);
+            console.log('[Preview DEBUG] Post image_prompts:', post.image_prompts);
 
             let previewHTML = '';
 
-            // 显示AI生成的图片
-            if (post.image_url) {
-                console.log('[Preview DEBUG] Showing image with URL:', post.image_url);
+            // 显示AI生成的多张图片
+            if (post.image_urls && post.image_urls.length > 0) {
+                console.log('[Preview DEBUG] Showing', post.image_urls.length, 'images');
                 previewHTML += `
                     <div class="mb-4">
-                        <img src="${post.image_url}" class="w-full rounded-lg shadow-md" alt="AI生成的配图"
-                             onerror="console.error('Image load error:', this.src); this.src='https://via.placeholder.com/800x800/667eea/FFFFFF?text=Image+Error';">
-                        <p class="text-xs text-gray-500 mt-2">🎨 AI生成的配图</p>
-                        <p class="text-xs text-gray-400 mt-1">URL: ${post.image_url.substring(0, 50)}...</p>
+                        <div class="grid grid-cols-2 gap-2">
+                            ${post.image_urls.map((url, index) => `
+                                <div class="relative">
+                                    <img src="${url}" class="w-full aspect-square object-cover rounded-lg shadow-md" alt="AI生成的配图${index + 1}"
+                                         onerror="console.error('Image load error:', this.src); this.src='https://via.placeholder.com/400x400/667eea/FFFFFF?text=Image+${index + 1}+Error';">
+                                    <span class="absolute top-1 right-1 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded">${index + 1}/${post.image_urls.length}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2">🎨 ${post.image_urls.length}张AI生成的配图</p>
                     </div>
                 `;
-            } else if (post.image_prompt) {
-                console.log('[Preview DEBUG] No image_url, showing prompt instead');
+            } else if (post.image_prompts && post.image_prompts.length > 0) {
+                console.log('[Preview DEBUG] No image_urls, showing prompts instead');
                 previewHTML += `
                     <div class="mb-4 p-3 bg-blue-50 rounded-lg">
-                        <p class="text-xs text-blue-600">🎨 正在生成图片...</p>
-                        <p class="text-xs text-gray-600 mt-1">${post.image_prompt}</p>
+                        <p class="text-xs text-blue-600">🎨 正在生成${post.image_prompts.length}张图片...</p>
+                        ${post.image_prompts.map((prompt, i) => `
+                            <p class="text-xs text-gray-600 mt-1">${i + 1}. ${prompt.substring(0, 50)}...</p>
+                        `).join('')}
                     </div>
                 `;
             } else {
-                console.log('[Preview DEBUG] No image_url and no image_prompt');
+                console.log('[Preview DEBUG] No image_urls and no image_prompts');
             }
 
             // 显示标题和内容
@@ -1665,6 +1683,79 @@
                 if (data.success) {
                     addActivityLog('✅ 内容已更新');
                     loadTodayPlan();
+                } else {
+                    addActivityLog('❌ 更新失败: ' + data.error);
+                    alert('更新失败: ' + data.error);
+                }
+            } catch (error) {
+                console.error('更新错误:', error);
+                addActivityLog('❌ 更新失败');
+                alert('更新失败，请重试');
+            }
+        }
+
+        async function editOptimalTimes() {
+            // 获取当前的发布时机
+            const displayElement = document.getElementById('optimalTimesDisplay');
+            const currentTimes = displayElement.textContent.trim();
+
+            // 创建编辑对话框
+            const editDialog = `
+                <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:white;padding:20px;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.3);z-index:9999;max-width:600px;width:90%;">
+                    <h3 style="margin-bottom:15px;font-size:18px;font-weight:bold;">⏰ 编辑发布时机</h3>
+                    <div style="margin-bottom:15px;">
+                        <label style="display:block;margin-bottom:5px;font-weight:500;">发布时间段（逗号分隔）:</label>
+                        <textarea id="edit-optimal-times" rows="4" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:5px;resize:vertical;">${currentTimes !== '优化中...' ? currentTimes : '09:30-10:30, 14:00-15:00, 20:30-21:30'}</textarea>
+                        <p style="font-size:12px;color:#666;margin-top:5px;">
+                            示例: 09:30-10:30（送完孩子后的休息时间）, 14:00-15:00（午休后的浏览时间）
+                        </p>
+                    </div>
+                    <div style="display:flex;gap:10px;">
+                        <button onclick="saveOptimalTimes()" style="flex:1;padding:10px;background:#8b5cf6;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:500;">✅ 保存</button>
+                        <button onclick="closeOptimalTimesDialog()" style="flex:1;padding:10px;background:#6b7280;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:500;">❌ 取消</button>
+                    </div>
+                </div>
+                <div onclick="closeOptimalTimesDialog()" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9998;"></div>
+            `;
+
+            const dialogContainer = document.createElement('div');
+            dialogContainer.id = 'optimal-times-dialog-container';
+            dialogContainer.innerHTML = editDialog;
+            document.body.appendChild(dialogContainer);
+        }
+
+        function closeOptimalTimesDialog() {
+            const dialog = document.getElementById('optimal-times-dialog-container');
+            if (dialog) dialog.remove();
+        }
+
+        async function saveOptimalTimes() {
+            const timesStr = document.getElementById('edit-optimal-times').value;
+            const times = timesStr ? timesStr.split(',').map(t => t.trim()).filter(t => t) : [];
+
+            if (times.length === 0) {
+                alert('请输入至少一个发布时间段');
+                return;
+            }
+
+            closeOptimalTimesDialog();
+            addActivityLog('⏰ 正在更新发布时机...');
+
+            try {
+                const response = await fetch(`${CLAUDE_API}/agent/auto/update-strategy/${currentUser}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        optimalTimes: times
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    addActivityLog('✅ 发布时机已更新');
+                    // 更新显示
+                    document.getElementById('optimalTimesDisplay').textContent = times.join(', ');
                 } else {
                     addActivityLog('❌ 更新失败: ' + data.error);
                     alert('更新失败: ' + data.error);

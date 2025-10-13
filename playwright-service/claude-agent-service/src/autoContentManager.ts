@@ -37,8 +37,8 @@ interface DailyTask {
   contentType: string;
   title: string;
   content: string;
-  imagePrompt: string;
-  imageUrl?: string;
+  imagePrompts: string[];  // 支持多张图片的描述
+  imageUrls?: string[];    // 支持多张图片URL
   hashtags: string[];
   status: 'planned' | 'generating' | 'ready' | 'published';
 }
@@ -208,14 +208,18 @@ export class AutoContentManager {
       // 3.5. 为第一个任务预生成图片（用于预览）
       if (dailyTasks.length > 0) {
         const firstTask = dailyTasks[0];
-        console.log(`🚀 [DEBUG] 步骤3.5: 为第一个任务预生成图片...`);
-        this.addRealTimeActivity(userProfile.userId, '🎨 正在生成第一篇内容的配图...', 'generation');
+        console.log(`🚀 [DEBUG] 步骤3.5: 为第一个任务预生成${firstTask.imagePrompts.length}张图片...`);
+        this.addRealTimeActivity(userProfile.userId, `🎨 正在生成第一篇内容的${firstTask.imagePrompts.length}张配图...`, 'generation');
         try {
-          const imageUrl = await this.generateImage(firstTask.imagePrompt);
-          firstTask.imageUrl = imageUrl;
+          firstTask.imageUrls = [];
+          for (let i = 0; i < firstTask.imagePrompts.length; i++) {
+            const imageUrl = await this.generateImage(firstTask.imagePrompts[i]);
+            firstTask.imageUrls.push(imageUrl);
+            console.log(`🚀 [DEBUG] 第${i + 1}张图片已生成`);
+          }
           firstTask.status = 'ready'; // 标记为已准备好
-          this.addRealTimeActivity(userProfile.userId, '✅ 首篇内容配图已生成，可以预览', 'generation');
-          console.log(`🚀 [DEBUG] 步骤3.5完成: 首张图片已生成 ${imageUrl}`);
+          this.addRealTimeActivity(userProfile.userId, `✅ 首篇内容${firstTask.imageUrls.length}张配图已生成，可以预览`, 'generation');
+          console.log(`🚀 [DEBUG] 步骤3.5完成: ${firstTask.imageUrls.length}张图片已生成`);
         } catch (error: any) {
           console.error(`❌ [DEBUG] 预生成图片失败:`, error.message);
           this.addRealTimeActivity(userProfile.userId, '⚠️ 配图生成失败，将在发布时重试', 'generation');
@@ -714,16 +718,23 @@ export class AutoContentManager {
 要求：
 1. 标题：吸引眼球，包含关键词，不超过20字
 2. 正文：${profile.brandStyle}风格，包含emoji，200-500字
-3. 配图描述：**只描述1张主图片**，详细描述场景、人物、氛围、构图
+3. 配图描述：生成**4张不同角度的配图**，每张图片都要详细描述场景、人物、氛围、构图
+   - 第1张：主场景全景图
+   - 第2张：细节特写或使用场景
+   - 第3张：用户互动或效果展示
+   - 第4张：产品界面或总结画面
 4. 话题标签：5-8个相关标签
-
-**重要**：imagePrompt只描述一张图片，不要写"需要4张"或"多张"。
 
 请以JSON格式返回：
 {
   "title": "标题",
   "content": "正文内容",
-  "imagePrompt": "一张图片的详细生成提示词",
+  "imagePrompts": [
+    "第1张图片的详细生成提示词",
+    "第2张图片的详细生成提示词",
+    "第3张图片的详细生成提示词",
+    "第4张图片的详细生成提示词"
+  ],
   "hashtags": ["标签1", "标签2"]
 }
 `;
@@ -744,14 +755,34 @@ export class AutoContentManager {
 
       const taskDetails = JSON.parse(cleanedText);
 
+      // 生成多张图片
+      const imagePrompts = Array.isArray(taskDetails.imagePrompts)
+        ? taskDetails.imagePrompts
+        : ['默认图片描述'];
+
+      console.log(`🎨 [任务创建] 开始生成 ${imagePrompts.length} 张图片...`);
+      const imageUrls: string[] = [];
+
+      for (let i = 0; i < imagePrompts.length; i++) {
+        try {
+          const imageUrl = await this.generateImage(imagePrompts[i]);
+          imageUrls.push(imageUrl);
+          console.log(`✅ [任务创建] 第 ${i + 1} 张图片生成成功: ${imageUrl.substring(0, 50)}...`);
+        } catch (error: any) {
+          console.error(`❌ [任务创建] 第 ${i + 1} 张图片生成失败:`, error.message);
+          imageUrls.push(`https://via.placeholder.com/1080x1080/667eea/FFFFFF?text=Image+${i + 1}+Failed`);
+        }
+      }
+
       return {
         scheduledTime: new Date(post.scheduledTime),
         contentType: post.type,
         title: taskDetails.title || '默认标题',
         content: taskDetails.content || '默认内容',
-        imagePrompt: taskDetails.imagePrompt || '默认图片描述',
+        imagePrompts: imagePrompts,
+        imageUrls: imageUrls,
         hashtags: Array.isArray(taskDetails.hashtags) ? taskDetails.hashtags : ['默认标签'],
-        status: 'planned'
+        status: 'ready'  // 图片已生成，状态改为ready
       };
     } catch (error) {
       console.error('任务创建失败:', error);
@@ -827,17 +858,20 @@ export class AutoContentManager {
       this.addRealTimeActivity(userId, `🎬 开始执行任务: ${task.title}`, 'execution');
       task.status = 'generating';
 
-      // 1. 生成图片
-      this.addRealTimeActivity(userId, '🎨 正在生成配图...', 'generation');
-      const imageUrl = await this.generateImage(task.imagePrompt);
-      task.imageUrl = imageUrl;  // 保存图片URL到任务中
+      // 1. 生成多张图片
+      this.addRealTimeActivity(userId, `🎨 正在生成${task.imagePrompts.length}张配图...`, 'generation');
+      task.imageUrls = [];
+      for (let i = 0; i < task.imagePrompts.length; i++) {
+        const imageUrl = await this.generateImage(task.imagePrompts[i]);
+        task.imageUrls.push(imageUrl);
+      }
       this.addRealTimeActivity(userId, '✅ 配图生成完成', 'generation');
 
       // 2. 检查是否需要人工审核
       if (profile.reviewMode === 'auto') {
-        // 直接发布
+        // 直接发布 - 使用第一张图片
         this.addRealTimeActivity(userId, '📝 正在发布内容到小红书...', 'execution');
-        await this.publishContent(userId, task, imageUrl);
+        await this.publishContent(userId, task, task.imageUrls[0]);
         task.status = 'published';
         this.addRealTimeActivity(userId, `✅ 内容发布成功: ${task.title}`, 'execution');
         console.log(`✅ 自动发布成功: ${task.title}`);
@@ -845,7 +879,7 @@ export class AutoContentManager {
         // 等待审核
         task.status = 'ready';
         this.addRealTimeActivity(userId, '⏳ 内容已准备，等待人工审核', 'execution');
-        await this.notifyForReview(userId, task, imageUrl);
+        await this.notifyForReview(userId, task, task.imageUrls[0]);
         console.log(`⏳ 内容已准备就绪，等待审核: ${task.title}`);
       }
 
@@ -1040,7 +1074,13 @@ export class AutoContentManager {
           contentType: post.type,
           title: `${userProfile.productName} 演示内容 ${dayIndex + 1}-${postIndex + 1}`,
           content: `【演示模式】这是关于 ${userProfile.productName} 的示例文案。配置有效的 ANTHROPIC_API_KEY 后，将自动生成真实内容。`,
-          imagePrompt: `${userProfile.productName}, ${post.theme}, 小红书风格, 演示模式`,
+          imagePrompts: [
+            `${userProfile.productName}, ${post.theme}, 主视觉, 小红书风格, 演示模式`,
+            `${userProfile.productName}, ${post.theme}, 使用场景, 小红书风格, 演示模式`,
+            `${userProfile.productName}, ${post.theme}, 效果展示, 小红书风格, 演示模式`,
+            `${userProfile.productName}, ${post.theme}, 氛围图, 小红书风格, 演示模式`
+          ],
+          imageUrls: [],
           hashtags: ['演示模式', userProfile.productName, '小红书运营'],
           status: 'ready'
         };
@@ -1093,7 +1133,8 @@ export class AutoContentManager {
       contentType: post.type,
       title: '默认标题',
       content: '默认内容',
-      imagePrompt: '默认图片描述',
+      imagePrompts: ['默认图片描述1', '默认图片描述2', '默认图片描述3', '默认图片描述4'],
+      imageUrls: [],
       hashtags: ['默认标签'],
       status: 'planned'
     };
@@ -1232,7 +1273,7 @@ export class AutoContentManager {
           minute: '2-digit'
         }),
         status: '待审核',
-        imageUrl: task.imageUrl
+        imageUrls: task.imageUrls
       }));
   }
 
@@ -1380,7 +1421,7 @@ export class AutoContentManager {
 
     console.log(`🔍 [批准发布] 当前有 ${plan.dailyTasks.length} 个任务`);
     plan.dailyTasks.forEach((t, i) => {
-      console.log(`  任务${i}: ${t.title}, status: ${t.status}, hasImage: ${!!t.imageUrl}`);
+      console.log(`  任务${i}: ${t.title}, status: ${t.status}, images: ${t.imageUrls?.length || 0}张`);
     });
 
     // 如果没有指定taskId，发布第一个ready状态的任务
@@ -1396,28 +1437,31 @@ export class AutoContentManager {
 
     console.log(`✅ [批准发布] 找到任务: ${task.title}`);
 
-    // 如果没有图片，尝试生成
-    if (!task.imageUrl) {
-      console.log(`⚠️ [批准发布] 任务缺少图片，尝试生成...`);
-      this.addRealTimeActivity(userId, `🎨 正在生成配图...`, 'generation');
-      try {
-        const imageUrl = await this.generateImage(task.imagePrompt);
-        task.imageUrl = imageUrl;
-        console.log(`✅ [批准发布] 图片生成成功: ${imageUrl}`);
-      } catch (error: any) {
-        const errorMsg = `图片生成失败: ${error.message}`;
-        console.error(`❌ [批准发布] ${errorMsg}`);
-        throw new Error(errorMsg);
+    // 如果没有图片或图片不完整，尝试生成
+    if (!task.imageUrls || task.imageUrls.length === 0) {
+      console.log(`⚠️ [批准发布] 任务缺少图片，尝试生成${task.imagePrompts.length}张...`);
+      this.addRealTimeActivity(userId, `🎨 正在生成${task.imagePrompts.length}张配图...`, 'generation');
+      task.imageUrls = [];
+
+      for (let i = 0; i < task.imagePrompts.length; i++) {
+        try {
+          const imageUrl = await this.generateImage(task.imagePrompts[i]);
+          task.imageUrls.push(imageUrl);
+          console.log(`✅ [批准发布] 第${i + 1}张图片生成成功`);
+        } catch (error: any) {
+          console.error(`❌ [批准发布] 第${i + 1}张图片生成失败: ${error.message}`);
+          task.imageUrls.push(`https://via.placeholder.com/1080x1080/667eea/FFFFFF?text=Image+${i + 1}+Failed`);
+        }
       }
     }
 
     console.log(`📝 [批准发布] 开始发布任务: ${task.title}`);
-    console.log(`📷 [批准发布] 图片URL: ${task.imageUrl}`);
+    console.log(`📷 [批准发布] 图片数量: ${task.imageUrls.length}张`);
     this.addRealTimeActivity(userId, `📝 正在发布: ${task.title}`, 'execution');
 
     try {
-      // 调用发布函数
-      await this.publishContent(userId, task, task.imageUrl);
+      // 调用发布函数 - 只发布第一张图片
+      await this.publishContent(userId, task, task.imageUrls[0]);
 
       // 更新任务状态
       task.status = 'published';
@@ -1499,19 +1543,9 @@ export class AutoContentManager {
     // 更新任务内容
     if (updates.title) task.title = updates.title;
     if (updates.content) task.content = updates.content;
-    if (updates.imagePrompt) task.imagePrompt = updates.imagePrompt;
     if (updates.hashtags) task.hashtags = updates.hashtags;
 
-    // 如果imagePrompt更新了，重新生成图片
-    if (updates.imagePrompt && updates.imagePrompt !== task.imagePrompt) {
-      try {
-        const newImageUrl = await this.generateImage(updates.imagePrompt);
-        task.imageUrl = newImageUrl;
-        console.log(`✅ [编辑任务] 图片已重新生成: ${newImageUrl}`);
-      } catch (error: any) {
-        console.error(`❌ [编辑任务] 图片生成失败:`, error.message);
-      }
-    }
+    // 注意：编辑功能暂不支持修改图片，保留现有图片
 
     task.status = 'ready';
     this.saveData(userId);
@@ -1560,8 +1594,15 @@ export class AutoContentManager {
 - 内容类型：${oldTask.contentType}
 - 字数：150-200字
 - 风格：${profile.brandStyle}
+- 配图：生成**4张不同角度的配图描述**
 
-请以JSON格式返回，包含：title, content, imagePrompt, hashtags
+请以JSON格式返回：
+{
+  "title": "标题",
+  "content": "正文内容",
+  "imagePrompts": ["图1描述", "图2描述", "图3描述", "图4描述"],
+  "hashtags": ["标签1", "标签2"]
+}
 `;
 
       const response = await this.anthropic.messages.create({
@@ -1579,16 +1620,32 @@ export class AutoContentManager {
 
       const newContent = JSON.parse(cleanedText);
 
-      // 生成新图片
-      const imageUrl = await this.generateImage(newContent.imagePrompt || oldTask.imagePrompt);
+      // 生成多张新图片
+      const imagePrompts = Array.isArray(newContent.imagePrompts)
+        ? newContent.imagePrompts
+        : oldTask.imagePrompts;
+
+      const imageUrls: string[] = [];
+      console.log(`🎨 [重新生成] 开始生成 ${imagePrompts.length} 张图片...`);
+
+      for (let i = 0; i < imagePrompts.length; i++) {
+        try {
+          const imageUrl = await this.generateImage(imagePrompts[i]);
+          imageUrls.push(imageUrl);
+          console.log(`✅ [重新生成] 第 ${i + 1} 张图片生成成功`);
+        } catch (error: any) {
+          console.error(`❌ [重新生成] 第 ${i + 1} 张图片生成失败:`, error.message);
+          imageUrls.push(`https://via.placeholder.com/1080x1080/667eea/FFFFFF?text=Image+${i + 1}+Failed`);
+        }
+      }
 
       // 更新任务
       plan.dailyTasks[taskIndex] = {
         ...oldTask,
         title: newContent.title || oldTask.title,
         content: newContent.content || oldTask.content,
-        imagePrompt: newContent.imagePrompt || oldTask.imagePrompt,
-        imageUrl: imageUrl,
+        imagePrompts: imagePrompts,
+        imageUrls: imageUrls,
         hashtags: newContent.hashtags || oldTask.hashtags,
         status: 'ready'
       };
@@ -1601,6 +1658,40 @@ export class AutoContentManager {
       this.addRealTimeActivity(userId, `❌ 重新生成失败: ${error.message}`, 'generation');
       throw error;
     }
+  }
+
+  /**
+   * 更新内容策略
+   */
+  public async updateStrategy(userId: string, updates: Partial<ContentStrategy>): Promise<void> {
+    const plan = this.contentPlans.get(userId);
+
+    if (!plan) {
+      throw new Error('用户策略不存在');
+    }
+
+    console.log(`⚙️ [更新策略] 用户 ${userId} 更新策略:`, updates);
+
+    // 更新策略字段
+    if (updates.keyThemes) {
+      plan.strategy.keyThemes = updates.keyThemes;
+    }
+    if (updates.contentTypes) {
+      plan.strategy.contentTypes = updates.contentTypes;
+    }
+    if (updates.optimalTimes) {
+      plan.strategy.optimalTimes = updates.optimalTimes;
+    }
+    if (updates.hashtags) {
+      plan.strategy.hashtags = updates.hashtags;
+    }
+    if (updates.trendingTopics) {
+      plan.strategy.trendingTopics = updates.trendingTopics;
+    }
+
+    this.saveData(userId);
+    this.addRealTimeActivity(userId, `⚙️ 策略已更新`, 'execution');
+    console.log(`✅ [更新策略] 策略已更新并保存`);
   }
 }
 

@@ -1018,8 +1018,8 @@ app.get('/agent/auto/plan/:userId', async (req: Request, res: Response) => {
                 'pending',
         type: task.contentType || '图文',
         content: task.content || '',
-        image_url: task.imageUrl || null,
-        image_prompt: task.imagePrompt || null
+        image_urls: task.imageUrls || [],
+        image_prompts: task.imagePrompts || []
       };
     });
 
@@ -1121,6 +1121,29 @@ app.post('/agent/auto/edit/:userId', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('[Auto Mode] Error editing content:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// 更新内容策略
+app.post('/agent/auto/update-strategy/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const updates = req.body;
+
+    console.log(`[Auto Mode] Updating strategy for user ${userId}`, updates);
+
+    await autoContentManager.updateStrategy(userId, updates);
+
+    res.json({
+      success: true,
+      message: '策略已更新'
+    });
+  } catch (error: any) {
+    console.error('[Auto Mode] Error updating strategy:', error);
     res.status(500).json({
       success: false,
       error: error.message,
