@@ -953,13 +953,13 @@ export class AutoContentManager {
       }
 
       // 调用真实的小红书发布工具 - 发布所有图片
-      const result = await this.mcpClient.publishContent(
-        userId,
-        task.title,
-        task.content,
-        imageUrls, // 传递完整的图片URL数组
-        task.hashtags
-      );
+      const result = await this.mcpClient.publishContent(userId, {
+        title: task.title,
+        description: task.content,
+        images: imageUrls,
+        tags: task.hashtags,
+        type: task.contentType === '视频' ? 'video' : 'normal'
+      });
 
       if (result.success) {
         console.log('✅ [发布] 发布成功:', result.data);
