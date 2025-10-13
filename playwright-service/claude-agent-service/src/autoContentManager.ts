@@ -714,14 +714,16 @@ export class AutoContentManager {
 要求：
 1. 标题：吸引眼球，包含关键词，不超过20字
 2. 正文：${profile.brandStyle}风格，包含emoji，200-500字
-3. 配图描述：详细描述需要的图片内容和风格
+3. 配图描述：**只描述1张主图片**，详细描述场景、人物、氛围、构图
 4. 话题标签：5-8个相关标签
+
+**重要**：imagePrompt只描述一张图片，不要写"需要4张"或"多张"。
 
 请以JSON格式返回：
 {
   "title": "标题",
   "content": "正文内容",
-  "imagePrompt": "图片生成提示词",
+  "imagePrompt": "一张图片的详细生成提示词",
   "hashtags": ["标签1", "标签2"]
 }
 `;
@@ -1367,10 +1369,19 @@ export class AutoContentManager {
    * 批准并发布内容
    */
   public async approveAndPublish(userId: string, taskId?: string): Promise<void> {
+    console.log(`🔍 [批准发布] 开始处理，userId: ${userId}, taskId: ${taskId}`);
+
     const plan = this.contentPlans.get(userId);
     if (!plan || !plan.dailyTasks || plan.dailyTasks.length === 0) {
-      throw new Error('没有找到待发布的任务');
+      const error = '没有找到待发布的任务';
+      console.error(`❌ [批准发布] ${error}`);
+      throw new Error(error);
     }
+
+    console.log(`🔍 [批准发布] 当前有 ${plan.dailyTasks.length} 个任务`);
+    plan.dailyTasks.forEach((t, i) => {
+      console.log(`  任务${i}: ${t.title}, status: ${t.status}, hasImage: ${!!t.imageUrl}`);
+    });
 
     // 如果没有指定taskId，发布第一个ready状态的任务
     const task = taskId
@@ -1378,14 +1389,30 @@ export class AutoContentManager {
       : plan.dailyTasks.find(t => t.status === 'ready');
 
     if (!task) {
-      throw new Error('没有找到可发布的任务');
+      const error = taskId ? `找不到ID为 ${taskId} 的任务` : '没有找到ready状态的任务';
+      console.error(`❌ [批准发布] ${error}`);
+      throw new Error(error);
     }
 
+    console.log(`✅ [批准发布] 找到任务: ${task.title}`);
+
+    // 如果没有图片，尝试生成
     if (!task.imageUrl) {
-      throw new Error('任务缺少图片，无法发布');
+      console.log(`⚠️ [批准发布] 任务缺少图片，尝试生成...`);
+      this.addRealTimeActivity(userId, `🎨 正在生成配图...`, 'generation');
+      try {
+        const imageUrl = await this.generateImage(task.imagePrompt);
+        task.imageUrl = imageUrl;
+        console.log(`✅ [批准发布] 图片生成成功: ${imageUrl}`);
+      } catch (error: any) {
+        const errorMsg = `图片生成失败: ${error.message}`;
+        console.error(`❌ [批准发布] ${errorMsg}`);
+        throw new Error(errorMsg);
+      }
     }
 
     console.log(`📝 [批准发布] 开始发布任务: ${task.title}`);
+    console.log(`📷 [批准发布] 图片URL: ${task.imageUrl}`);
     this.addRealTimeActivity(userId, `📝 正在发布: ${task.title}`, 'execution');
 
     try {
@@ -1399,7 +1426,9 @@ export class AutoContentManager {
       this.addRealTimeActivity(userId, `✅ 发布成功: ${task.title}`, 'execution');
       console.log(`✅ [批准发布] 发布成功: ${task.title}`);
     } catch (error: any) {
-      this.addRealTimeActivity(userId, `❌ 发布失败: ${error.message}`, 'execution');
+      const errorMsg = `发布失败: ${error.message}`;
+      console.error(`❌ [批准发布] ${errorMsg}`);
+      this.addRealTimeActivity(userId, `❌ ${errorMsg}`, 'execution');
       throw error;
     }
   }
