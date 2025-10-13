@@ -869,9 +869,9 @@ export class AutoContentManager {
 
       // 2. 检查是否需要人工审核
       if (profile.reviewMode === 'auto') {
-        // 直接发布 - 使用第一张图片
-        this.addRealTimeActivity(userId, '📝 正在发布内容到小红书...', 'execution');
-        await this.publishContent(userId, task, task.imageUrls[0]);
+        // 直接发布 - 发布所有4张图片
+        this.addRealTimeActivity(userId, `📝 正在发布内容到小红书（${task.imageUrls.length}张图片）...`, 'execution');
+        await this.publishContent(userId, task, task.imageUrls);
         task.status = 'published';
         this.addRealTimeActivity(userId, `✅ 内容发布成功: ${task.title}`, 'execution');
         console.log(`✅ 自动发布成功: ${task.title}`);
@@ -879,7 +879,7 @@ export class AutoContentManager {
         // 等待审核
         task.status = 'ready';
         this.addRealTimeActivity(userId, '⏳ 内容已准备，等待人工审核', 'execution');
-        await this.notifyForReview(userId, task, task.imageUrls[0]);
+        await this.notifyForReview(userId, task, task.imageUrls);
         console.log(`⏳ 内容已准备就绪，等待审核: ${task.title}`);
       }
 
@@ -938,10 +938,13 @@ export class AutoContentManager {
   /**
    * 发布内容到小红书
    */
-  private async publishContent(userId: string, task: DailyTask, imageUrl: string): Promise<void> {
+  private async publishContent(userId: string, task: DailyTask, imageUrls: string[]): Promise<void> {
     try {
       console.log(`📝 [发布] 准备发布内容: ${task.title}`);
-      console.log(`📷 [发布] 使用图片: ${imageUrl}`);
+      console.log(`📷 [发布] 使用${imageUrls.length}张图片`);
+      imageUrls.forEach((url, i) => {
+        console.log(`   图片${i + 1}: ${url.substring(0, 60)}...`);
+      });
       console.log(`🏷️ [发布] 标签: ${task.hashtags.join(', ')}`);
 
       if (!this.mcpClient) {
@@ -949,12 +952,12 @@ export class AutoContentManager {
         throw new Error('MCP客户端未配置');
       }
 
-      // 调用真实的小红书发布工具
+      // 调用真实的小红书发布工具 - 发布所有图片
       const result = await this.mcpClient.publishContent(
         userId,
         task.title,
         task.content,
-        [imageUrl], // 传递图片URL数组
+        imageUrls, // 传递完整的图片URL数组
         task.hashtags
       );
 
@@ -973,10 +976,10 @@ export class AutoContentManager {
   /**
    * 通知用户审核
    */
-  private async notifyForReview(userId: string, task: DailyTask, imageUrl: string): Promise<void> {
+  private async notifyForReview(userId: string, task: DailyTask, imageUrls: string[]): Promise<void> {
     // 这里可以通过WebSocket或者HTTP通知前端
     // 用户可以在前端界面看到待审核的内容
-    console.log(`📬 通知用户 ${userId} 审核内容: ${task.title}`);
+    console.log(`📬 通知用户 ${userId} 审核内容: ${task.title}（${imageUrls.length}张图片）`);
   }
 
   /**
@@ -1037,8 +1040,8 @@ export class AutoContentManager {
         Object.assign(task, edits);
       }
 
-      // 发布
-      await this.publishContent(userId, task, 'image_url_here');
+      // 发布所有图片
+      await this.publishContent(userId, task, task.imageUrls || []);
       task.status = 'published';
     } else {
       // 拒绝，重新生成
@@ -1457,11 +1460,11 @@ export class AutoContentManager {
 
     console.log(`📝 [批准发布] 开始发布任务: ${task.title}`);
     console.log(`📷 [批准发布] 图片数量: ${task.imageUrls.length}张`);
-    this.addRealTimeActivity(userId, `📝 正在发布: ${task.title}`, 'execution');
+    this.addRealTimeActivity(userId, `📝 正在发布: ${task.title}（${task.imageUrls.length}张图片）`, 'execution');
 
     try {
-      // 调用发布函数 - 只发布第一张图片
-      await this.publishContent(userId, task, task.imageUrls[0]);
+      // 调用发布函数 - 发布所有图片
+      await this.publishContent(userId, task, task.imageUrls);
 
       // 更新任务状态
       task.status = 'published';
