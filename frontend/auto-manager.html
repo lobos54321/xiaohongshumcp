@@ -1011,45 +1011,38 @@
             localStorage.setItem(`userConfig_${currentUser}`, JSON.stringify(config));
             console.log('💾 配置已保存到本地缓存');
 
-            // 显示加载状态
-            const button = document.querySelector('#step2 button');
-            const originalText = button.textContent;
-            button.disabled = true;
-            button.innerHTML = '<div class="loading inline-block mr-2"></div>正在启动自动运营...';
+            // 立即切换到自动运营界面（不等待API）
+            console.log('🚀 立即跳转到自动运营界面');
+            document.getElementById('setupWizard').classList.add('hidden');
+            document.getElementById('autoManagerDashboard').classList.remove('hidden');
 
-            try {
-                // 调用真正的自动运营API
-                const response = await fetch(`${CLAUDE_API}/agent/auto/start`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(config)
-                });
+            autoModeEnabled = true;
+            startAutoMode(config);
 
-                const data = await response.json();
-                if (data.success) {
-                    // 显示成功状态
-                    button.innerHTML = '✅ 启动成功，正在跳转...';
+            // 异步调用API启动自动运营（在后台进行）
+            (async () => {
+                try {
+                    console.log('📡 后台调用API启动自动运营...');
+                    const response = await fetch(`${CLAUDE_API}/agent/auto/start`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(config)
+                    });
 
-                    setTimeout(() => {
-                        // 切换到自动运营界面
-                        document.getElementById('setupWizard').classList.add('hidden');
-                        document.getElementById('autoManagerDashboard').classList.remove('hidden');
-
-                        autoModeEnabled = true;
-                        startAutoMode(config);
-
+                    const data = await response.json();
+                    if (data.success) {
+                        console.log('✅ 自动运营API启动成功:', data.message);
                         // 开始加载真实数据
-                        loadRealData();
-                    }, 1000);
-                } else {
-                    throw new Error(data.error || '启动失败');
+                        setTimeout(() => loadRealData(), 1000);
+                    } else {
+                        console.error('❌ 自动运营API启动失败:', data.error);
+                        // 即使API失败也不打断用户体验，继续显示界面
+                    }
+                } catch (error) {
+                    console.error('❌ 调用自动运营API异常:', error);
+                    // 静默处理错误，不打断用户体验
                 }
-            } catch (error) {
-                console.error('启动自动运营失败:', error);
-                button.disabled = false;
-                button.textContent = originalText;
-                alert(`启动失败: ${error.message}`);
-            }
+            })();
         }
 
         // 启动自动模式

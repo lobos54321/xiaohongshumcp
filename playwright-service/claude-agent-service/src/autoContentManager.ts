@@ -672,18 +672,40 @@ export class AutoContentManager {
     cleanedText = cleanedText.replace(/```json\s*/gi, '');
     cleanedText = cleanedText.replace(/```\s*/g, '');
 
-    // 查找JSON块的开始和结束
-    const jsonStart = cleanedText.indexOf('{');
-    const jsonEnd = cleanedText.lastIndexOf('}') + 1;
+    // 移除可能的前置说明文字（支持中英文）
+    const prefixPatterns = [
+      /^[^{]*?(?=\{)/,  // 匹配JSON前的任何文字
+      /^以下是.*?[:：]\s*/,
+      /^根据.*?[:：]\s*/,
+      /^这是.*?[:：]\s*/,
+      /^Here is.*?:\s*/i,
+    ];
 
-    if (jsonStart !== -1 && jsonEnd > jsonStart) {
+    for (const pattern of prefixPatterns) {
+      cleanedText = cleanedText.replace(pattern, '');
+    }
+
+    // 查找JSON块的开始和结束（支持数组和对象）
+    const jsonStart = Math.min(
+      cleanedText.indexOf('{') !== -1 ? cleanedText.indexOf('{') : Infinity,
+      cleanedText.indexOf('[') !== -1 ? cleanedText.indexOf('[') : Infinity
+    );
+
+    let jsonEnd = -1;
+    if (cleanedText.indexOf('{') === jsonStart) {
+      jsonEnd = cleanedText.lastIndexOf('}') + 1;
+    } else if (cleanedText.indexOf('[') === jsonStart) {
+      jsonEnd = cleanedText.lastIndexOf(']') + 1;
+    }
+
+    if (jsonStart !== -1 && jsonStart !== Infinity && jsonEnd > jsonStart) {
       cleanedText = cleanedText.substring(jsonStart, jsonEnd);
     }
 
-    // 移除控制字符
+    // 移除控制字符但保留中文字符
     cleanedText = cleanedText.replace(/[\x00-\x1F\x7F]/g, '');
 
-    return cleanedText;
+    return cleanedText.trim();
   }
 
   /**
@@ -747,13 +769,21 @@ export class AutoContentManager {
 
     try {
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
-      console.log('📝 [任务创建] Claude响应原文:', responseText.substring(0, 200) + '...');
+      console.log('📝 [任务创建] Claude响应原文:', responseText.substring(0, 500) + '...');
 
       // 使用统一的JSON清理方法
       const cleanedText = this.cleanJSONResponse(responseText);
-      console.log('📝 [任务创建] 清理后的JSON:', cleanedText.substring(0, 200) + '...');
+      console.log('📝 [任务创建] 清理后的JSON:', cleanedText.substring(0, 500) + '...');
 
-      const taskDetails = JSON.parse(cleanedText);
+      let taskDetails;
+      try {
+        taskDetails = JSON.parse(cleanedText);
+      } catch (parseError) {
+        console.error('❌ [任务创建] JSON解析失败:', parseError);
+        console.error('📝 [任务创建] 完整响应文本:', responseText);
+        console.error('📝 [任务创建] 清理后文本:', cleanedText);
+        throw new Error(`JSON解析失败: ${parseError instanceof Error ? parseError.message : String(parseError)}. 请检查Claude响应格式。`);
+      }
 
       // 生成多张图片
       const imagePrompts = Array.isArray(taskDetails.imagePrompts)
