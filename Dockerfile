@@ -85,9 +85,10 @@ RUN set -e && \
     echo "Downloading xiaohongshu-mcp binary..." && \
     wget -v -O /tmp/xiaohongshu-mcp.tar.gz https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz && \
     tar -xzf /tmp/xiaohongshu-mcp.tar.gz -C /tmp && \
-    find /tmp -name "*xiaohongshu*" -type f -exec cp {} /app/ \; && \
-    chmod +x /app/xiaohongshu-mcp-linux-amd64 && \
-    chmod +x /app/xiaohongshu-login-linux-amd64 && \
+    find /tmp -name "xiaohongshu-mcp-linux-amd64" -type f -exec cp {} /app/playwright-service/mcp-router/xiaohongshu-mcp \; && \
+    find /tmp -name "xiaohongshu-login-linux-amd64" -type f -exec cp {} /app/playwright-service/claude-agent-service/xiaohongshu-login \; && \
+    chmod +x /app/playwright-service/mcp-router/xiaohongshu-mcp && \
+    chmod +x /app/playwright-service/claude-agent-service/xiaohongshu-login && \
     rm -rf /tmp/xiaohongshu-mcp.tar.gz /tmp/xiaohongshu-mcp*
 
 # 第七步：设置所有必要文件的权限（只设置存在的文件）
