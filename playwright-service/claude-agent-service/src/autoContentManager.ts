@@ -66,8 +66,9 @@ export class AutoContentManager {
     this.mcpClient = config.mcpClient;
     this.allowDemoMode = process.env.ALLOW_DEMO_MODE !== 'false';
 
-    // 创建数据存储目录
-    this.dataDir = './data';
+    // 创建数据存储目录 - 使用绝对路径确保生产环境正确
+    this.dataDir = process.env.DATA_DIR || '/app/data/auto-content';
+    console.log(`📁 数据目录: ${this.dataDir}`);
     this.ensureDataDir();
     this.loadPersistedData();
   }
