@@ -247,12 +247,13 @@ export class ImageGenerationService {
 
   /**
    * 获取占位图片
+   * 【修复】使用data URI而非外部URL，避免生产环境访问失败
    */
   private getPlaceholderImage(request: ImageRequest): ImageResult {
-    const dimensions = this.getPlaceholderDimensions(request.aspectRatio);
-
+    // 返回简单的1x1透明PNG的data URI
+    // 实际应用中，前端会显示一个本地的占位图标
     return {
-      url: `https://via.placeholder.com/${dimensions}/667eea/FFFFFF?text=AI+Generated+Image`,
+      url: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTA4MCIgaGVpZ2h0PSIxMDgwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxMDgwIiBoZWlnaHQ9IjEwODAiIGZpbGw9IiNlZWYyZmYiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjQ4IiBmaWxsPSIjNjY3ZWVhIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+8J+OqCBJbWFnZTwvdGV4dD48L3N2Zz4=',
       source: 'placeholder',
       cost: 0
     };
