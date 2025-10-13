@@ -27,7 +27,7 @@ if (!ANTHROPIC_API_KEY || ANTHROPIC_API_KEY === 'demo-key') {
     process.exit(1);
 }
 // MCP Router URL配置 - 支持生产环境和本地开发
-const MCP_ROUTER_URL = process.env.MCP_ROUTER_URL || 'http://localhost:3001';
+const MCP_ROUTER_URL = process.env.MCP_ROUTER_URL || 'http://127.0.0.1:3001';
 // 创建图片生成服务
 const imageService = new ImageGenerationService({
     geminiKey: process.env.GEMINI_API_KEY,

@@ -65,7 +65,7 @@ export class CookieOrchestrator {
   private cookieDetector: AutoCookieDetector;
   private mcpRouterURL: string;
 
-  constructor(mcpRouterURL: string = process.env.MCP_ROUTER_URL || 'http://localhost:3001') {
+  constructor(mcpRouterURL: string = process.env.MCP_ROUTER_URL || 'http://127.0.0.1:3001') {
     this.cookieManager = new CookieManager();
     this.cookieDetector = new AutoCookieDetector();
     this.mcpRouterURL = mcpRouterURL;
