@@ -666,43 +666,59 @@ export class AutoContentManager {
    * 清理Claude响应，提取JSON内容
    */
   private cleanJSONResponse(responseText: string): string {
-    let cleanedText = responseText.trim();
-
     // 移除markdown代码块标记
-    cleanedText = cleanedText.replace(/```json\s*/gi, '');
-    cleanedText = cleanedText.replace(/```\s*/g, '');
+    let cleanedText = responseText.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
 
-    // 移除可能的前置说明文字（支持中英文）
-    const prefixPatterns = [
-      /^[^{]*?(?=\{)/,  // 匹配JSON前的任何文字
-      /^以下是.*?[:：]\s*/,
-      /^根据.*?[:：]\s*/,
-      /^这是.*?[:：]\s*/,
-      /^Here is.*?:\s*/i,
-    ];
+    // 核心策略：直接提取第一个完整的JSON对象或数组
+    // 找到第一个 { 或 [
+    const objectStart = cleanedText.indexOf('{');
+    const arrayStart = cleanedText.indexOf('[');
 
-    for (const pattern of prefixPatterns) {
-      cleanedText = cleanedText.replace(pattern, '');
+    let jsonStart = -1;
+    let isObject = false;
+
+    if (objectStart !== -1 && (arrayStart === -1 || objectStart < arrayStart)) {
+      jsonStart = objectStart;
+      isObject = true;
+    } else if (arrayStart !== -1) {
+      jsonStart = arrayStart;
+      isObject = false;
     }
 
-    // 查找JSON块的开始和结束（支持数组和对象）
-    const jsonStart = Math.min(
-      cleanedText.indexOf('{') !== -1 ? cleanedText.indexOf('{') : Infinity,
-      cleanedText.indexOf('[') !== -1 ? cleanedText.indexOf('[') : Infinity
-    );
+    if (jsonStart === -1) {
+      // 没有找到JSON结构，返回原始文本
+      return cleanedText.trim();
+    }
 
+    // 使用括号计数找到匹配的结束位置
+    let depth = 0;
     let jsonEnd = -1;
-    if (cleanedText.indexOf('{') === jsonStart) {
-      jsonEnd = cleanedText.lastIndexOf('}') + 1;
-    } else if (cleanedText.indexOf('[') === jsonStart) {
-      jsonEnd = cleanedText.lastIndexOf(']') + 1;
+    const openChar = isObject ? '{' : '[';
+    const closeChar = isObject ? '}' : ']';
+
+    for (let i = jsonStart; i < cleanedText.length; i++) {
+      const char = cleanedText[i];
+      if (char === openChar) {
+        depth++;
+      } else if (char === closeChar) {
+        depth--;
+        if (depth === 0) {
+          jsonEnd = i + 1;
+          break;
+        }
+      }
     }
 
-    if (jsonStart !== -1 && jsonStart !== Infinity && jsonEnd > jsonStart) {
+    if (jsonEnd === -1) {
+      // 没有找到匹配的结束括号，尝试用lastIndexOf
+      jsonEnd = (isObject ? cleanedText.lastIndexOf('}') : cleanedText.lastIndexOf(']')) + 1;
+    }
+
+    if (jsonEnd > jsonStart) {
       cleanedText = cleanedText.substring(jsonStart, jsonEnd);
     }
 
-    // 移除控制字符但保留中文字符
+    // 移除控制字符但保留中文
     cleanedText = cleanedText.replace(/[\x00-\x1F\x7F]/g, '');
 
     return cleanedText.trim();
