@@ -1268,6 +1268,14 @@
                     <div class="font-medium text-green-800">热门话题</div>
                     <div class="text-green-600">${Array.isArray(strategy.trendingTopics) ? strategy.trendingTopics.join(' ') : strategy.trendingTopics || '分析中...'}</div>
                 </div>
+                <div class="bg-yellow-50 p-3 rounded-lg">
+                    <div class="font-medium text-yellow-800">热门标签</div>
+                    <div class="text-yellow-600 text-sm">${Array.isArray(strategy.hashtags) ? strategy.hashtags.slice(0, 8).join(' ') : strategy.hashtags || '收集中...'}</div>
+                </div>
+                <div class="bg-indigo-50 p-3 rounded-lg">
+                    <div class="font-medium text-indigo-800">内容类型</div>
+                    <div class="text-indigo-600 text-sm">${Array.isArray(strategy.contentTypes) ? strategy.contentTypes.slice(0, 4).join(' • ') : strategy.contentTypes || '规划中...'}</div>
+                </div>
                 <div class="bg-purple-50 p-3 rounded-lg">
                     <div class="flex justify-between items-center mb-1">
                         <div class="font-medium text-purple-800">发布时机</div>
