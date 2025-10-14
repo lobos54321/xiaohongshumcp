@@ -38,7 +38,8 @@ interface DailyTask {
   title: string;
   content: string;
   imagePrompts: string[];  // 支持多张图片的描述
-  imageUrls?: string[];    // 支持多张图片URL
+  imageUrls?: string[];    // 支持多张图片URL（用于前端显示）
+  imageLocalPaths?: string[]; // 本地文件路径（用于MCP发布）
   hashtags: string[];
   status: 'planned' | 'generating' | 'ready' | 'published';
 }
@@ -216,10 +217,16 @@ export class AutoContentManager {
         (async () => {
           try {
             firstTask.imageUrls = [];
+            firstTask.imageLocalPaths = [];
             for (let i = 0; i < firstTask.imagePrompts.length; i++) {
-              const imageUrl = await this.generateImage(firstTask.imagePrompts[i]);
-              firstTask.imageUrls.push(imageUrl);
+              const imageResult = await this.generateImage(firstTask.imagePrompts[i]);
+              firstTask.imageUrls.push(imageResult.url);
+              if (imageResult.localPath) {
+                firstTask.imageLocalPaths.push(imageResult.localPath);
+              }
               console.log(`🚀 [后台] 第${i + 1}/${firstTask.imagePrompts.length}张图片已生成`);
+              console.log(`   URL: ${imageResult.url}`);
+              console.log(`   本地路径: ${imageResult.localPath || '无'}`);
             }
             firstTask.status = 'ready'; // 标记为已准备好
             this.addRealTimeActivity(userProfile.userId, `✅ 首篇内容${firstTask.imageUrls.length}张配图已生成，可以预览`, 'generation');
@@ -820,12 +827,16 @@ export class AutoContentManager {
 
       console.log(`🎨 [任务创建] 开始生成 ${imagePrompts.length} 张图片...`);
       const imageUrls: string[] = [];
+      const imageLocalPaths: string[] = [];
 
       for (let i = 0; i < imagePrompts.length; i++) {
         try {
-          const imageUrl = await this.generateImage(imagePrompts[i]);
-          imageUrls.push(imageUrl);
-          console.log(`✅ [任务创建] 第 ${i + 1} 张图片生成成功: ${imageUrl.substring(0, 50)}...`);
+          const imageResult = await this.generateImage(imagePrompts[i]);
+          imageUrls.push(imageResult.url);
+          if (imageResult.localPath) {
+            imageLocalPaths.push(imageResult.localPath);
+          }
+          console.log(`✅ [任务创建] 第 ${i + 1} 张图片生成成功: ${imageResult.url.substring(0, 50)}...`);
         } catch (error: any) {
           console.error(`❌ [任务创建] 第 ${i + 1} 张图片生成失败:`, error.message);
           imageUrls.push(`https://via.placeholder.com/1080x1080/667eea/FFFFFF?text=Image+${i + 1}+Failed`);
@@ -839,6 +850,7 @@ export class AutoContentManager {
         content: taskDetails.content || '默认内容',
         imagePrompts: imagePrompts,
         imageUrls: imageUrls,
+        imageLocalPaths: imageLocalPaths,
         hashtags: Array.isArray(taskDetails.hashtags) ? taskDetails.hashtags : ['默认标签'],
         status: 'ready'  // 图片已生成，状态改为ready
       };
@@ -919,9 +931,13 @@ export class AutoContentManager {
       // 1. 生成多张图片
       this.addRealTimeActivity(userId, `🎨 正在生成${task.imagePrompts.length}张配图...`, 'generation');
       task.imageUrls = [];
+      task.imageLocalPaths = [];
       for (let i = 0; i < task.imagePrompts.length; i++) {
-        const imageUrl = await this.generateImage(task.imagePrompts[i]);
-        task.imageUrls.push(imageUrl);
+        const imageResult = await this.generateImage(task.imagePrompts[i]);
+        task.imageUrls.push(imageResult.url);
+        if (imageResult.localPath) {
+          task.imageLocalPaths.push(imageResult.localPath);
+        }
       }
       this.addRealTimeActivity(userId, '✅ 配图生成完成', 'generation');
 
@@ -950,7 +966,7 @@ export class AutoContentManager {
   /**
    * 生成图片
    */
-  private async generateImage(prompt: string): Promise<string> {
+  private async generateImage(prompt: string): Promise<{ url: string, localPath?: string }> {
     console.log(`🎨 [Image DEBUG] 开始生成图片，提示词: ${prompt.substring(0, 100)}...`);
     try {
       const fullPrompt = `${prompt}, high quality, suitable for social media, vibrant colors`;
@@ -963,15 +979,16 @@ export class AutoContentManager {
       });
 
       console.log(`🎨 [Image DEBUG] 图片生成成功！URL: ${result.url}`);
+      console.log(`🎨 [Image DEBUG] 图片本地路径: ${result.localPath || '无'}`);
       console.log(`🎨 [Image DEBUG] 图片来源: ${result.source}`);
-      return result.url;
+      return { url: result.url, localPath: result.localPath };
     } catch (error: any) {
       console.error('🎨 [Image DEBUG] 图片生成失败:', error.message);
       console.error('🎨 [Image DEBUG] 错误详情:', error);
       // 使用备用图片
       const fallbackUrl = await this.getFallbackImage(prompt);
       console.log(`🎨 [Image DEBUG] 使用备用图片: ${fallbackUrl}`);
-      return fallbackUrl;
+      return { url: fallbackUrl };
     }
   }
 
@@ -999,9 +1016,15 @@ export class AutoContentManager {
   private async publishContent(userId: string, task: DailyTask, imageUrls: string[]): Promise<void> {
     try {
       console.log(`📝 [发布] 准备发布内容: ${task.title}`);
-      console.log(`📷 [发布] 使用${imageUrls.length}张图片`);
-      imageUrls.forEach((url, i) => {
-        console.log(`   图片${i + 1}: ${url.substring(0, 60)}...`);
+
+      // 【关键修复】使用本地文件路径而非URL路径
+      const imagePaths = task.imageLocalPaths && task.imageLocalPaths.length > 0
+        ? task.imageLocalPaths
+        : imageUrls;
+
+      console.log(`📷 [发布] 使用${imagePaths.length}张图片`);
+      imagePaths.forEach((path, i) => {
+        console.log(`   图片${i + 1}: ${path}`);
       });
       console.log(`🏷️ [发布] 标签: ${task.hashtags.join(', ')}`);
 
@@ -1010,11 +1033,11 @@ export class AutoContentManager {
         throw new Error('MCP客户端未配置');
       }
 
-      // 调用真实的小红书发布工具 - 发布所有图片
+      // 调用真实的小红书发布工具 - 使用本地文件路径
       const result = await this.mcpClient.publishContent(userId, {
         title: task.title,
         description: task.content,
-        images: imageUrls,
+        images: imagePaths,  // ✅ 使用本地文件路径
         tags: task.hashtags,
         type: task.contentType === '视频' ? 'video' : 'normal'
       });
@@ -1503,12 +1526,16 @@ export class AutoContentManager {
       console.log(`⚠️ [批准发布] 任务缺少图片，尝试生成${task.imagePrompts.length}张...`);
       this.addRealTimeActivity(userId, `🎨 正在生成${task.imagePrompts.length}张配图...`, 'generation');
       task.imageUrls = [];
+      task.imageLocalPaths = [];
 
       for (let i = 0; i < task.imagePrompts.length; i++) {
         try {
-          const imageUrl = await this.generateImage(task.imagePrompts[i]);
-          task.imageUrls.push(imageUrl);
-          console.log(`✅ [批准发布] 第${i + 1}张图片生成成功: ${imageUrl}`);
+          const imageResult = await this.generateImage(task.imagePrompts[i]);
+          task.imageUrls.push(imageResult.url);
+          if (imageResult.localPath) {
+            task.imageLocalPaths.push(imageResult.localPath);
+          }
+          console.log(`✅ [批准发布] 第${i + 1}张图片生成成功: ${imageResult.url}`);
         } catch (error: any) {
           console.error(`❌ [批准发布] 第${i + 1}张图片生成失败: ${error.message}`);
           // 【修复】使用data URI而非外部URL
@@ -1689,12 +1716,16 @@ export class AutoContentManager {
         : oldTask.imagePrompts;
 
       const imageUrls: string[] = [];
+      const imageLocalPaths: string[] = [];
       console.log(`🎨 [重新生成] 开始生成 ${imagePrompts.length} 张图片...`);
 
       for (let i = 0; i < imagePrompts.length; i++) {
         try {
-          const imageUrl = await this.generateImage(imagePrompts[i]);
-          imageUrls.push(imageUrl);
+          const imageResult = await this.generateImage(imagePrompts[i]);
+          imageUrls.push(imageResult.url);
+          if (imageResult.localPath) {
+            imageLocalPaths.push(imageResult.localPath);
+          }
           console.log(`✅ [重新生成] 第 ${i + 1} 张图片生成成功`);
         } catch (error: any) {
           console.error(`❌ [重新生成] 第 ${i + 1} 张图片生成失败:`, error.message);
@@ -1709,6 +1740,7 @@ export class AutoContentManager {
         content: newContent.content || oldTask.content,
         imagePrompts: imagePrompts,
         imageUrls: imageUrls,
+        imageLocalPaths: imageLocalPaths,
         hashtags: newContent.hashtags || oldTask.hashtags,
         status: 'ready'
       };
