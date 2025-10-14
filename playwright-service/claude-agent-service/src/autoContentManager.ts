@@ -78,8 +78,8 @@ export class AutoContentManager {
       console.log('✅ Supabase 客户端已初始化（自动内容管理）');
     }
 
-    // 创建数据存储目录 - 使用绝对路径确保生产环境正确
-    this.dataDir = process.env.DATA_DIR || '/app/data/auto-content';
+    // 创建数据存储目录 - 兼容本地开发和生产环境
+    this.dataDir = process.env.DATA_DIR || (process.env.NODE_ENV === 'production' ? '/app/data/auto-content' : './data/auto-content');
     console.log(`📁 数据目录: ${this.dataDir}`);
     this.ensureDataDir();
     this.loadPersistedData();
@@ -720,14 +720,36 @@ export class AutoContentManager {
       return cleanedText.trim();
     }
 
-    // 使用括号计数找到匹配的结束位置
+    // 改进的括号计数，考虑字符串内的引号
     let depth = 0;
     let jsonEnd = -1;
+    let inString = false;
+    let escapeNext = false;
     const openChar = isObject ? '{' : '[';
     const closeChar = isObject ? '}' : ']';
 
     for (let i = jsonStart; i < cleanedText.length; i++) {
       const char = cleanedText[i];
+
+      if (escapeNext) {
+        escapeNext = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        escapeNext = true;
+        continue;
+      }
+
+      if (char === '"' && !escapeNext) {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) {
+        continue; // 在字符串内部，忽略所有括号
+      }
+
       if (char === openChar) {
         depth++;
       } else if (char === closeChar) {
@@ -748,8 +770,13 @@ export class AutoContentManager {
       cleanedText = cleanedText.substring(jsonStart, jsonEnd);
     }
 
-    // 移除控制字符但保留中文
+    // 移除控制字符但保留中文，并修复常见的JSON格式问题
     cleanedText = cleanedText.replace(/[\x00-\x1F\x7F]/g, '');
+
+    // 修复常见的JSON格式问题
+    cleanedText = cleanedText
+      .replace(/,(\s*[}\]])/g, '$1')  // 移除末尾逗号
+      .replace(/([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/g, '$1"$2":');  // 给未引用的键加引号
 
     return cleanedText.trim();
   }
