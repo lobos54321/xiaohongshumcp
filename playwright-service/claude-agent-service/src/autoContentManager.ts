@@ -696,13 +696,46 @@ export class AutoContentManager {
    * 清理Claude响应，提取JSON内容
    */
   private cleanJSONResponse(responseText: string): string {
-    // 移除markdown代码块标记
-    let cleanedText = responseText.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
+    try {
+      // 移除markdown代码块标记
+      let cleanedText = responseText.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
 
-    // 核心策略：直接提取第一个完整的JSON对象或数组
-    // 找到第一个 { 或 [
-    const objectStart = cleanedText.indexOf('{');
-    const arrayStart = cleanedText.indexOf('[');
+      // 移除可能的前后文说明文字（常见于Claude响应）
+      cleanedText = cleanedText
+        .replace(/^[^{[\n]*/m, '') // 移除第一行非JSON字符
+        .replace(/[^}\]]*$/m, ''); // 移除最后一行非JSON字符
+
+      // 多种策略尝试提取JSON
+      const strategies = [
+        // 策略1：直接查找完整JSON对象/数组
+        () => this.extractCompleteJSON(cleanedText),
+        // 策略2：使用正则表达式匹配
+        () => this.extractJSONByRegex(cleanedText),
+        // 策略3：逐行解析寻找JSON
+        () => this.extractJSONByLines(cleanedText),
+        // 策略4：返回清理后的原文本（最后兜底）
+        () => cleanedText.trim()
+      ];
+
+      for (const strategy of strategies) {
+        const result = strategy();
+        if (result && this.isValidJSONString(result)) {
+          return result;
+        }
+      }
+
+      // 所有策略都失败，返回清理后的文本
+      return this.sanitizeText(cleanedText);
+
+    } catch (error) {
+      console.warn('🔧 [JSON清理] 清理过程出错，返回原始文本:', error);
+      return responseText.trim();
+    }
+  }
+
+  private extractCompleteJSON(text: string): string {
+    const objectStart = text.indexOf('{');
+    const arrayStart = text.indexOf('[');
 
     let jsonStart = -1;
     let isObject = false;
@@ -715,12 +748,9 @@ export class AutoContentManager {
       isObject = false;
     }
 
-    if (jsonStart === -1) {
-      // 没有找到JSON结构，返回原始文本
-      return cleanedText.trim();
-    }
+    if (jsonStart === -1) return '';
 
-    // 改进的括号计数，考虑字符串内的引号
+    // 改进的括号计数，支持中文和转义字符
     let depth = 0;
     let jsonEnd = -1;
     let inString = false;
@@ -728,8 +758,8 @@ export class AutoContentManager {
     const openChar = isObject ? '{' : '[';
     const closeChar = isObject ? '}' : ']';
 
-    for (let i = jsonStart; i < cleanedText.length; i++) {
-      const char = cleanedText[i];
+    for (let i = jsonStart; i < text.length; i++) {
+      const char = text[i];
 
       if (escapeNext) {
         escapeNext = false;
@@ -761,24 +791,78 @@ export class AutoContentManager {
       }
     }
 
-    if (jsonEnd === -1) {
-      // 没有找到匹配的结束括号，尝试用lastIndexOf
-      jsonEnd = (isObject ? cleanedText.lastIndexOf('}') : cleanedText.lastIndexOf(']')) + 1;
-    }
-
     if (jsonEnd > jsonStart) {
-      cleanedText = cleanedText.substring(jsonStart, jsonEnd);
+      return text.substring(jsonStart, jsonEnd);
     }
 
-    // 移除控制字符但保留中文，并修复常见的JSON格式问题
-    cleanedText = cleanedText.replace(/[\x00-\x1F\x7F]/g, '');
+    return '';
+  }
 
-    // 修复常见的JSON格式问题
-    cleanedText = cleanedText
+  private extractJSONByRegex(text: string): string {
+    // 尝试匹配完整的JSON对象（支持多行和中文）
+    const objectMatch = text.match(/\{[\s\S]*?\}/);
+    if (objectMatch) return objectMatch[0];
+
+    // 尝试匹配JSON数组
+    const arrayMatch = text.match(/\[[\s\S]*?\]/);
+    if (arrayMatch) return arrayMatch[0];
+
+    return '';
+  }
+
+  private extractJSONByLines(text: string): string {
+    const lines = text.split('\n');
+    let jsonLines: string[] = [];
+    let inJSON = false;
+    let braceCount = 0;
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+
+      // 跳过明显的非JSON行
+      if (!inJSON && !trimmedLine.startsWith('{') && !trimmedLine.startsWith('[')) {
+        continue;
+      }
+
+      if (trimmedLine.includes('{') || trimmedLine.includes('[')) {
+        inJSON = true;
+      }
+
+      if (inJSON) {
+        jsonLines.push(line);
+
+        // 简单的括号计数
+        braceCount += (line.match(/\{/g) || []).length;
+        braceCount -= (line.match(/\}/g) || []).length;
+
+        if (braceCount <= 0 && (trimmedLine.includes('}') || trimmedLine.includes(']'))) {
+          break;
+        }
+      }
+    }
+
+    return jsonLines.join('\n');
+  }
+
+  private isValidJSONString(str: string): boolean {
+    if (!str || str.trim().length === 0) return false;
+
+    try {
+      JSON.parse(str);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private sanitizeText(text: string): string {
+    return text
+      // 移除控制字符但保留中文和换行
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+      // 修复常见的JSON格式问题
       .replace(/,(\s*[}\]])/g, '$1')  // 移除末尾逗号
-      .replace(/([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/g, '$1"$2":');  // 给未引用的键加引号
-
-    return cleanedText.trim();
+      .replace(/([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/g, '$1"$2":')  // 给未引用的键加引号
+      .trim();
   }
 
   /**
