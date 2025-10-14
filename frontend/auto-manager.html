@@ -308,8 +308,8 @@
         const CLAUDE_API = (() => {
             // 检查是否为本地开发环境
             if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-                // 本地开发：使用localhost:4000 (Claude Agent Service端口)
-                return 'http://localhost:4000';
+                // 本地开发：使用localhost:8080 (Claude Agent Service端口)
+                return 'http://localhost:8080';
             } else {
                 // 生产环境：使用当前域名和端口
                 return window.location.origin;
