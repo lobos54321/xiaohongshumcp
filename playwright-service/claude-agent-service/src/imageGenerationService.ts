@@ -1,19 +1,24 @@
 /**
  * 图片生成服务
  * 支持 Gemini Imagen 和 Unsplash 图片库
+ * 图片存储到 Supabase Storage
  */
 
 import fetch from 'node-fetch';
 import * as fs from 'fs';
 import * as path from 'path';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 interface ImageGenerationConfig {
   geminiKey?: string;
   unsplashKey?: string;
+  supabaseUrl?: string;
+  supabaseKey?: string;
 }
 
 interface ImageRequest {
   prompt: string;
+  userId: string;  // 用户ID，用于Supabase路径隔离
   style?: 'realistic' | 'cartoon' | 'painting' | 'sketch';
   aspectRatio?: '1:1' | '9:16' | '16:9';
   negativePrompt?: string;
@@ -21,7 +26,7 @@ interface ImageRequest {
 
 interface ImageResult {
   url: string;
-  localPath?: string;
+  storageKey?: string;  // Supabase Storage路径
   source: 'gemini' | 'unsplash' | 'placeholder';
   cost?: number;
 }
@@ -29,10 +34,19 @@ interface ImageResult {
 export class ImageGenerationService {
   private geminiKey?: string;
   private unsplashKey?: string;
+  private supabase?: SupabaseClient;
 
   constructor(config: ImageGenerationConfig) {
     this.geminiKey = config.geminiKey;
     this.unsplashKey = config.unsplashKey;
+
+    // 初始化 Supabase 客户端
+    if (config.supabaseUrl && config.supabaseKey) {
+      this.supabase = createClient(config.supabaseUrl, config.supabaseKey);
+      console.log('✅ Supabase Storage 已初始化');
+    } else {
+      console.warn('⚠️ Supabase 配置缺失，图片将使用本地存储');
+    }
   }
 
   /**
@@ -124,21 +138,35 @@ export class ImageGenerationService {
 
           console.log('🎨 [Gemini] 成功获取图片数据，mimeType:', mimeType);
 
-          // 保存base64图片到本地
-          const localPath = await this.saveBase64Image(base64Data, 'gemini', mimeType);
+          // 上传到 Supabase Storage
+          if (this.supabase) {
+            const { url, storageKey } = await this.uploadToSupabase(
+              base64Data,
+              request.userId,
+              'gemini',
+              mimeType
+            );
 
-          // 转换为可访问的URL路径
-          const filename = path.basename(localPath);
-          const imageUrl = `/images/${filename}`;
+            return {
+              url,
+              storageKey,
+              source: 'gemini',
+              cost: 0.03 // Gemini定价：$0.03 per image
+            };
+          } else {
+            // 备用方案：保存到本地
+            console.warn('⚠️ [Gemini] Supabase未配置，使用本地存储');
+            const localPath = await this.saveBase64Image(base64Data, 'gemini', mimeType);
+            const filename = path.basename(localPath);
+            const imageUrl = `/images/${filename}`;
 
-          console.log('🎨 [Gemini] 图片保存成功:', localPath);
-
-          return {
-            url: imageUrl,
-            localPath,
-            source: 'gemini',
-            cost: 0.03 // Gemini定价：$0.03 per image
-          };
+            return {
+              url: imageUrl,
+              storageKey: localPath,  // 本地路径作为storageKey
+              source: 'gemini',
+              cost: 0.03
+            };
+          }
         }
       }
 
@@ -260,7 +288,63 @@ export class ImageGenerationService {
   }
 
   /**
-   * 保存base64图片到本地
+   * 上传图片到 Supabase Storage
+   */
+  private async uploadToSupabase(
+    base64Data: string,
+    userId: string,
+    source: string,
+    mimeType: string
+  ): Promise<{ url: string, storageKey: string }> {
+    if (!this.supabase) {
+      throw new Error('Supabase 未初始化');
+    }
+
+    try {
+      // 根据mimeType确定扩展名
+      const extension = mimeType.includes('png') ? '.png' :
+                       mimeType.includes('jpeg') || mimeType.includes('jpg') ? '.jpg' :
+                       '.png';
+
+      // 生成文件名和存储路径
+      const timestamp = Date.now();
+      const filename = `${source}_${timestamp}${extension}`;
+      const storageKey = `users/${userId}/images/${filename}`;
+
+      // 转换 base64 为 Buffer
+      const buffer = Buffer.from(base64Data, 'base64');
+
+      console.log(`📤 [Supabase] 开始上传图片: ${storageKey}`);
+
+      // 上传到 Supabase Storage
+      const { data, error } = await this.supabase.storage
+        .from('images')
+        .upload(storageKey, buffer, {
+          contentType: mimeType,
+          upsert: false
+        });
+
+      if (error) {
+        console.error('❌ [Supabase] 上传失败:', error);
+        throw new Error(`Supabase上传失败: ${error.message}`);
+      }
+
+      // 获取公网 URL
+      const { data: { publicUrl } } = this.supabase.storage
+        .from('images')
+        .getPublicUrl(storageKey);
+
+      console.log('✅ [Supabase] 图片上传成功:', publicUrl);
+
+      return { url: publicUrl, storageKey };
+    } catch (error: any) {
+      console.error('❌ [Supabase] 上传异常:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * 保存base64图片到本地（备用方案，当Supabase不可用时使用）
    */
   private async saveBase64Image(base64Data: string, source: string, mimeType: string): Promise<string> {
     try {

@@ -7,6 +7,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import ImageGenerationService from './imageGenerationService.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 interface UserProfile {
   userId: string;
@@ -38,8 +39,8 @@ interface DailyTask {
   title: string;
   content: string;
   imagePrompts: string[];  // 支持多张图片的描述
-  imageUrls?: string[];    // 支持多张图片URL（用于前端显示）
-  imageLocalPaths?: string[]; // 本地文件路径（用于MCP发布）
+  imageUrls?: string[];    // Supabase公网URL（用于前端显示和MCP发布）
+  storageKeys?: string[];  // Supabase Storage路径（用于删除清理）
   hashtags: string[];
   status: 'planned' | 'generating' | 'ready' | 'published';
 }
@@ -48,6 +49,7 @@ export class AutoContentManager {
   private anthropic: Anthropic;
   private imageService: ImageGenerationService;
   private mcpClient: any;
+  private supabase?: SupabaseClient;
   private userProfiles: Map<string, UserProfile> = new Map();
   private contentPlans: Map<string, ContentPlan> = new Map();
   private dataDir: string;
@@ -66,6 +68,15 @@ export class AutoContentManager {
     this.imageService = config.imageService;
     this.mcpClient = config.mcpClient;
     this.allowDemoMode = process.env.ALLOW_DEMO_MODE !== 'false';
+
+    // 初始化 Supabase 客户端（用于图片清理）
+    if (process.env.SUPABASE_URL && process.env.SUPABASE_KEY) {
+      this.supabase = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_KEY
+      );
+      console.log('✅ Supabase 客户端已初始化（自动内容管理）');
+    }
 
     // 创建数据存储目录 - 使用绝对路径确保生产环境正确
     this.dataDir = process.env.DATA_DIR || '/app/data/auto-content';
@@ -217,16 +228,16 @@ export class AutoContentManager {
         (async () => {
           try {
             firstTask.imageUrls = [];
-            firstTask.imageLocalPaths = [];
+            firstTask.storageKeys = [];
             for (let i = 0; i < firstTask.imagePrompts.length; i++) {
-              const imageResult = await this.generateImage(firstTask.imagePrompts[i]);
+              const imageResult = await this.generateImage(firstTask.imagePrompts[i], userProfile.userId);
               firstTask.imageUrls.push(imageResult.url);
-              if (imageResult.localPath) {
-                firstTask.imageLocalPaths.push(imageResult.localPath);
+              if (imageResult.storageKey) {
+                firstTask.storageKeys.push(imageResult.storageKey);
               }
               console.log(`🚀 [后台] 第${i + 1}/${firstTask.imagePrompts.length}张图片已生成`);
               console.log(`   URL: ${imageResult.url}`);
-              console.log(`   本地路径: ${imageResult.localPath || '无'}`);
+              console.log(`   Storage Key: ${imageResult.storageKey || '无'}`);
             }
             firstTask.status = 'ready'; // 标记为已准备好
             this.addRealTimeActivity(userProfile.userId, `✅ 首篇内容${firstTask.imageUrls.length}张配图已生成，可以预览`, 'generation');
@@ -827,14 +838,14 @@ export class AutoContentManager {
 
       console.log(`🎨 [任务创建] 开始生成 ${imagePrompts.length} 张图片...`);
       const imageUrls: string[] = [];
-      const imageLocalPaths: string[] = [];
+      const storageKeys: string[] = [];
 
       for (let i = 0; i < imagePrompts.length; i++) {
         try {
-          const imageResult = await this.generateImage(imagePrompts[i]);
+          const imageResult = await this.generateImage(imagePrompts[i], profile.userId);
           imageUrls.push(imageResult.url);
-          if (imageResult.localPath) {
-            imageLocalPaths.push(imageResult.localPath);
+          if (imageResult.storageKey) {
+            storageKeys.push(imageResult.storageKey);
           }
           console.log(`✅ [任务创建] 第 ${i + 1} 张图片生成成功: ${imageResult.url.substring(0, 50)}...`);
         } catch (error: any) {
@@ -850,7 +861,7 @@ export class AutoContentManager {
         content: taskDetails.content || '默认内容',
         imagePrompts: imagePrompts,
         imageUrls: imageUrls,
-        imageLocalPaths: imageLocalPaths,
+        storageKeys: storageKeys,
         hashtags: Array.isArray(taskDetails.hashtags) ? taskDetails.hashtags : ['默认标签'],
         status: 'ready'  // 图片已生成，状态改为ready
       };
@@ -931,12 +942,12 @@ export class AutoContentManager {
       // 1. 生成多张图片
       this.addRealTimeActivity(userId, `🎨 正在生成${task.imagePrompts.length}张配图...`, 'generation');
       task.imageUrls = [];
-      task.imageLocalPaths = [];
+      task.storageKeys = [];
       for (let i = 0; i < task.imagePrompts.length; i++) {
-        const imageResult = await this.generateImage(task.imagePrompts[i]);
+        const imageResult = await this.generateImage(task.imagePrompts[i], userId);
         task.imageUrls.push(imageResult.url);
-        if (imageResult.localPath) {
-          task.imageLocalPaths.push(imageResult.localPath);
+        if (imageResult.storageKey) {
+          task.storageKeys.push(imageResult.storageKey);
         }
       }
       this.addRealTimeActivity(userId, '✅ 配图生成完成', 'generation');
@@ -966,7 +977,7 @@ export class AutoContentManager {
   /**
    * 生成图片
    */
-  private async generateImage(prompt: string): Promise<{ url: string, localPath?: string }> {
+  private async generateImage(prompt: string, userId: string): Promise<{ url: string, storageKey?: string }> {
     console.log(`🎨 [Image DEBUG] 开始生成图片，提示词: ${prompt.substring(0, 100)}...`);
     try {
       const fullPrompt = `${prompt}, high quality, suitable for social media, vibrant colors`;
@@ -974,14 +985,15 @@ export class AutoContentManager {
 
       const result = await this.imageService.generateImage({
         prompt: fullPrompt,
+        userId,  // 传入用户ID
         style: 'realistic',
         aspectRatio: '1:1'
       });
 
       console.log(`🎨 [Image DEBUG] 图片生成成功！URL: ${result.url}`);
-      console.log(`🎨 [Image DEBUG] 图片本地路径: ${result.localPath || '无'}`);
+      console.log(`🎨 [Image DEBUG] Supabase Storage Key: ${result.storageKey || '无'}`);
       console.log(`🎨 [Image DEBUG] 图片来源: ${result.source}`);
-      return { url: result.url, localPath: result.localPath };
+      return { url: result.url, storageKey: result.storageKey };
     } catch (error: any) {
       console.error('🎨 [Image DEBUG] 图片生成失败:', error.message);
       console.error('🎨 [Image DEBUG] 错误详情:', error);
@@ -1016,15 +1028,9 @@ export class AutoContentManager {
   private async publishContent(userId: string, task: DailyTask, imageUrls: string[]): Promise<void> {
     try {
       console.log(`📝 [发布] 准备发布内容: ${task.title}`);
-
-      // 【关键修复】使用本地文件路径而非URL路径
-      const imagePaths = task.imageLocalPaths && task.imageLocalPaths.length > 0
-        ? task.imageLocalPaths
-        : imageUrls;
-
-      console.log(`📷 [发布] 使用${imagePaths.length}张图片`);
-      imagePaths.forEach((path, i) => {
-        console.log(`   图片${i + 1}: ${path}`);
+      console.log(`📷 [发布] 使用${imageUrls.length}张图片（Supabase URL）`);
+      imageUrls.forEach((url, i) => {
+        console.log(`   图片${i + 1}: ${url}`);
       });
       console.log(`🏷️ [发布] 标签: ${task.hashtags.join(', ')}`);
 
@@ -1033,17 +1039,23 @@ export class AutoContentManager {
         throw new Error('MCP客户端未配置');
       }
 
-      // 调用真实的小红书发布工具 - 使用本地文件路径
+      // 调用真实的小红书发布工具 - 传递 Supabase 公网 URL
+      // MCP Router 会自动下载这些 URL 并上传到小红书
       const result = await this.mcpClient.publishContent(userId, {
         title: task.title,
         description: task.content,
-        images: imagePaths,  // ✅ 使用本地文件路径
+        images: imageUrls,  // ✅ Supabase 公网 URL，MCP自动下载
         tags: task.hashtags,
         type: task.contentType === '视频' ? 'video' : 'normal'
       });
 
       if (result.success) {
         console.log('✅ [发布] 发布成功:', result.data);
+
+        // 发布成功后清理 Supabase Storage 中的图片
+        if (task.storageKeys && task.storageKeys.length > 0) {
+          await this.cleanupSupabaseImages(task.storageKeys);
+        }
       } else {
         console.error('❌ [发布] 发布失败:', result.error);
         throw new Error(result.error || '发布失败');
@@ -1051,6 +1063,31 @@ export class AutoContentManager {
     } catch (error: any) {
       console.error('❌ [发布] 发布失败:', error.message);
       throw error;
+    }
+  }
+
+  /**
+   * 清理 Supabase Storage 中的图片
+   */
+  private async cleanupSupabaseImages(storageKeys: string[]): Promise<void> {
+    if (!this.supabase || !storageKeys || storageKeys.length === 0) {
+      return;
+    }
+
+    try {
+      console.log(`🗑️ [清理] 开始清理 ${storageKeys.length} 张Supabase图片`);
+
+      const { data, error } = await this.supabase.storage
+        .from('images')
+        .remove(storageKeys);
+
+      if (error) {
+        console.error('❌ [清理] 清理Supabase图片失败:', error.message);
+      } else {
+        console.log(`✅ [清理] 已清理 ${storageKeys.length} 张Supabase图片`);
+      }
+    } catch (error: any) {
+      console.error('❌ [清理] 清理Supabase图片异常:', error.message);
     }
   }
 
@@ -1526,14 +1563,14 @@ export class AutoContentManager {
       console.log(`⚠️ [批准发布] 任务缺少图片，尝试生成${task.imagePrompts.length}张...`);
       this.addRealTimeActivity(userId, `🎨 正在生成${task.imagePrompts.length}张配图...`, 'generation');
       task.imageUrls = [];
-      task.imageLocalPaths = [];
+      task.storageKeys = [];
 
       for (let i = 0; i < task.imagePrompts.length; i++) {
         try {
-          const imageResult = await this.generateImage(task.imagePrompts[i]);
+          const imageResult = await this.generateImage(task.imagePrompts[i], userId);
           task.imageUrls.push(imageResult.url);
-          if (imageResult.localPath) {
-            task.imageLocalPaths.push(imageResult.localPath);
+          if (imageResult.storageKey) {
+            task.storageKeys.push(imageResult.storageKey);
           }
           console.log(`✅ [批准发布] 第${i + 1}张图片生成成功: ${imageResult.url}`);
         } catch (error: any) {
@@ -1716,15 +1753,15 @@ export class AutoContentManager {
         : oldTask.imagePrompts;
 
       const imageUrls: string[] = [];
-      const imageLocalPaths: string[] = [];
+      const storageKeys: string[] = [];
       console.log(`🎨 [重新生成] 开始生成 ${imagePrompts.length} 张图片...`);
 
       for (let i = 0; i < imagePrompts.length; i++) {
         try {
-          const imageResult = await this.generateImage(imagePrompts[i]);
+          const imageResult = await this.generateImage(imagePrompts[i], userId);
           imageUrls.push(imageResult.url);
-          if (imageResult.localPath) {
-            imageLocalPaths.push(imageResult.localPath);
+          if (imageResult.storageKey) {
+            storageKeys.push(imageResult.storageKey);
           }
           console.log(`✅ [重新生成] 第 ${i + 1} 张图片生成成功`);
         } catch (error: any) {
@@ -1740,7 +1777,7 @@ export class AutoContentManager {
         content: newContent.content || oldTask.content,
         imagePrompts: imagePrompts,
         imageUrls: imageUrls,
-        imageLocalPaths: imageLocalPaths,
+        storageKeys: storageKeys,
         hashtags: newContent.hashtags || oldTask.hashtags,
         status: 'ready'
       };
