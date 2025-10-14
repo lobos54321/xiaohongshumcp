@@ -257,12 +257,10 @@ export class ImageGenerationService {
       const photo = data.results[0];
       const imageUrl = photo.urls.regular;
 
-      // 下载图片到本地
-      const localPath = await this.downloadImage(imageUrl, 'unsplash');
-
+      // Unsplash 直接返回 URL，不需要下载
+      // MCP Router 会自动下载这个 URL
       return {
         url: imageUrl,
-        localPath,
         source: 'unsplash',
         cost: 0 // Unsplash 免费
       };

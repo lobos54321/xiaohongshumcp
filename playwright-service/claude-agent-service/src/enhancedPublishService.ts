@@ -67,6 +67,7 @@ export class EnhancedPublishService {
         // 生成图片
         const imageResult = await this.imageService.generateImage({
           prompt: imagePrompt,
+          userId: request.userId,  // 添加 userId
           style: style,
           aspectRatio: request.aspectRatio || '1:1'
         });
@@ -148,6 +149,7 @@ export class EnhancedPublishService {
 
         const imageResult = await this.imageService.generateImage({
           prompt: coverPrompt,
+          userId: request.userId,  // 添加 userId
           style: 'realistic',
           aspectRatio: '16:9' // 视频封面通常是横向的
         });

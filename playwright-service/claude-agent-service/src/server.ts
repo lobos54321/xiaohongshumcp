@@ -1284,7 +1284,7 @@ app.post('/agent/auto/resume/:userId', async (req: Request, res: Response) => {
 // 图片生成API (单张)
 app.post('/agent/image/generate', async (req: Request, res: Response) => {
   try {
-    const { prompt, style, aspectRatio, negativePrompt } = req.body;
+    const { prompt, style, aspectRatio, negativePrompt, userId } = req.body;
 
     if (!prompt) {
       return res.status(400).json({
@@ -1297,6 +1297,7 @@ app.post('/agent/image/generate', async (req: Request, res: Response) => {
 
     const imageRequest = {
       prompt,
+      userId: userId || 'api_user',  // 添加 userId，默认值为 api_user
       style: style || 'realistic',
       aspectRatio: aspectRatio || '1:1',
       negativePrompt
@@ -1308,7 +1309,7 @@ app.post('/agent/image/generate', async (req: Request, res: Response) => {
       success: true,
       data: {
         imageUrl: result.url,
-        localPath: result.localPath,
+        storageKey: result.storageKey,  // 修复：使用 storageKey 而非 localPath
         source: result.source,
         cost: result.cost || 0
       }
@@ -1325,7 +1326,7 @@ app.post('/agent/image/generate', async (req: Request, res: Response) => {
 // 批量图片生成API
 app.post('/agent/image/generate-batch', async (req: Request, res: Response) => {
   try {
-    const { prompt, style, aspectRatio, count } = req.body;
+    const { prompt, style, aspectRatio, count, userId } = req.body;
 
     if (!prompt) {
       return res.status(400).json({
@@ -1340,6 +1341,7 @@ app.post('/agent/image/generate-batch', async (req: Request, res: Response) => {
     // 为每张图片创建略微不同的请求
     const requests = Array.from({ length: imageCount }, (_, i) => ({
       prompt: i === 0 ? prompt : `${prompt}, variation ${i + 1}`,
+      userId: userId || 'api_user',  // 添加 userId
       style: style || 'realistic',
       aspectRatio: aspectRatio || '1:1'
     }));
@@ -1349,7 +1351,7 @@ app.post('/agent/image/generate-batch', async (req: Request, res: Response) => {
     // 提取图片路径和URL
     const images = results.map(r => ({
       url: r.url,
-      localPath: r.localPath,
+      storageKey: r.storageKey,  // 修复：使用 storageKey 而非 localPath
       source: r.source
     }));
 

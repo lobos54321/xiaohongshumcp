@@ -998,7 +998,7 @@ export class AutoContentManager {
       console.error('🎨 [Image DEBUG] 图片生成失败:', error.message);
       console.error('🎨 [Image DEBUG] 错误详情:', error);
       // 使用备用图片
-      const fallbackUrl = await this.getFallbackImage(prompt);
+      const fallbackUrl = await this.getFallbackImage(prompt, userId);
       console.log(`🎨 [Image DEBUG] 使用备用图片: ${fallbackUrl}`);
       return { url: fallbackUrl };
     }
@@ -1007,11 +1007,12 @@ export class AutoContentManager {
   /**
    * 备用图片获取（使用占位图）
    */
-  private async getFallbackImage(prompt: string): Promise<string> {
+  private async getFallbackImage(prompt: string, userId: string = 'system'): Promise<string> {
     try {
       // 使用图片服务的占位图功能
       const result = await this.imageService.generateImage({
         prompt: 'placeholder image',
+        userId,  // 添加 userId
         style: 'realistic',
         aspectRatio: '1:1'
       });
