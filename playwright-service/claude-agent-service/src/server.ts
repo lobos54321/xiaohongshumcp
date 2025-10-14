@@ -1364,7 +1364,7 @@ app.post('/agent/image/generate-batch', async (req: Request, res: Response) => {
         count: images.length,
         totalCost,
         // 返回本地路径数组，供xiaohongshu-mcp使用
-        localPaths: images.map(img => img.localPath).filter(p => p) as string[],
+        localPaths: images.map(img => img.storageKey).filter(p => p) as string[],
         urls: images.map(img => img.url)
       }
     });

@@ -31,7 +31,9 @@ const MCP_ROUTER_URL = process.env.MCP_ROUTER_URL || 'http://127.0.0.1:3001';
 // 创建图片生成服务
 const imageService = new ImageGenerationService({
     geminiKey: process.env.GEMINI_API_KEY,
-    unsplashKey: process.env.UNSPLASH_ACCESS_KEY
+    unsplashKey: process.env.UNSPLASH_ACCESS_KEY,
+    supabaseUrl: process.env.SUPABASE_URL,
+    supabaseKey: process.env.SUPABASE_KEY
 });
 // 创建 Claude Agent (HTTP版本)
 const agent = new ClaudeAgentHTTP({
@@ -1118,7 +1120,7 @@ app.post('/agent/auto/resume/:userId', async (req, res) => {
 // 图片生成API (单张)
 app.post('/agent/image/generate', async (req, res) => {
     try {
-        const { prompt, style, aspectRatio, negativePrompt } = req.body;
+        const { prompt, style, aspectRatio, negativePrompt, userId } = req.body;
         if (!prompt) {
             return res.status(400).json({
                 success: false,
@@ -1128,6 +1130,7 @@ app.post('/agent/image/generate', async (req, res) => {
         console.log(`[Image] Generating image with prompt: ${prompt}`);
         const imageRequest = {
             prompt,
+            userId: userId || 'api_user', // 添加 userId，默认值为 api_user
             style: style || 'realistic',
             aspectRatio: aspectRatio || '1:1',
             negativePrompt
@@ -1137,7 +1140,7 @@ app.post('/agent/image/generate', async (req, res) => {
             success: true,
             data: {
                 imageUrl: result.url,
-                localPath: result.localPath,
+                storageKey: result.storageKey, // 修复：使用 storageKey 而非 localPath
                 source: result.source,
                 cost: result.cost || 0
             }
@@ -1154,7 +1157,7 @@ app.post('/agent/image/generate', async (req, res) => {
 // 批量图片生成API
 app.post('/agent/image/generate-batch', async (req, res) => {
     try {
-        const { prompt, style, aspectRatio, count } = req.body;
+        const { prompt, style, aspectRatio, count, userId } = req.body;
         if (!prompt) {
             return res.status(400).json({
                 success: false,
@@ -1166,6 +1169,7 @@ app.post('/agent/image/generate-batch', async (req, res) => {
         // 为每张图片创建略微不同的请求
         const requests = Array.from({ length: imageCount }, (_, i) => ({
             prompt: i === 0 ? prompt : `${prompt}, variation ${i + 1}`,
+            userId: userId || 'api_user', // 添加 userId
             style: style || 'realistic',
             aspectRatio: aspectRatio || '1:1'
         }));
@@ -1173,7 +1177,7 @@ app.post('/agent/image/generate-batch', async (req, res) => {
         // 提取图片路径和URL
         const images = results.map(r => ({
             url: r.url,
-            localPath: r.localPath,
+            storageKey: r.storageKey, // 修复：使用 storageKey 而非 localPath
             source: r.source
         }));
         const totalCost = results.reduce((sum, r) => sum + (r.cost || 0), 0);
@@ -1184,7 +1188,7 @@ app.post('/agent/image/generate-batch', async (req, res) => {
                 count: images.length,
                 totalCost,
                 // 返回本地路径数组，供xiaohongshu-mcp使用
-                localPaths: images.map(img => img.localPath).filter(p => p),
+                localPaths: images.map(img => img.storageKey).filter(p => p),
                 urls: images.map(img => img.url)
             }
         });
