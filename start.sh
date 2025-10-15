@@ -81,7 +81,7 @@ MCP_HTTP_PORT_RAW="${HTTP_PORT:-${WEB_PORT:-}}"
 if [[ "$APP_PORT_RAW" =~ ^[0-9]+$ ]]; then
     APP_PORT="$APP_PORT_RAW"
 else
-    APP_PORT="8080"
+    APP_PORT="3000"
     echo "⚠️  Invalid or missing PORT ('$APP_PORT_RAW'), falling back to $APP_PORT"
 fi
 
@@ -93,8 +93,8 @@ else
 fi
 
 if [ "$MCP_HTTP_PORT" = "$APP_PORT" ]; then
-    echo "⚠️  MCP HTTP port conflicts with app port ($APP_PORT). Adjusting MCP port to 3000."
-    MCP_HTTP_PORT=3000
+    echo "⚠️  MCP HTTP port conflicts with app port ($APP_PORT). Adjusting MCP port to 3001."
+    MCP_HTTP_PORT=3001
     if [ "$MCP_HTTP_PORT" = "$APP_PORT" ]; then
         MCP_HTTP_PORT=$((APP_PORT + 1))
         echo "ℹ️  Using fallback MCP port: $MCP_HTTP_PORT"
