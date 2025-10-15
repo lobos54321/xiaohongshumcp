@@ -1,12 +1,12 @@
-# 使用Node.js 18作为基础镜像
+# Use Node.js 18 as base image
 FROM node:18-slim
 LABEL "language"="nodejs"
 
-# 强制重建所有Docker层 - 支持Playwright自动登录
+# Force rebuild of all Docker layers - support Playwright auto login
 ARG CACHEBUST=v11-fix-chmod-20251012-0225
 RUN echo "CRITICAL: Installing Playwright dependencies" > /tmp/rebuild.txt
 
-# 安装必要的系统依赖（包括Playwright浏览器依赖）
+# Install necessary system dependencies (including Playwright browser dependencies)
 RUN apt-get update && apt-get install -y \
     wget \
     curl \
@@ -36,51 +36,51 @@ RUN apt-get update && apt-get install -y \
     fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
-# 设置工作目录
+# Set working directory
 WORKDIR /app
 
-# 第一步：创建目录结构并复制package.json文件
+# Step 1: Create directory structure and copy package.json files
 RUN mkdir -p playwright-service/mcp-router playwright-service/claude-agent-service
 
-# 复制package.json文件
+# Copy package.json files
 COPY package*.json ./
 COPY playwright-service/mcp-router/package*.json ./playwright-service/mcp-router/
 COPY playwright-service/claude-agent-service/package*.json ./playwright-service/claude-agent-service/
 
-# 第二步：安装所有依赖（包括devDependencies用于构建）
+# Step 2: Install all dependencies (including devDependencies for building)
 WORKDIR /app/playwright-service/mcp-router
 RUN npm install --include=dev
 
 WORKDIR /app/playwright-service/claude-agent-service
 RUN npm install --include=dev
 
-# 安装Playwright Chromium浏览器
+# Install Playwright Chromium browser
 RUN npx playwright install chromium
 
-# 回到根目录
+# Return to root directory
 WORKDIR /app
 
-# 第三步：复制所有源代码
+# Step 3: Copy all source code
 COPY . .
 
-# 第四步：构建TypeScript项目
+# Step 4: Build TypeScript projects
 WORKDIR /app/playwright-service/mcp-router
 RUN npm run build
 
 WORKDIR /app/playwright-service/claude-agent-service
 RUN npm run build
 
-# 第五步：清理devDependencies减小镜像大小
+# Step 5: Clean devDependencies to reduce image size
 WORKDIR /app/playwright-service/mcp-router
 RUN npm prune --production
 
 WORKDIR /app/playwright-service/claude-agent-service
 RUN npm prune --production
 
-# 回到根目录
+# Return to root directory
 WORKDIR /app
 
-# 第六步：下载并正确解压xiaohongshu-mcp二进制文件
+# Step 6: Download and extract xiaohongshu-mcp binary files
 RUN set -e && \
     echo "Downloading xiaohongshu-mcp binary..." && \
     wget -v -O /tmp/xiaohongshu-mcp.tar.gz https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz && \
@@ -91,16 +91,16 @@ RUN set -e && \
     chmod +x /app/playwright-service/claude-agent-service/xiaohongshu-login && \
     rm -rf /tmp/xiaohongshu-mcp.tar.gz /tmp/xiaohongshu-mcp*
 
-# 第七步：设置所有必要文件的权限（只设置存在的文件）
+# Step 7: Set permissions for all necessary files (only set existing files)
 RUN chmod +x start.sh zeabur-start.js && \
     find playwright-service -name "xiaohongshu*" -type f -exec chmod +x {} \; && \
     find playwright-service -name "*login*" -type f -exec chmod +x {} \;
 
-# 第八步：创建必要的目录
+# Step 8: Create necessary directories
 RUN mkdir -p /app/data /app/playwright-service/mcp-router/cookies
 
-# 暴露端口
+# Expose port
 EXPOSE 8080
 
-# 使用Node.js启动脚本，它会调用start.sh并处理所有服务协调
+# Use Node.js startup script, which calls start.sh and handles all service coordination
 CMD ["node", "zeabur-start.js"]
