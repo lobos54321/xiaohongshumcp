@@ -355,7 +355,7 @@ async function main() {
   });
 
   // 启动 HTTP 服务器
-  const httpPort = process.env.HTTP_PORT || 3001;
+  const httpPort = process.env.HTTP_PORT || 3000;
   app.listen(httpPort, () => {
     console.log(`[MCP Router] HTTP API server running on port ${httpPort}`);
   });

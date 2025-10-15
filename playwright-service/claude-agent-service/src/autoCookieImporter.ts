@@ -56,7 +56,7 @@ export class AutoCookieImporter {
     '/app/mcp-router/cookies/latest.json'
   ];
 
-  constructor(mcpRouterURL: string = process.env.MCP_ROUTER_URL || 'http://127.0.0.1:3001') {
+  constructor(mcpRouterURL: string = process.env.MCP_ROUTER_URL || 'http://127.0.0.1:3000') {
     this.cookieManager = new CookieManager();
     this.mcpRouterURL = mcpRouterURL;
   }

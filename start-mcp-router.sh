@@ -8,7 +8,7 @@ echo "🚀 启动MCP Router (端口 3001)..."
 cd playwright-service/mcp-router
 
 # 设置正确的端口配置
-export HTTP_PORT=3001
+export HTTP_PORT=3000
 export MCP_BINARY_PATH=./xiaohongshu-mcp
 export COOKIE_DIR=./cookies
 

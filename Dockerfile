@@ -100,7 +100,7 @@ RUN chmod +x start.sh zeabur-start.js && \
 RUN mkdir -p /app/data /app/playwright-service/mcp-router/cookies
 
 # 暴露端口
-EXPOSE 3000
+EXPOSE 8080
 
 # 使用Node.js启动脚本，它会调用start.sh并处理所有服务协调
 CMD ["node", "zeabur-start.js"]

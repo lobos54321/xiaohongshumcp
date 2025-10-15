@@ -81,7 +81,7 @@ MCP_HTTP_PORT_RAW="${HTTP_PORT:-${WEB_PORT:-}}"
 if [[ "$APP_PORT_RAW" =~ ^[0-9]+$ ]]; then
     APP_PORT="$APP_PORT_RAW"
 else
-    APP_PORT="3000"
+    APP_PORT="8080"
     echo "⚠️  Invalid or missing PORT ('$APP_PORT_RAW'), falling back to $APP_PORT"
 fi
 
