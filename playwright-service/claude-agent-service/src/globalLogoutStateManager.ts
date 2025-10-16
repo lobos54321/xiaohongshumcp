@@ -11,7 +11,7 @@ export class GlobalLogoutStateManager {
   private globalLogoutState: boolean = false; // 全局退出状态
   private globalLogoutTimestamp: number = 0;
   private static readonly LOGOUT_COOLDOWN = 120000; // 2分钟冷却期，比AutoCookieImporter更长
-  private static readonly GLOBAL_LOGOUT_COOLDOWN = 180000; // 全局退出保护3分钟
+  private static readonly GLOBAL_LOGOUT_COOLDOWN = 60000; // 全局退出保护1分钟 - 足够完成清理但不会太长
 
   private constructor() {}
 
