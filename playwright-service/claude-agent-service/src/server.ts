@@ -233,47 +233,52 @@ class PlaywrightLoginManager {
   private async launchSession(userId: string): Promise<LoginSession> {
     await ensurePlaywrightChromiumInstalled();
 
-    // 🔥 关键修复：为每个会话创建独立的临时用户数据目录
+    // 🔥 简化方案：使用用户引导式退出登录，不需要复杂的隔离
     const tempUserDataDir = `/tmp/playwright-${userId}-${Date.now()}`;
-    console.log(`[PlaywrightLogin] 创建独立的用户数据目录: ${tempUserDataDir}`);
+    console.log(`[PlaywrightLogin] 创建用户数据目录: ${tempUserDataDir}`);
 
-    // 🔥 修复：使用 launchPersistentContext 正确传递 userDataDir
     const context = await chromium.launchPersistentContext(tempUserDataDir, {
-      headless: true,
+      headless: false, // 🔥 改为非无头模式，让用户可以看到和操作
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
-        '--single-process',
-        '--incognito',  // 🔥 强制无痕模式
-        '--disable-web-security',
-        '--disable-features=VizDisplayCompositor',
-        '--disable-background-timer-throttling',
-        '--disable-backgrounding-occluded-windows',
-        '--disable-renderer-backgrounding'
-        // 🔥 注意：不再使用 --user-data-dir 参数
+        '--single-process'
       ],
       viewport: { width: 1200, height: 900 },
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      locale: 'zh-CN',
-      // 🔥 禁用所有持久化存储
-      permissions: [],
-      extraHTTPHeaders: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      }
+      locale: 'zh-CN'
     });
 
-    // 获取browser实例（从persistent context）
     const browser = context.browser()!;
-
     const page = await context.newPage();
+
     await page.goto('https://www.xiaohongshu.com/login', {
       waitUntil: 'networkidle',
       timeout: 45000
     });
+
+    // 🔥 关键功能：检测是否已登录并引导用户退出
+    const isLoggedIn = await this.checkIfAlreadyLoggedIn(page);
+
+    if (isLoggedIn) {
+      console.log('[PlaywrightLogin] 检测到已登录账号，引导用户手动退出');
+      await this.showLogoutGuidance(page);
+
+      const result = await this.waitForUserLogout(page);
+
+      if (result === 'canceled') {
+        await context.close();
+        throw new Error('用户取消了登录操作');
+      }
+
+      console.log('[PlaywrightLogin] 用户已完成退出登录，继续登录流程');
+      // 刷新到登录页面
+      await page.goto('https://www.xiaohongshu.com/login', {
+        waitUntil: 'networkidle'
+      });
+    }
 
     try {
       const scanButton = page.locator('text=扫码登录');
@@ -297,8 +302,227 @@ class PlaywrightLoginManager {
       status: 'pending',
       createdAt: now,
       expiresAt: now + this.timeoutMs,
-      tempUserDataDir  // 🔥 保存临时用户数据目录路径
+      tempUserDataDir
     };
+  }
+
+  /**
+   * 检测是否已经登录
+   */
+  private async checkIfAlreadyLoggedIn(page: Page): Promise<boolean> {
+    try {
+      // 检查常见的登录标识
+      const loginIndicators = [
+        '.user-info',
+        '.avatar',
+        '.username',
+        '[data-testid="user-menu"]',
+        '.login-user',
+        '.user-avatar',
+        '.profile-avatar'
+      ];
+
+      for (const selector of loginIndicators) {
+        if (await page.locator(selector).count() > 0) {
+          console.log(`[PlaywrightLogin] 发现登录标识: ${selector}`);
+          return true;
+        }
+      }
+
+      // 检查URL是否表示已登录状态
+      const url = page.url();
+      if (url.includes('/user/') || url.includes('/profile/') || url.includes('/home') || url.includes('/explore')) {
+        console.log(`[PlaywrightLogin] URL表示已登录: ${url}`);
+        return true;
+      }
+
+      // 检查页面文本是否包含登录后的内容
+      const bodyText = await page.textContent('body') || '';
+      if (bodyText.includes('退出登录') || bodyText.includes('个人主页') || bodyText.includes('我的关注')) {
+        console.log('[PlaywrightLogin] 页面内容表示已登录');
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.warn('[PlaywrightLogin] 检测登录状态失败:', error instanceof Error ? error.message : error);
+      return false;
+    }
+  }
+
+  /**
+   * 显示退出登录引导界面
+   */
+  private async showLogoutGuidance(page: Page): Promise<void> {
+    await page.evaluate(() => {
+      // 移除可能存在的旧引导界面
+      const existingOverlay = document.getElementById('logout-guidance-overlay');
+      if (existingOverlay) {
+        existingOverlay.remove();
+      }
+
+      // 创建引导遮罩层
+      const overlay = document.createElement('div');
+      overlay.id = 'logout-guidance-overlay';
+      overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        z-index: 999999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      `;
+
+      // 创建引导内容
+      overlay.innerHTML = `
+        <div style="
+          background: white;
+          padding: 40px;
+          border-radius: 16px;
+          max-width: 500px;
+          text-align: center;
+          box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+          animation: fadeIn 0.3s ease;
+        ">
+          <div style="font-size: 48px; margin-bottom: 20px;">🔄</div>
+          <h2 style="color: #333; margin-bottom: 15px; font-size: 24px; font-weight: 600;">检测到已登录账号</h2>
+          <p style="color: #666; margin-bottom: 30px; line-height: 1.6; font-size: 16px;">
+            为了避免账号冲突，请先手动退出当前登录的账号：
+          </p>
+          <div style="background: #f8f9fa; padding: 20px; border-radius: 12px; margin-bottom: 30px; text-align: left;">
+            <div style="margin-bottom: 10px;">
+              <span style="display: inline-block; width: 24px; height: 24px; background: #007bff; color: white; border-radius: 50%; text-align: center; line-height: 24px; font-size: 14px; margin-right: 10px;">1</span>
+              <span style="color: #333; font-weight: 500;">点击页面右上角的用户头像</span>
+            </div>
+            <div style="margin-bottom: 10px;">
+              <span style="display: inline-block; width: 24px; height: 24px; background: #007bff; color: white; border-radius: 50%; text-align: center; line-height: 24px; font-size: 14px; margin-right: 10px;">2</span>
+              <span style="color: #333; font-weight: 500;">在下拉菜单中选择"退出登录"</span>
+            </div>
+            <div>
+              <span style="display: inline-block; width: 24px; height: 24px; background: #007bff; color: white; border-radius: 50%; text-align: center; line-height: 24px; font-size: 14px; margin-right: 10px;">3</span>
+              <span style="color: #333; font-weight: 500;">确认退出后点击下方"完成退出"按钮</span>
+            </div>
+          </div>
+          <div style="display: flex; gap: 15px; justify-content: center;">
+            <button id="logout-completed-btn" style="
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              color: white;
+              border: none;
+              padding: 15px 30px;
+              border-radius: 8px;
+              font-size: 16px;
+              font-weight: 500;
+              cursor: pointer;
+              transition: transform 0.2s ease;
+            " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+              ✅ 我已完成退出
+            </button>
+            <button id="cancel-login-btn" style="
+              background: #6c757d;
+              color: white;
+              border: none;
+              padding: 15px 30px;
+              border-radius: 8px;
+              font-size: 16px;
+              font-weight: 500;
+              cursor: pointer;
+              transition: transform 0.2s ease;
+            " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+              ❌ 取消登录
+            </button>
+          </div>
+        </div>
+      `;
+
+      // 添加CSS动画
+      const style = document.createElement('style');
+      style.textContent = `
+        @keyframes fadeIn {
+          from { opacity: 0; transform: scale(0.9); }
+          to { opacity: 1; transform: scale(1); }
+        }
+      `;
+      document.head.appendChild(style);
+
+      document.body.appendChild(overlay);
+
+      // 添加按钮事件
+      const logoutBtn = document.getElementById('logout-completed-btn');
+      const cancelBtn = document.getElementById('cancel-login-btn');
+
+      if (logoutBtn) {
+        logoutBtn.onclick = () => {
+          overlay.remove();
+          (window as any).logoutCompleted = true;
+        };
+      }
+
+      if (cancelBtn) {
+        cancelBtn.onclick = () => {
+          overlay.remove();
+          (window as any).loginCanceled = true;
+        };
+      }
+    });
+  }
+
+  /**
+   * 等待用户完成退出登录操作
+   */
+  private async waitForUserLogout(page: Page): Promise<'completed' | 'canceled'> {
+    try {
+      // 等待用户点击按钮，最多等待5分钟
+      await page.waitForFunction(() => {
+        return (window as any).logoutCompleted || (window as any).loginCanceled;
+      }, { timeout: 300000 });
+
+      const completed = await page.evaluate(() => (window as any).logoutCompleted);
+      const canceled = await page.evaluate(() => (window as any).loginCanceled);
+
+      if (canceled) {
+        return 'canceled';
+      }
+
+      if (completed) {
+        // 清除标志
+        await page.evaluate(() => {
+          delete (window as any).logoutCompleted;
+          delete (window as any).loginCanceled;
+        });
+
+        // 短暂等待，然后验证是否真的退出了
+        await page.waitForTimeout(2000);
+        await page.reload();
+        await page.waitForTimeout(3000);
+
+        const stillLoggedIn = await this.checkIfAlreadyLoggedIn(page);
+
+        if (stillLoggedIn) {
+          console.log('[PlaywrightLogin] 检测到仍未完全退出登录，提示用户重试');
+          // 显示重试提示
+          await page.evaluate(() => {
+            alert('⚠️ 检测到仍未完全退出登录，请确保完全退出后再试');
+          });
+
+          // 重新显示引导界面
+          await this.showLogoutGuidance(page);
+          return await this.waitForUserLogout(page); // 递归等待
+        }
+
+        console.log('[PlaywrightLogin] ✅ 确认用户已完全退出登录');
+        return 'completed';
+      }
+
+      return 'canceled';
+    } catch (error) {
+      console.error('[PlaywrightLogin] 等待用户操作超时或出错:', error instanceof Error ? error.message : error);
+      return 'canceled';
+    }
   }
 
   private async captureQRCode(page: Page): Promise<string> {
