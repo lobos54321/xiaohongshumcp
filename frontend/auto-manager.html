@@ -67,6 +67,22 @@
                             <p class="text-red-700 text-sm">或返回 <a href="/login.html" class="underline text-red-600 hover:text-red-800">传统登录页面</a></p>
                         </div>
                     </div>
+                    <div id="logoutProtection" class="hidden">
+                        <div class="bg-orange-50 p-4 rounded-lg border border-orange-200">
+                            <p class="text-orange-800 font-medium mb-2">⏳ 系统正在清理中</p>
+                            <p class="text-orange-700 text-sm mb-3">刚刚执行了退出登录，系统正在完全清理所有数据，为确保安全需要等待片刻</p>
+                            <div class="bg-orange-100 rounded-lg p-3 mb-3">
+                                <div class="flex items-center justify-between text-sm">
+                                    <span class="text-orange-800">剩余等待时间：</span>
+                                    <span id="logoutCountdown" class="text-orange-900 font-bold">60 秒</span>
+                                </div>
+                                <div class="w-full bg-orange-200 rounded-full h-2 mt-2">
+                                    <div id="logoutProgress" class="bg-orange-500 h-2 rounded-full transition-all duration-1000" style="width: 100%"></div>
+                                </div>
+                            </div>
+                            <p class="text-orange-600 text-xs">等待结束后系统将自动恢复登录功能</p>
+                        </div>
+                    </div>
 
                     <!-- 自动登录二维码弹窗 -->
                     <div id="qrLoginModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -901,10 +917,56 @@
             document.getElementById('manualCookieSection').scrollIntoView({ behavior: 'smooth' });
         }
 
+        // 显示退出保护状态
+        function showLogoutProtection(remainingSeconds) {
+            // 隐藏其他状态
+            document.getElementById('loginStatus').classList.add('hidden');
+            document.getElementById('loginSuccess').classList.add('hidden');
+            document.getElementById('loginError').classList.add('hidden');
+
+            // 显示退出保护界面
+            document.getElementById('logoutProtection').classList.remove('hidden');
+
+            let countdown = remainingSeconds;
+            const countdownElement = document.getElementById('logoutCountdown');
+            const progressElement = document.getElementById('logoutProgress');
+
+            // 开始倒计时
+            const timer = setInterval(() => {
+                if (countdown > 0) {
+                    countdownElement.textContent = `${countdown} 秒`;
+                    const progressPercent = (countdown / remainingSeconds) * 100;
+                    progressElement.style.width = `${progressPercent}%`;
+                    countdown--;
+                } else {
+                    clearInterval(timer);
+                    // 倒计时结束，重新检查登录状态
+                    console.log('⏰ 退出保护期结束，重新检查登录状态');
+                    document.getElementById('logoutProtection').classList.add('hidden');
+                    checkLoginStatus();
+                }
+            }, 1000);
+        }
+
         // 检查登录状态
         async function checkLoginStatus() {
             try {
                 console.log('🔍 检查登录状态...');
+
+                // 🔥 首先检查全局退出保护状态
+                try {
+                    const logoutStatusResponse = await fetch(`${CLAUDE_API}/agent/xiaohongshu/logout-status`);
+                    const logoutStatus = await logoutStatusResponse.json();
+
+                    if (logoutStatus.success && logoutStatus.data.inGlobalLogoutState) {
+                        console.log('⏳ 检测到全局退出保护状态，显示等待界面');
+                        showLogoutProtection(logoutStatus.data.remainingSeconds);
+                        return;
+                    }
+                } catch (logoutCheckError) {
+                    console.warn('退出状态检查失败，继续正常登录检查:', logoutCheckError);
+                }
+
                 const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/login/status?userId=${currentUser}`);
                 const result = await response.json();
 
@@ -1952,7 +2014,7 @@
                     document.getElementById('setupWizard').classList.remove('hidden');
                     document.getElementById('autoManagerDashboard').classList.add('hidden');
 
-                    alert('登录状态已完全清除！页面即将刷新，您可以重新进行登录。');
+                    alert('登录状态已完全清除！\n\n⚠️ 重要提示：为确保数据完全清理，系统将禁止新登录1分钟。\n\n页面即将刷新，请等待1分钟后再重新登录。');
 
                     // 使用更强的页面刷新方式
                     setTimeout(() => {
