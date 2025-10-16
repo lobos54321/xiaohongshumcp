@@ -2,6 +2,8 @@
 
 基于 **Claude AI** 的小红书智能内容创作与发布平台
 
+最后更新：2025-10-16
+
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
