@@ -1902,44 +1902,70 @@
                 try {
                     console.log('🧹 正在清除登录状态...');
 
-                    // 调用后端清除Cookie API
-                    const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/logout`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ userId: currentUser })
-                    });
+                    // 首先调用后端清除Cookie API
+                    try {
+                        const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/logout`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ userId: currentUser })
+                        });
 
-                    if (response.ok) {
-                        console.log('✅ 后端登录状态已清除');
-                    } else {
-                        console.warn('⚠️ 后端清除可能不完整，继续前端清除');
+                        if (response.ok) {
+                            console.log('✅ 后端登录状态已清除');
+                        } else {
+                            console.warn('⚠️ 后端清除可能不完整，继续前端清除');
+                        }
+                    } catch (apiError) {
+                        console.warn('⚠️ 后端API调用失败，继续前端清除:', apiError);
                     }
 
-                    // 清除本地存储
-                    localStorage.removeItem('xiaohongshu_loginStatus');
-                    localStorage.removeItem('xiaohongshu_autoLoginEnabled');
-                    localStorage.removeItem('xiaohongshu_userId'); // 清除用户ID，强制重新生成
-                    sessionStorage.clear();
+                    // 完全清除所有相关的本地存储
+                    localStorage.clear(); // 清除所有localStorage
+                    sessionStorage.clear(); // 清除所有sessionStorage
 
                     // 清除所有可能的cookie
                     document.cookie.split(';').forEach(cookie => {
                         const eqPos = cookie.indexOf('=');
                         const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim();
-                        // 清除不同域名和路径的cookie
-                        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.xiaohongshu.com`;
-                        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=xiaohongshu.com`;
-                        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
-                        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+                        if (name) {
+                            // 清除不同域名和路径的cookie
+                            document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.xiaohongshu.com`;
+                            document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=xiaohongshu.com`;
+                            document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+                            document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+                        }
                     });
 
-                    alert('登录状态已清除！页面即将刷新，您可以重新进行登录。');
-                    // 刷新页面
-                    location.reload();
+                    console.log('🧹 本地状态已完全清除');
+
+                    // 重置全局变量
+                    currentUser = null;
+                    autoModeEnabled = false;
+
+                    // 重置页面状态
+                    document.getElementById('loginStatus').innerHTML =
+                        '<div class="loading mx-auto mb-2"></div>正在检查登录状态...';
+                    document.getElementById('loginSuccess').classList.add('hidden');
+                    document.getElementById('loginError').classList.add('hidden');
+                    document.getElementById('setupWizard').classList.remove('hidden');
+                    document.getElementById('autoManagerDashboard').classList.add('hidden');
+
+                    alert('登录状态已完全清除！页面即将刷新，您可以重新进行登录。');
+
+                    // 使用更强的页面刷新方式
+                    setTimeout(() => {
+                        window.location.replace(window.location.href.split('?')[0] + '?_t=' + Date.now());
+                    }, 1000);
+
                 } catch (error) {
                     console.error('清除登录状态失败:', error);
-                    alert('清除登录状态时出现错误，请手动刷新页面重试');
+                    // 即使出错也要强制刷新
+                    localStorage.clear();
+                    sessionStorage.clear();
+                    alert('清除过程中遇到问题，强制刷新页面重试');
+                    window.location.replace(window.location.href.split('?')[0] + '?_t=' + Date.now());
                 }
             }
         }
