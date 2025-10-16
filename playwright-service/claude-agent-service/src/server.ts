@@ -193,14 +193,10 @@ class PlaywrightLoginManager {
       throw new Error('系统刚刚退出登录，请稍等片刻再重新登录');
     }
 
+    // 🔥 修复会话复用问题：强制清理现有会话
     const existing = this.sessions.get(userId);
     if (existing) {
-      if (existing.status === 'pending') {
-        return {
-          qrImage: existing.qrImage,
-          expiresAt: new Date(existing.expiresAt).toISOString()
-        };
-      }
+      console.log(`[PlaywrightLogin] 🧹 发现现有会话，强制清理以避免状态污染`);
       await this.disposeSession(userId);
     }
 
@@ -221,6 +217,16 @@ class PlaywrightLoginManager {
   async shutdown(): Promise<void> {
     const tasks = Array.from(this.sessions.keys()).map(userId => this.disposeSession(userId));
     await Promise.all(tasks);
+  }
+
+  /**
+   * Force cleanup all sessions - called during logout to prevent session reuse
+   */
+  async forceCleanupAllSessions(): Promise<void> {
+    console.log('[PlaywrightLogin] 🧹 强制清理所有PlaywrightLoginManager会话');
+    const tasks = Array.from(this.sessions.keys()).map(userId => this.disposeSession(userId));
+    await Promise.all(tasks);
+    console.log('[PlaywrightLogin] ✅ 所有会话已清理完成');
   }
 
   private async launchSession(userId: string): Promise<LoginSession> {
@@ -391,22 +397,32 @@ class PlaywrightLoginManager {
     }
 
     try {
+      // Enhanced cleanup: Clear browser context data
+      await session.context.clearCookies();
+      await session.context.clearPermissions();
+
+      // Close page first
       await session.page.close({ runBeforeUnload: false });
     } catch (error) {
-      // ignore
+      console.warn('[PlaywrightLogin] Page cleanup error:', error instanceof Error ? error.message : error);
     }
+
     try {
+      // Close context
       await session.context.close();
     } catch (error) {
-      // ignore
+      console.warn('[PlaywrightLogin] Context cleanup error:', error instanceof Error ? error.message : error);
     }
+
     try {
+      // Close browser
       await session.browser.close();
     } catch (error) {
-      // ignore
+      console.warn('[PlaywrightLogin] Browser cleanup error:', error instanceof Error ? error.message : error);
     }
 
     this.sessions.delete(userId);
+    console.log(`[PlaywrightLogin] ✅ Session completely disposed for user ${userId}`);
   }
 }
 
@@ -1857,6 +1873,10 @@ app.post('/agent/xiaohongshu/logout', async (req: Request, res: Response) => {
         globalLogoutState.notifyUserLogout(userId);
         console.log(`[XHS Logout] ✅ 已启动全局退出保护机制，阻止所有Cookie保存机制为用户 ${userId} 重新保存`);
 
+        // 🔥 新增：强制清理PlaywrightLoginManager所有会话
+        await playwrightLoginManager.forceCleanupAllSessions();
+        console.log(`[XHS Logout] ✅ 已清理PlaywrightLoginManager所有会话，防止会话复用`);
+
         // 同时通知AutoCookieImporter（双重保护）
         autoCookieImporter.notifyUserLogout(userId);
         console.log(`[XHS Logout] ✅ 已通知AutoCookieImporter阻止用户 ${userId} 的自动重新导入`);
@@ -1896,6 +1916,10 @@ app.post('/agent/xiaohongshu/logout', async (req: Request, res: Response) => {
         const { globalLogoutState } = await import('./globalLogoutStateManager.js');
         globalLogoutState.notifyUserLogout(userId);
         console.log(`[XHS Logout] ✅ (本地模式) 已启动全局退出保护机制，阻止所有Cookie保存机制为用户 ${userId} 重新保存`);
+
+        // 🔥 新增：强制清理PlaywrightLoginManager所有会话
+        await playwrightLoginManager.forceCleanupAllSessions();
+        console.log(`[XHS Logout] ✅ (本地模式) 已清理PlaywrightLoginManager所有会话，防止会话复用`);
 
         // 同时通知AutoCookieImporter（双重保护）
         autoCookieImporter.notifyUserLogout(userId);
