@@ -356,6 +356,82 @@ app.get('/api/xiaohongshu/feeds/list', async (req, res) => {
   }
 });
 
+// 便捷API：退出登录
+app.post('/api/xiaohongshu/logout', async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    console.log(`[Logout] Processing logout request for user ${userId}`);
+
+    // 1. 停止并清理用户的MCP进程
+    try {
+      await processManager.cleanupUser(userId);
+      console.log(`[Logout] Successfully cleaned up MCP process for user ${userId}`);
+    } catch (processError) {
+      console.warn(`[Logout] Failed to cleanup MCP process: ${processError instanceof Error ? processError.message : String(processError)}`);
+    }
+
+    // 2. 删除用户的Cookie文件
+    const cookieFile = path.join(COOKIE_DIR, `${userId}.json`);
+    try {
+      if (fs.existsSync(cookieFile)) {
+        fs.unlinkSync(cookieFile);
+        console.log(`[Logout] Successfully deleted cookie file: ${cookieFile}`);
+      }
+    } catch (fileError) {
+      console.warn(`[Logout] Failed to delete cookie file: ${fileError instanceof Error ? fileError.message : String(fileError)}`);
+    }
+
+    // 3. 删除备份文件
+    const backupFile = path.join(COOKIE_DIR, `${userId}.backup.json`);
+    try {
+      if (fs.existsSync(backupFile)) {
+        fs.unlinkSync(backupFile);
+        console.log(`[Logout] Successfully deleted backup file: ${backupFile}`);
+      }
+    } catch (backupError) {
+      console.warn(`[Logout] Failed to delete backup file: ${backupError instanceof Error ? backupError.message : String(backupError)}`);
+    }
+
+    // 4. 清理用户相关的临时文件
+    try {
+      const tempFiles = fs.readdirSync(COOKIE_DIR).filter(file => file.startsWith(`${userId}_`));
+      for (const tempFile of tempFiles) {
+        const tempFilePath = path.join(COOKIE_DIR, tempFile);
+        fs.unlinkSync(tempFilePath);
+        console.log(`[Logout] Deleted temp file: ${tempFilePath}`);
+      }
+    } catch (tempError) {
+      console.warn(`[Logout] Failed to clean temp files: ${tempError instanceof Error ? tempError.message : String(tempError)}`);
+    }
+
+    res.json({
+      success: true,
+      message: 'Logout successful',
+      data: {
+        userId,
+        logged_out: true,
+        files_cleaned: [
+          fs.existsSync(cookieFile) ? null : cookieFile,
+          fs.existsSync(backupFile) ? null : backupFile
+        ].filter(Boolean),
+        timestamp: new Date().toISOString()
+      }
+    });
+
+  } catch (error: any) {
+    console.error(`[Logout] Error processing logout for user: ${error.message}`);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to logout'
+    });
+  }
+});
+
 // 启动服务器
 app.listen(HTTP_PORT, '0.0.0.0', () => {
   console.log(`[MCP Router HTTP] Server listening on 0.0.0.0:${HTTP_PORT}`);

@@ -332,6 +332,48 @@ export class XiaohongshuMCPProcessManager {
   }
 
   /**
+   * 清理特定用户的进程
+   */
+  async cleanupUser(userId: string): Promise<void> {
+    console.log(`[ProcessManager] Cleaning up process for user ${userId}`);
+
+    const managedProcess = this.processes.get(userId);
+    if (managedProcess) {
+      // 清理定时器
+      if (managedProcess.cleanupTimer) {
+        clearTimeout(managedProcess.cleanupTimer);
+      }
+
+      // 终止进程
+      if (managedProcess.process && !managedProcess.process.killed) {
+        managedProcess.process.kill('SIGTERM');
+
+        // 等待进程优雅退出
+        await new Promise<void>(resolve => {
+          const timeout = setTimeout(() => {
+            if (!managedProcess.process.killed) {
+              console.log(`[ProcessManager] Force killing process for user ${userId}`);
+              managedProcess.process.kill('SIGKILL');
+            }
+            resolve();
+          }, 3000);
+
+          managedProcess.process.once('exit', () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+        });
+      }
+
+      // 从进程映射中删除
+      this.processes.delete(userId);
+      console.log(`[ProcessManager] Successfully cleaned up process for user ${userId}`);
+    } else {
+      console.log(`[ProcessManager] No active process found for user ${userId}`);
+    }
+  }
+
+  /**
    * 清理所有进程
    */
   cleanup() {
