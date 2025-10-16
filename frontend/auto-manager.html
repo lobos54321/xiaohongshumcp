@@ -45,7 +45,12 @@
                     <div id="loginSuccess" class="hidden">
                         <div class="bg-green-50 p-4 rounded-lg">
                             <p class="text-green-800 font-medium mb-2">✅ 已成功登录小红书</p>
-                            <p class="text-green-700 text-sm">可以继续配置产品信息开始运营</p>
+                            <p class="text-green-700 text-sm mb-3">可以继续配置产品信息开始运营</p>
+                            <div class="flex justify-center">
+                                <button onclick="clearXHSCookies()" class="text-xs bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition">
+                                    🚪 退出登录
+                                </button>
+                            </div>
                         </div>
                     </div>
                     <div id="loginError" class="hidden">
