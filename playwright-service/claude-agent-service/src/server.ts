@@ -425,8 +425,8 @@ class PlaywrightLoginManager {
     }
 
     try {
-      // 🔥 修复：在浏览器上下文中执行存储清理，而不是在Node.js中
-      await session.page.evaluate(() => {
+      // 🔥 修复：使用字符串形式避免TypeScript编译时检查浏览器API
+      await session.page.evaluate(`
         try {
           // 清除localStorage
           if (typeof localStorage !== 'undefined') {
@@ -438,18 +438,18 @@ class PlaywrightLoginManager {
           }
           // 清除IndexedDB
           if (typeof indexedDB !== 'undefined' && typeof window !== 'undefined') {
-            indexedDB.databases().then((databases: any) => {
-              databases.forEach((db: any) => {
+            indexedDB.databases().then(function(databases) {
+              databases.forEach(function(db) {
                 if (db.name) {
                   indexedDB.deleteDatabase(db.name);
                 }
               });
-            }).catch(() => {});
+            }).catch(function() {});
           }
         } catch (evalError) {
           console.warn('浏览器存储清理失败:', evalError);
         }
-      });
+      `);
 
       // Enhanced cleanup: Clear browser context data
       await session.context.clearCookies();
