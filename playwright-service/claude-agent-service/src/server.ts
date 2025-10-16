@@ -187,6 +187,12 @@ class PlaywrightLoginManager {
   }
 
   async startLogin(userId: string): Promise<{ qrImage: string; expiresAt: string }> {
+    // 🔥 关键修复：检查全局退出状态，阻止PlaywrightLoginManager创建新会话
+    const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+    if (!globalLogoutState.canCreateNewLoginSession(userId)) {
+      throw new Error('系统刚刚退出登录，请稍等片刻再重新登录');
+    }
+
     const existing = this.sessions.get(userId);
     if (existing) {
       if (existing.status === 'pending') {
@@ -1391,6 +1397,20 @@ app.post('/agent/xiaohongshu/auto-login', async (req: Request, res: Response) =>
 
     console.log(`[XHS Auto Login] Starting popup QR code login for user ${userId}`);
 
+    // 🔥 关键修复：检查全局退出状态，阻止新登录会话创建
+    const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+    if (!globalLogoutState.canCreateNewLoginSession(userId)) {
+      return res.json({
+        success: false,
+        error: '系统刚刚退出登录，请稍等片刻再重新登录',
+        needWait: true,
+        logoutInfo: globalLogoutState.getGlobalLogoutInfo(),
+        message: '检测到用户刚刚退出登录，为了确保数据完全清理，请等待片刻再重新登录'
+      });
+    }
+
+    console.log(`[XHS Auto Login] ✅ 全局状态检查通过，允许创建新登录会话`);
+
     // 导入Cookie检测服务
     const { AutoCookieDetector } = await import('./autoCookieDetector.js');
     const { CookieManager } = await import('./cookieManager.js');
@@ -1773,6 +1793,32 @@ app.get('/agent/xiaohongshu/login/status', async (req: Request, res: Response) =
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to check login status',
+    });
+  }
+});
+
+// 检查全局退出状态API（供前端调用）
+app.get('/agent/xiaohongshu/logout-status', async (req: Request, res: Response) => {
+  try {
+    const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+    const globalInfo = globalLogoutState.getGlobalLogoutInfo();
+
+    res.json({
+      success: true,
+      data: {
+        inGlobalLogoutState: globalInfo.inGlobalCooldown,
+        remainingSeconds: globalInfo.remainingSeconds || 0,
+        canCreateNewSession: !globalInfo.inGlobalCooldown,
+        globalLogoutTime: globalInfo.globalLogoutTime,
+        message: globalInfo.inGlobalCooldown
+          ? `系统在全局退出保护期内，剩余 ${globalInfo.remainingSeconds} 秒`
+          : '系统允许新登录会话'
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to get logout status'
     });
   }
 });
