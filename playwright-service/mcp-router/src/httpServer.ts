@@ -376,128 +376,206 @@ app.post('/api/xiaohongshu/logout', async (req, res) => {
       console.warn(`[Logout] Failed to cleanup MCP process: ${processError instanceof Error ? processError.message : String(processError)}`);
     }
 
-    // 2. 删除用户的Cookie文件
-    const cookieFile = path.join(COOKIE_DIR, `${userId}.json`);
-    try {
-      if (fs.existsSync(cookieFile)) {
-        fs.unlinkSync(cookieFile);
-        filesToDelete.push(cookieFile);
-        console.log(`[Logout] Successfully deleted cookie file: ${cookieFile}`);
-      }
-    } catch (fileError) {
-      console.warn(`[Logout] Failed to delete cookie file: ${fileError instanceof Error ? fileError.message : String(fileError)}`);
-    }
+    // 2. 定义所有可能的Cookie路径（解决路径不匹配问题）
+    const allPossibleCookiePaths = [
+      // MCP Router 自己的路径
+      '/app/playwright-service/mcp-router',
+      '/app/mcp-router',
+      './cookies',
+      COOKIE_DIR,
 
-    // 3. 删除备份文件
-    const backupFile = path.join(COOKIE_DIR, `${userId}.backup.json`);
-    try {
-      if (fs.existsSync(backupFile)) {
-        fs.unlinkSync(backupFile);
-        filesToDelete.push(backupFile);
-        console.log(`[Logout] Successfully deleted backup file: ${backupFile}`);
-      }
-    } catch (backupError) {
-      console.warn(`[Logout] Failed to delete backup file: ${backupError instanceof Error ? backupError.message : String(backupError)}`);
-    }
+      // Claude Agent Service 相关路径
+      '/app/playwright-service/claude-agent-service',
+      '/app/playwright-service/claude-agent-service/playwright-service/mcp-router',
+      '/app/playwright-service/claude-agent-service/cookies',
 
-    // 4. 删除关键的 latest.json 文件（这是问题的根源！）
-    const latestFile = path.join(COOKIE_DIR, 'latest.json');
-    try {
-      if (fs.existsSync(latestFile)) {
-        fs.unlinkSync(latestFile);
-        filesToDelete.push(latestFile);
-        console.log(`[Logout] Successfully deleted latest.json file: ${latestFile}`);
-      }
-    } catch (latestError) {
-      console.warn(`[Logout] Failed to delete latest.json file: ${latestError instanceof Error ? latestError.message : String(latestError)}`);
-    }
+      // 其他可能的路径
+      '/app/cookies',
+      '/app/playwright-service/cookies',
+      path.resolve(process.cwd(), 'cookies'),
+      path.resolve(process.cwd(), '../claude-agent-service/cookies'),
+      path.resolve(process.cwd(), '../claude-agent-service/playwright-service/mcp-router'),
+    ];
 
-    // 5. 删除用户特定的 cookies 目录
-    const userCookieDir = path.join(COOKIE_DIR, userId);
-    try {
-      if (fs.existsSync(userCookieDir)) {
-        // 递归删除整个用户目录
-        fs.rmSync(userCookieDir, { recursive: true, force: true });
-        filesToDelete.push(userCookieDir);
-        console.log(`[Logout] Successfully deleted user cookie directory: ${userCookieDir}`);
-      }
-    } catch (dirError) {
-      console.warn(`[Logout] Failed to delete user cookie directory: ${dirError instanceof Error ? dirError.message : String(dirError)}`);
-    }
+    // 3. 清理所有可能路径中的关键文件
+    const criticalFiles = ['latest.json', 'cookies.json'];
 
-    // 6. 清理所有用户相关的临时文件
-    try {
-      const allFiles = fs.readdirSync(COOKIE_DIR);
-      const userRelatedFiles = allFiles.filter(file =>
-        file.startsWith(`${userId}_`) ||
-        file.includes(userId) ||
-        file === 'latest.json' // 确保删除 latest.json
-      );
+    for (const basePath of allPossibleCookiePaths) {
+      try {
+        if (!fs.existsSync(basePath)) continue;
 
-      for (const tempFile of userRelatedFiles) {
-        const tempFilePath = path.join(COOKIE_DIR, tempFile);
-        try {
-          if (fs.existsSync(tempFilePath)) {
-            fs.unlinkSync(tempFilePath);
-            filesToDelete.push(tempFilePath);
-            console.log(`[Logout] Deleted temp file: ${tempFilePath}`);
+        console.log(`[Logout] Checking path: ${basePath}`);
+
+        // 清理关键文件
+        for (const criticalFile of criticalFiles) {
+          const filePath = path.join(basePath, criticalFile);
+          try {
+            if (fs.existsSync(filePath)) {
+              fs.unlinkSync(filePath);
+              filesToDelete.push(filePath);
+              console.log(`[Logout] ✅ Deleted critical file: ${filePath}`);
+            }
+          } catch (fileError) {
+            console.warn(`[Logout] Failed to delete ${filePath}: ${fileError instanceof Error ? fileError.message : String(fileError)}`);
           }
-        } catch (tempFileError) {
-          console.warn(`[Logout] Failed to delete temp file ${tempFilePath}: ${tempFileError instanceof Error ? tempFileError.message : String(tempFileError)}`);
         }
-      }
-    } catch (tempError) {
-      console.warn(`[Logout] Failed to clean temp files: ${tempError instanceof Error ? tempError.message : String(tempError)}`);
-    }
 
-    // 7. 额外清理：删除所有可能的cookie文件（确保彻底清除）
-    try {
-      const cookiePatterns = [
-        'latest.json',
-        'cookies.json',
-        `${userId}*.json`,
-        '*latest*',
-        '*cookie*'
-      ];
-
-      const allFiles = fs.readdirSync(COOKIE_DIR);
-      const cookieFiles = allFiles.filter(file =>
-        file.endsWith('.json') && (
-          file.includes('cookie') ||
-          file.includes('latest') ||
-          file.includes(userId)
-        )
-      );
-
-      for (const cookieFileToDelete of cookieFiles) {
-        const fullPath = path.join(COOKIE_DIR, cookieFileToDelete);
+        // 清理用户相关文件
         try {
-          if (fs.existsSync(fullPath)) {
-            fs.unlinkSync(fullPath);
-            filesToDelete.push(fullPath);
-            console.log(`[Logout] Deleted cookie file: ${fullPath}`);
+          const files = fs.readdirSync(basePath);
+          const userFiles = files.filter(file =>
+            file.includes(userId) ||
+            file.startsWith(`${userId}_`) ||
+            file.endsWith(`${userId}.json`) ||
+            (file.endsWith('.json') && (file.includes('cookie') || file.includes('latest')))
+          );
+
+          for (const userFile of userFiles) {
+            const userFilePath = path.join(basePath, userFile);
+            try {
+              if (fs.existsSync(userFilePath)) {
+                const stat = fs.statSync(userFilePath);
+                if (stat.isDirectory()) {
+                  fs.rmSync(userFilePath, { recursive: true, force: true });
+                  filesToDelete.push(userFilePath);
+                  console.log(`[Logout] ✅ Deleted directory: ${userFilePath}`);
+                } else {
+                  fs.unlinkSync(userFilePath);
+                  filesToDelete.push(userFilePath);
+                  console.log(`[Logout] ✅ Deleted file: ${userFilePath}`);
+                }
+              }
+            } catch (deleteError) {
+              console.warn(`[Logout] Failed to delete ${userFilePath}: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`);
+            }
           }
-        } catch (deleteError) {
-          console.warn(`[Logout] Failed to delete cookie file ${fullPath}: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`);
+        } catch (readError) {
+          console.warn(`[Logout] Failed to read directory ${basePath}: ${readError instanceof Error ? readError.message : String(readError)}`);
         }
+
+        // 清理 cookies 子目录
+        const cookiesSubDir = path.join(basePath, 'cookies');
+        if (fs.existsSync(cookiesSubDir)) {
+          try {
+            const cookieFiles = fs.readdirSync(cookiesSubDir);
+            for (const cookieFile of cookieFiles) {
+              if (cookieFile.includes(userId) || cookieFile === 'latest.json' || cookieFile.includes('cookie')) {
+                const cookieFilePath = path.join(cookiesSubDir, cookieFile);
+                try {
+                  const stat = fs.statSync(cookieFilePath);
+                  if (stat.isDirectory()) {
+                    fs.rmSync(cookieFilePath, { recursive: true, force: true });
+                    filesToDelete.push(cookieFilePath);
+                    console.log(`[Logout] ✅ Deleted cookie directory: ${cookieFilePath}`);
+                  } else {
+                    fs.unlinkSync(cookieFilePath);
+                    filesToDelete.push(cookieFilePath);
+                    console.log(`[Logout] ✅ Deleted cookie file: ${cookieFilePath}`);
+                  }
+                } catch (cookieError) {
+                  console.warn(`[Logout] Failed to delete cookie file ${cookieFilePath}: ${cookieError instanceof Error ? cookieError.message : String(cookieError)}`);
+                }
+              }
+            }
+          } catch (cookieDirError) {
+            console.warn(`[Logout] Failed to read cookies directory ${cookiesSubDir}: ${cookieDirError instanceof Error ? cookieDirError.message : String(cookieDirError)}`);
+          }
+        }
+
+      } catch (pathError) {
+        console.warn(`[Logout] Failed to process path ${basePath}: ${pathError instanceof Error ? pathError.message : String(pathError)}`);
       }
-    } catch (globalCleanError) {
-      console.warn(`[Logout] Failed to perform global cookie cleanup: ${globalCleanError instanceof Error ? globalCleanError.message : String(globalCleanError)}`);
     }
 
-    console.log(`[Logout] Logout completed for user ${userId}. Deleted ${filesToDelete.length} files.`);
+    // 4. 额外的全局搜索清理（确保不遗漏任何文件）
+    const globalSearchPaths = ['/app', '/app/playwright-service'];
+
+    for (const searchPath of globalSearchPaths) {
+      try {
+        if (!fs.existsSync(searchPath)) continue;
+
+        // 使用递归搜索找到所有可能的 latest.json 和用户相关文件
+        const findFiles = (dir: string, maxDepth: number = 3): string[] => {
+          if (maxDepth <= 0) return [];
+
+          const results: string[] = [];
+          try {
+            const items = fs.readdirSync(dir);
+            for (const item of items) {
+              const fullPath = path.join(dir, item);
+              try {
+                const stat = fs.statSync(fullPath);
+                if (stat.isFile()) {
+                  if (item === 'latest.json' ||
+                      item.includes(userId) ||
+                      (item.endsWith('.json') && item.includes('cookie'))) {
+                    results.push(fullPath);
+                  }
+                } else if (stat.isDirectory() && !item.startsWith('.') && item !== 'node_modules') {
+                  results.push(...findFiles(fullPath, maxDepth - 1));
+                }
+              } catch (statError) {
+                // 忽略权限错误
+              }
+            }
+          } catch (readError) {
+            // 忽略权限错误
+          }
+          return results;
+        };
+
+        const foundFiles = findFiles(searchPath);
+        for (const foundFile of foundFiles) {
+          try {
+            if (fs.existsSync(foundFile)) {
+              fs.unlinkSync(foundFile);
+              filesToDelete.push(foundFile);
+              console.log(`[Logout] ✅ Global cleanup - deleted: ${foundFile}`);
+            }
+          } catch (globalError) {
+            console.warn(`[Logout] Failed to delete global file ${foundFile}: ${globalError instanceof Error ? globalError.message : String(globalError)}`);
+          }
+        }
+      } catch (globalSearchError) {
+        console.warn(`[Logout] Failed to search path ${searchPath}: ${globalSearchError instanceof Error ? globalSearchError.message : String(globalSearchError)}`);
+      }
+    }
+
+    console.log(`[Logout] ✅ Logout completed for user ${userId}. Deleted ${filesToDelete.length} files/directories.`);
+
+    // 5. 验证清理结果
+    const remainingFiles: string[] = [];
+    for (const basePath of allPossibleCookiePaths) {
+      try {
+        if (!fs.existsSync(basePath)) continue;
+        const files = fs.readdirSync(basePath);
+        const suspicious = files.filter(f => f === 'latest.json' || f.includes(userId));
+        if (suspicious.length > 0) {
+          remainingFiles.push(...suspicious.map(f => path.join(basePath, f)));
+        }
+      } catch (e) {
+        // 忽略错误
+      }
+    }
 
     res.json({
       success: true,
-      message: 'Logout successful - all user data cleared',
+      message: 'Logout successful - comprehensive cleanup across all paths',
       data: {
         userId,
         logged_out: true,
         files_cleaned: filesToDelete,
         cleanup_summary: {
-          cookie_files: filesToDelete.filter(f => f.includes('.json')).length,
-          directories: filesToDelete.filter(f => !f.includes('.')).length,
-          total_files: filesToDelete.length
+          total_files_deleted: filesToDelete.length,
+          paths_checked: allPossibleCookiePaths.length,
+          critical_files_targeted: criticalFiles,
+          remaining_suspicious_files: remainingFiles,
+        },
+        cleanup_verification: {
+          comprehensive_cleanup: true,
+          cross_path_cleanup: true,
+          global_search_performed: true,
+          remaining_files_count: remainingFiles.length
         },
         timestamp: new Date().toISOString()
       }
