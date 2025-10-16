@@ -176,6 +176,7 @@ interface LoginSession {
   error?: string;
   checkTimer?: NodeJS.Timeout;
   timeoutTimer?: NodeJS.Timeout;
+  tempUserDataDir?: string;  // 🔥 新增：存储临时用户数据目录路径
 }
 
 class PlaywrightLoginManager {
@@ -232,15 +233,41 @@ class PlaywrightLoginManager {
   private async launchSession(userId: string): Promise<LoginSession> {
     await ensurePlaywrightChromiumInstalled();
 
+    // 🔥 关键修复：为每个会话创建独立的临时用户数据目录
+    const tempUserDataDir = `/tmp/playwright-${userId}-${Date.now()}`;
+    console.log(`[PlaywrightLogin] 创建独立的用户数据目录: ${tempUserDataDir}`);
+
     const browser = await chromium.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process']
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--single-process',
+        '--incognito',  // 🔥 强制无痕模式
+        `--user-data-dir=${tempUserDataDir}`,  // 🔥 独立临时目录
+        '--disable-web-security',
+        '--disable-features=VizDisplayCompositor',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding'
+      ]
     });
 
     const context = await browser.newContext({
       viewport: { width: 1200, height: 900 },
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      locale: 'zh-CN'
+      locale: 'zh-CN',
+      // 🔥 确保每次都是全新的上下文，不使用任何存储状态
+      storageState: undefined,
+      // 🔥 禁用所有持久化存储
+      permissions: [],
+      extraHTTPHeaders: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
     });
 
     const page = await context.newPage();
@@ -270,7 +297,8 @@ class PlaywrightLoginManager {
       qrImage,
       status: 'pending',
       createdAt: now,
-      expiresAt: now + this.timeoutMs
+      expiresAt: now + this.timeoutMs,
+      tempUserDataDir  // 🔥 保存临时用户数据目录路径
     };
   }
 
@@ -401,6 +429,28 @@ class PlaywrightLoginManager {
       await session.context.clearCookies();
       await session.context.clearPermissions();
 
+      // 🔥 新增：清除所有本地存储
+      await session.page.evaluate(() => {
+        // 清除localStorage
+        if (typeof localStorage !== 'undefined') {
+          localStorage.clear();
+        }
+        // 清除sessionStorage
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.clear();
+        }
+        // 清除IndexedDB
+        if ('indexedDB' in window) {
+          indexedDB.databases().then(databases => {
+            databases.forEach(db => {
+              if (db.name) {
+                indexedDB.deleteDatabase(db.name);
+              }
+            });
+          }).catch(() => {});
+        }
+      });
+
       // Close page first
       await session.page.close({ runBeforeUnload: false });
     } catch (error) {
@@ -419,6 +469,19 @@ class PlaywrightLoginManager {
       await session.browser.close();
     } catch (error) {
       console.warn('[PlaywrightLogin] Browser cleanup error:', error instanceof Error ? error.message : error);
+    }
+
+    // 🔥 新增：清理临时用户数据目录
+    if (session.tempUserDataDir) {
+      try {
+        const fs = await import('fs');
+        if (fs.existsSync(session.tempUserDataDir)) {
+          await fs.promises.rm(session.tempUserDataDir, { recursive: true, force: true });
+          console.log(`[PlaywrightLogin] ✅ 已清理临时用户数据目录: ${session.tempUserDataDir}`);
+        }
+      } catch (cleanupError) {
+        console.warn(`[PlaywrightLogin] 清理临时目录失败: ${session.tempUserDataDir}`, cleanupError instanceof Error ? cleanupError.message : cleanupError);
+      }
     }
 
     this.sessions.delete(userId);
