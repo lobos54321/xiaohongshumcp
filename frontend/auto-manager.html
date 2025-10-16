@@ -198,9 +198,14 @@
                             <span class="pulse">●</span> 运行中
                         </div>
                         <div class="text-sm text-gray-500" id="runningTime">已运行 0分钟</div>
-                        <button onclick="backToSetup()" class="mt-2 text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded transition">
-                            ⚙️ 重新配置
-                        </button>
+                        <div class="flex gap-2 mt-2">
+                            <button onclick="backToSetup()" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded transition">
+                                ⚙️ 重新配置
+                            </button>
+                            <button onclick="clearXHSCookies()" class="text-xs bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded transition">
+                                🚪 退出登录
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
