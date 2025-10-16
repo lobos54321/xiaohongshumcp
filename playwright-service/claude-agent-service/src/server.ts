@@ -425,31 +425,35 @@ class PlaywrightLoginManager {
     }
 
     try {
+      // 🔥 修复：在浏览器上下文中执行存储清理，而不是在Node.js中
+      await session.page.evaluate(() => {
+        try {
+          // 清除localStorage
+          if (typeof localStorage !== 'undefined') {
+            localStorage.clear();
+          }
+          // 清除sessionStorage
+          if (typeof sessionStorage !== 'undefined') {
+            sessionStorage.clear();
+          }
+          // 清除IndexedDB
+          if (typeof indexedDB !== 'undefined' && typeof window !== 'undefined') {
+            indexedDB.databases().then((databases: any) => {
+              databases.forEach((db: any) => {
+                if (db.name) {
+                  indexedDB.deleteDatabase(db.name);
+                }
+              });
+            }).catch(() => {});
+          }
+        } catch (evalError) {
+          console.warn('浏览器存储清理失败:', evalError);
+        }
+      });
+
       // Enhanced cleanup: Clear browser context data
       await session.context.clearCookies();
       await session.context.clearPermissions();
-
-      // 🔥 新增：清除所有本地存储
-      await session.page.evaluate(() => {
-        // 清除localStorage
-        if (typeof localStorage !== 'undefined') {
-          localStorage.clear();
-        }
-        // 清除sessionStorage
-        if (typeof sessionStorage !== 'undefined') {
-          sessionStorage.clear();
-        }
-        // 清除IndexedDB
-        if ('indexedDB' in window) {
-          indexedDB.databases().then(databases => {
-            databases.forEach(db => {
-              if (db.name) {
-                indexedDB.deleteDatabase(db.name);
-              }
-            });
-          }).catch(() => {});
-        }
-      });
 
       // Close page first
       await session.page.close({ runBeforeUnload: false });
@@ -471,7 +475,7 @@ class PlaywrightLoginManager {
       console.warn('[PlaywrightLogin] Browser cleanup error:', error instanceof Error ? error.message : error);
     }
 
-    // 🔥 新增：清理临时用户数据目录
+    // 🔥 清理临时用户数据目录
     if (session.tempUserDataDir) {
       try {
         const fs = await import('fs');
