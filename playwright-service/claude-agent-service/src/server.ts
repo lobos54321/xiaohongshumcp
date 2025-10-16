@@ -237,7 +237,8 @@ class PlaywrightLoginManager {
     const tempUserDataDir = `/tmp/playwright-${userId}-${Date.now()}`;
     console.log(`[PlaywrightLogin] 创建独立的用户数据目录: ${tempUserDataDir}`);
 
-    const browser = await chromium.launch({
+    // 🔥 修复：使用 launchPersistentContext 正确传递 userDataDir
+    const context = await chromium.launchPersistentContext(tempUserDataDir, {
       headless: true,
       args: [
         '--no-sandbox',
@@ -246,21 +247,16 @@ class PlaywrightLoginManager {
         '--disable-gpu',
         '--single-process',
         '--incognito',  // 🔥 强制无痕模式
-        `--user-data-dir=${tempUserDataDir}`,  // 🔥 独立临时目录
         '--disable-web-security',
         '--disable-features=VizDisplayCompositor',
         '--disable-background-timer-throttling',
         '--disable-backgrounding-occluded-windows',
         '--disable-renderer-backgrounding'
-      ]
-    });
-
-    const context = await browser.newContext({
+        // 🔥 注意：不再使用 --user-data-dir 参数
+      ],
       viewport: { width: 1200, height: 900 },
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       locale: 'zh-CN',
-      // 🔥 确保每次都是全新的上下文，不使用任何存储状态
-      storageState: undefined,
       // 🔥 禁用所有持久化存储
       permissions: [],
       extraHTTPHeaders: {
@@ -269,6 +265,9 @@ class PlaywrightLoginManager {
         'Expires': '0'
       }
     });
+
+    // 获取browser实例（从persistent context）
+    const browser = context.browser()!;
 
     const page = await context.newPage();
     await page.goto('https://www.xiaohongshu.com/login', {
