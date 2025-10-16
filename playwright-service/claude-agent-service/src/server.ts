@@ -1805,12 +1805,17 @@ app.post('/agent/xiaohongshu/logout', async (req: Request, res: Response) => {
 
       console.log(`[XHS Logout] MCP Router logout response:`, response.status);
 
-      // 🔥 关键修复：通知AutoCookieImporter阻止重新导入
+      // 🔥 关键修复：使用全局状态管理器阻止所有Cookie保存机制
       try {
+        const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+        globalLogoutState.notifyUserLogout(userId);
+        console.log(`[XHS Logout] ✅ 已启动全局退出保护机制，阻止所有Cookie保存机制为用户 ${userId} 重新保存`);
+
+        // 同时通知AutoCookieImporter（双重保护）
         autoCookieImporter.notifyUserLogout(userId);
         console.log(`[XHS Logout] ✅ 已通知AutoCookieImporter阻止用户 ${userId} 的自动重新导入`);
       } catch (notifyError) {
-        console.warn(`[XHS Logout] 通知AutoCookieImporter失败: ${notifyError instanceof Error ? notifyError.message : String(notifyError)}`);
+        console.warn(`[XHS Logout] 通知全局退出保护失败: ${notifyError instanceof Error ? notifyError.message : String(notifyError)}`);
       }
 
       res.json({
@@ -1840,12 +1845,17 @@ app.post('/agent/xiaohongshu/logout', async (req: Request, res: Response) => {
         console.error(`[XHS Logout] Local cleanup error:`, localError.message);
       }
 
-      // 🔥 关键修复：在本地清理模式下也通知AutoCookieImporter
+      // 🔥 关键修复：在本地清理模式下也启动全局退出保护
       try {
+        const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+        globalLogoutState.notifyUserLogout(userId);
+        console.log(`[XHS Logout] ✅ (本地模式) 已启动全局退出保护机制，阻止所有Cookie保存机制为用户 ${userId} 重新保存`);
+
+        // 同时通知AutoCookieImporter（双重保护）
         autoCookieImporter.notifyUserLogout(userId);
         console.log(`[XHS Logout] ✅ (本地模式) 已通知AutoCookieImporter阻止用户 ${userId} 的自动重新导入`);
       } catch (notifyError) {
-        console.warn(`[XHS Logout] (本地模式) 通知AutoCookieImporter失败: ${notifyError instanceof Error ? notifyError.message : String(notifyError)}`);
+        console.warn(`[XHS Logout] (本地模式) 通知全局退出保护失败: ${notifyError instanceof Error ? notifyError.message : String(notifyError)}`);
       }
 
       res.json({
@@ -2179,9 +2189,25 @@ process.on('SIGINT', () => { shutdown(); });
 process.on('SIGTERM', () => { shutdown(); });
 
 async function persistUserCookies(userId: string, cookies: StandardCookie[], source = 'unknown'): Promise<{ mcpSynced: boolean; writtenPaths: string[] }> {
+  // 🔥 关键修复：检查全局退出状态
+  const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+
+  if (!globalLogoutState.canSaveCookies(userId, source)) {
+    console.log(`[Cookie Persist] 🚫 阻止 ${source} 为用户 ${userId} 保存Cookie - 用户在退出保护期内`);
+    return { mcpSynced: false, writtenPaths: [] };
+  }
+
+  console.log(`[Cookie Persist] ✅ 允许 ${source} 为用户 ${userId} 保存Cookie`);
+
   const { CookieManager } = await import('./cookieManager.js');
   const cookieManager = new CookieManager();
-  await cookieManager.saveCookies(userId, cookies);
+
+  // 🔥 关键修复：在直接保存Cookie前再次检查退出状态
+  if (globalLogoutState.canSaveCookies(userId, `${source}-direct-save`)) {
+    await cookieManager.saveCookies(userId, cookies);
+  } else {
+    console.log(`[Cookie Persist] 🚫 阻止直接保存Cookie到CookieManager - 用户 ${userId} 在退出保护期内`);
+  }
 
   const cookiePayload = {
     userId,
