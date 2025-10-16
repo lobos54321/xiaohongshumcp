@@ -3,10 +3,10 @@ FROM node:18-slim
 LABEL "language"="nodejs"
 
 # Force rebuild of all Docker layers - support Playwright auto login
-ARG CACHEBUST=v11-fix-chmod-20251012-0225
-RUN echo "CRITICAL: Installing Playwright dependencies" > /tmp/rebuild.txt
+ARG CACHEBUST=v12-fix-playwright-deps-20251016-0300
+RUN echo "CRITICAL: Installing Playwright dependencies with libcups2" > /tmp/rebuild.txt
 
-# Install necessary system dependencies (including Playwright browser dependencies)
+# Install necessary system dependencies (including ALL Playwright browser dependencies)
 RUN apt-get update && apt-get install -y \
     wget \
     curl \
@@ -34,6 +34,10 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     fonts-liberation \
     fonts-noto-cjk \
+    libcups2 \
+    libdrm2 \
+    libgtk-3-0 \
+    libxss1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -54,8 +58,8 @@ RUN npm install --include=dev
 WORKDIR /app/playwright-service/claude-agent-service
 RUN npm install --include=dev
 
-# Install Playwright Chromium browser
-RUN npx playwright install chromium
+# Install Playwright Chromium browser and system dependencies
+RUN npx playwright install-deps && npx playwright install chromium
 
 # Return to root directory
 WORKDIR /app
