@@ -311,39 +311,44 @@ class PlaywrightLoginManager {
    */
   private async checkIfAlreadyLoggedIn(page: Page): Promise<boolean> {
     try {
-      // 检查常见的登录标识
-      const loginIndicators = [
-        '.user-info',
-        '.avatar',
-        '.username',
-        '[data-testid="user-menu"]',
-        '.login-user',
-        '.user-avatar',
-        '.profile-avatar'
-      ];
+      // 🔥 修复：所有浏览器API调用都在page.evaluate()内部
+      const isLoggedIn = await page.evaluate(`() => {
+        // 检查常见的登录标识
+        const loginIndicators = [
+          '.user-info',
+          '.avatar',
+          '.username',
+          '[data-testid="user-menu"]',
+          '.login-user',
+          '.user-avatar',
+          '.profile-avatar'
+        ];
 
-      for (const selector of loginIndicators) {
-        if (await page.locator(selector).count() > 0) {
-          console.log(`[PlaywrightLogin] 发现登录标识: ${selector}`);
+        for (const selector of loginIndicators) {
+          if (document.querySelector(selector)) {
+            console.log(\`发现登录标识: \${selector}\`);
+            return true;
+          }
+        }
+
+        // 检查URL是否表示已登录状态
+        const url = window.location.href;
+        if (url.includes('/user/') || url.includes('/profile/') || url.includes('/home') || url.includes('/explore')) {
+          console.log(\`URL表示已登录: \${url}\`);
           return true;
         }
-      }
 
-      // 检查URL是否表示已登录状态
-      const url = page.url();
-      if (url.includes('/user/') || url.includes('/profile/') || url.includes('/home') || url.includes('/explore')) {
-        console.log(`[PlaywrightLogin] URL表示已登录: ${url}`);
-        return true;
-      }
+        // 检查页面文本是否包含登录后的内容
+        const bodyText = document.body.textContent || '';
+        if (bodyText.includes('退出登录') || bodyText.includes('个人主页') || bodyText.includes('我的关注')) {
+          console.log('页面内容表示已登录');
+          return true;
+        }
 
-      // 检查页面文本是否包含登录后的内容
-      const bodyText = await page.textContent('body') || '';
-      if (bodyText.includes('退出登录') || bodyText.includes('个人主页') || bodyText.includes('我的关注')) {
-        console.log('[PlaywrightLogin] 页面内容表示已登录');
-        return true;
-      }
+        return false;
+      }`);
 
-      return false;
+      return isLoggedIn as boolean;
     } catch (error) {
       console.warn('[PlaywrightLogin] 检测登录状态失败:', error instanceof Error ? error.message : error);
       return false;
@@ -354,7 +359,7 @@ class PlaywrightLoginManager {
    * 显示退出登录引导界面
    */
   private async showLogoutGuidance(page: Page): Promise<void> {
-    await page.evaluate(() => {
+    await page.evaluate(`
       // 移除可能存在的旧引导界面
       const existingOverlay = document.getElementById('logout-guidance-overlay');
       if (existingOverlay) {
@@ -364,7 +369,7 @@ class PlaywrightLoginManager {
       // 创建引导遮罩层
       const overlay = document.createElement('div');
       overlay.id = 'logout-guidance-overlay';
-      overlay.style.cssText = `
+      overlay.style.cssText = \`
         position: fixed;
         top: 0;
         left: 0;
@@ -376,10 +381,10 @@ class PlaywrightLoginManager {
         align-items: center;
         justify-content: center;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      `;
+      \`;
 
       // 创建引导内容
-      overlay.innerHTML = `
+      overlay.innerHTML = \`
         <div style="
           background: white;
           padding: 40px;
@@ -437,16 +442,16 @@ class PlaywrightLoginManager {
             </button>
           </div>
         </div>
-      `;
+      \`;
 
       // 添加CSS动画
       const style = document.createElement('style');
-      style.textContent = `
+      style.textContent = \`
         @keyframes fadeIn {
           from { opacity: 0; transform: scale(0.9); }
           to { opacity: 1; transform: scale(1); }
         }
-      `;
+      \`;
       document.head.appendChild(style);
 
       document.body.appendChild(overlay);
@@ -458,17 +463,17 @@ class PlaywrightLoginManager {
       if (logoutBtn) {
         logoutBtn.onclick = () => {
           overlay.remove();
-          (window as any).logoutCompleted = true;
+          window.logoutCompleted = true;
         };
       }
 
       if (cancelBtn) {
         cancelBtn.onclick = () => {
           overlay.remove();
-          (window as any).loginCanceled = true;
+          window.loginCanceled = true;
         };
       }
-    });
+    `);
   }
 
   /**
@@ -477,12 +482,12 @@ class PlaywrightLoginManager {
   private async waitForUserLogout(page: Page): Promise<'completed' | 'canceled'> {
     try {
       // 等待用户点击按钮，最多等待5分钟
-      await page.waitForFunction(() => {
-        return (window as any).logoutCompleted || (window as any).loginCanceled;
-      }, { timeout: 300000 });
+      await page.waitForFunction(`() => {
+        return window.logoutCompleted || window.loginCanceled;
+      }`, { timeout: 300000 });
 
-      const completed = await page.evaluate(() => (window as any).logoutCompleted);
-      const canceled = await page.evaluate(() => (window as any).loginCanceled);
+      const completed = await page.evaluate(`() => window.logoutCompleted`);
+      const canceled = await page.evaluate(`() => window.loginCanceled`);
 
       if (canceled) {
         return 'canceled';
@@ -490,10 +495,10 @@ class PlaywrightLoginManager {
 
       if (completed) {
         // 清除标志
-        await page.evaluate(() => {
-          delete (window as any).logoutCompleted;
-          delete (window as any).loginCanceled;
-        });
+        await page.evaluate(`() => {
+          delete window.logoutCompleted;
+          delete window.loginCanceled;
+        }`);
 
         // 短暂等待，然后验证是否真的退出了
         await page.waitForTimeout(2000);
@@ -505,9 +510,9 @@ class PlaywrightLoginManager {
         if (stillLoggedIn) {
           console.log('[PlaywrightLogin] 检测到仍未完全退出登录，提示用户重试');
           // 显示重试提示
-          await page.evaluate(() => {
+          await page.evaluate(`
             alert('⚠️ 检测到仍未完全退出登录，请确保完全退出后再试');
-          });
+          `);
 
           // 重新显示引导界面
           await this.showLogoutGuidance(page);

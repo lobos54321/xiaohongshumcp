@@ -143,14 +143,15 @@ class PlaywrightLoginManager {
         this.timeoutMs = timeoutMs;
     }
     async startLogin(userId) {
+        // 🔥 关键修复：检查全局退出状态，阻止PlaywrightLoginManager创建新会话
+        const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+        if (!globalLogoutState.canCreateNewLoginSession(userId)) {
+            throw new Error('系统刚刚退出登录，请稍等片刻再重新登录');
+        }
+        // 🔥 修复会话复用问题：强制清理现有会话
         const existing = this.sessions.get(userId);
         if (existing) {
-            if (existing.status === 'pending') {
-                return {
-                    qrImage: existing.qrImage,
-                    expiresAt: new Date(existing.expiresAt).toISOString()
-                };
-            }
+            console.log(`[PlaywrightLogin] 🧹 发现现有会话，强制清理以避免状态污染`);
             await this.disposeSession(userId);
         }
         const session = await this.launchSession(userId);
@@ -168,22 +169,55 @@ class PlaywrightLoginManager {
         const tasks = Array.from(this.sessions.keys()).map(userId => this.disposeSession(userId));
         await Promise.all(tasks);
     }
+    /**
+     * Force cleanup all sessions - called during logout to prevent session reuse
+     */
+    async forceCleanupAllSessions() {
+        console.log('[PlaywrightLogin] 🧹 强制清理所有PlaywrightLoginManager会话');
+        const tasks = Array.from(this.sessions.keys()).map(userId => this.disposeSession(userId));
+        await Promise.all(tasks);
+        console.log('[PlaywrightLogin] ✅ 所有会话已清理完成');
+    }
     async launchSession(userId) {
         await ensurePlaywrightChromiumInstalled();
-        const browser = await chromium.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process']
-        });
-        const context = await browser.newContext({
+        // 🔥 简化方案：使用用户引导式退出登录，不需要复杂的隔离
+        const tempUserDataDir = `/tmp/playwright-${userId}-${Date.now()}`;
+        console.log(`[PlaywrightLogin] 创建用户数据目录: ${tempUserDataDir}`);
+        const context = await chromium.launchPersistentContext(tempUserDataDir, {
+            headless: false, // 🔥 改为非无头模式，让用户可以看到和操作
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--single-process'
+            ],
             viewport: { width: 1200, height: 900 },
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             locale: 'zh-CN'
         });
+        const browser = context.browser();
         const page = await context.newPage();
         await page.goto('https://www.xiaohongshu.com/login', {
             waitUntil: 'networkidle',
             timeout: 45000
         });
+        // 🔥 关键功能：检测是否已登录并引导用户退出
+        const isLoggedIn = await this.checkIfAlreadyLoggedIn(page);
+        if (isLoggedIn) {
+            console.log('[PlaywrightLogin] 检测到已登录账号，引导用户手动退出');
+            await this.showLogoutGuidance(page);
+            const result = await this.waitForUserLogout(page);
+            if (result === 'canceled') {
+                await context.close();
+                throw new Error('用户取消了登录操作');
+            }
+            console.log('[PlaywrightLogin] 用户已完成退出登录，继续登录流程');
+            // 刷新到登录页面
+            await page.goto('https://www.xiaohongshu.com/login', {
+                waitUntil: 'networkidle'
+            });
+        }
         try {
             const scanButton = page.locator('text=扫码登录');
             if (await scanButton.count() > 0) {
@@ -204,8 +238,222 @@ class PlaywrightLoginManager {
             qrImage,
             status: 'pending',
             createdAt: now,
-            expiresAt: now + this.timeoutMs
+            expiresAt: now + this.timeoutMs,
+            tempUserDataDir
         };
+    }
+    /**
+     * 检测是否已经登录
+     */
+    async checkIfAlreadyLoggedIn(page) {
+        try {
+            // 🔥 修复：所有浏览器API调用都在page.evaluate()内部
+            const isLoggedIn = await page.evaluate(`() => {
+        // 检查常见的登录标识
+        const loginIndicators = [
+          '.user-info',
+          '.avatar',
+          '.username',
+          '[data-testid="user-menu"]',
+          '.login-user',
+          '.user-avatar',
+          '.profile-avatar'
+        ];
+
+        for (const selector of loginIndicators) {
+          if (document.querySelector(selector)) {
+            console.log(\`发现登录标识: \${selector}\`);
+            return true;
+          }
+        }
+
+        // 检查URL是否表示已登录状态
+        const url = window.location.href;
+        if (url.includes('/user/') || url.includes('/profile/') || url.includes('/home') || url.includes('/explore')) {
+          console.log(\`URL表示已登录: \${url}\`);
+          return true;
+        }
+
+        // 检查页面文本是否包含登录后的内容
+        const bodyText = document.body.textContent || '';
+        if (bodyText.includes('退出登录') || bodyText.includes('个人主页') || bodyText.includes('我的关注')) {
+          console.log('页面内容表示已登录');
+          return true;
+        }
+
+        return false;
+      }`);
+            return isLoggedIn;
+        }
+        catch (error) {
+            console.warn('[PlaywrightLogin] 检测登录状态失败:', error instanceof Error ? error.message : error);
+            return false;
+        }
+    }
+    /**
+     * 显示退出登录引导界面
+     */
+    async showLogoutGuidance(page) {
+        await page.evaluate(`
+      // 移除可能存在的旧引导界面
+      const existingOverlay = document.getElementById('logout-guidance-overlay');
+      if (existingOverlay) {
+        existingOverlay.remove();
+      }
+
+      // 创建引导遮罩层
+      const overlay = document.createElement('div');
+      overlay.id = 'logout-guidance-overlay';
+      overlay.style.cssText = \`
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        z-index: 999999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      \`;
+
+      // 创建引导内容
+      overlay.innerHTML = \`
+        <div style="
+          background: white;
+          padding: 40px;
+          border-radius: 16px;
+          max-width: 500px;
+          text-align: center;
+          box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+          animation: fadeIn 0.3s ease;
+        ">
+          <div style="font-size: 48px; margin-bottom: 20px;">🔄</div>
+          <h2 style="color: #333; margin-bottom: 15px; font-size: 24px; font-weight: 600;">检测到已登录账号</h2>
+          <p style="color: #666; margin-bottom: 30px; line-height: 1.6; font-size: 16px;">
+            为了避免账号冲突，请先手动退出当前登录的账号：
+          </p>
+          <div style="background: #f8f9fa; padding: 20px; border-radius: 12px; margin-bottom: 30px; text-align: left;">
+            <div style="margin-bottom: 10px;">
+              <span style="display: inline-block; width: 24px; height: 24px; background: #007bff; color: white; border-radius: 50%; text-align: center; line-height: 24px; font-size: 14px; margin-right: 10px;">1</span>
+              <span style="color: #333; font-weight: 500;">点击页面右上角的用户头像</span>
+            </div>
+            <div style="margin-bottom: 10px;">
+              <span style="display: inline-block; width: 24px; height: 24px; background: #007bff; color: white; border-radius: 50%; text-align: center; line-height: 24px; font-size: 14px; margin-right: 10px;">2</span>
+              <span style="color: #333; font-weight: 500;">在下拉菜单中选择"退出登录"</span>
+            </div>
+            <div>
+              <span style="display: inline-block; width: 24px; height: 24px; background: #007bff; color: white; border-radius: 50%; text-align: center; line-height: 24px; font-size: 14px; margin-right: 10px;">3</span>
+              <span style="color: #333; font-weight: 500;">确认退出后点击下方"完成退出"按钮</span>
+            </div>
+          </div>
+          <div style="display: flex; gap: 15px; justify-content: center;">
+            <button id="logout-completed-btn" style="
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              color: white;
+              border: none;
+              padding: 15px 30px;
+              border-radius: 8px;
+              font-size: 16px;
+              font-weight: 500;
+              cursor: pointer;
+              transition: transform 0.2s ease;
+            " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+              ✅ 我已完成退出
+            </button>
+            <button id="cancel-login-btn" style="
+              background: #6c757d;
+              color: white;
+              border: none;
+              padding: 15px 30px;
+              border-radius: 8px;
+              font-size: 16px;
+              font-weight: 500;
+              cursor: pointer;
+              transition: transform 0.2s ease;
+            " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+              ❌ 取消登录
+            </button>
+          </div>
+        </div>
+      \`;
+
+      // 添加CSS动画
+      const style = document.createElement('style');
+      style.textContent = \`
+        @keyframes fadeIn {
+          from { opacity: 0; transform: scale(0.9); }
+          to { opacity: 1; transform: scale(1); }
+        }
+      \`;
+      document.head.appendChild(style);
+
+      document.body.appendChild(overlay);
+
+      // 添加按钮事件
+      const logoutBtn = document.getElementById('logout-completed-btn');
+      const cancelBtn = document.getElementById('cancel-login-btn');
+
+      if (logoutBtn) {
+        logoutBtn.onclick = () => {
+          overlay.remove();
+          window.logoutCompleted = true;
+        };
+      }
+
+      if (cancelBtn) {
+        cancelBtn.onclick = () => {
+          overlay.remove();
+          window.loginCanceled = true;
+        };
+      }
+    `);
+    }
+    /**
+     * 等待用户完成退出登录操作
+     */
+    async waitForUserLogout(page) {
+        try {
+            // 等待用户点击按钮，最多等待5分钟
+            await page.waitForFunction(`() => {
+        return window.logoutCompleted || window.loginCanceled;
+      }`, { timeout: 300000 });
+            const completed = await page.evaluate(`() => window.logoutCompleted`);
+            const canceled = await page.evaluate(`() => window.loginCanceled`);
+            if (canceled) {
+                return 'canceled';
+            }
+            if (completed) {
+                // 清除标志
+                await page.evaluate(`() => {
+          delete window.logoutCompleted;
+          delete window.loginCanceled;
+        }`);
+                // 短暂等待，然后验证是否真的退出了
+                await page.waitForTimeout(2000);
+                await page.reload();
+                await page.waitForTimeout(3000);
+                const stillLoggedIn = await this.checkIfAlreadyLoggedIn(page);
+                if (stillLoggedIn) {
+                    console.log('[PlaywrightLogin] 检测到仍未完全退出登录，提示用户重试');
+                    // 显示重试提示
+                    await page.evaluate(`
+            alert('⚠️ 检测到仍未完全退出登录，请确保完全退出后再试');
+          `);
+                    // 重新显示引导界面
+                    await this.showLogoutGuidance(page);
+                    return await this.waitForUserLogout(page); // 递归等待
+                }
+                console.log('[PlaywrightLogin] ✅ 确认用户已完全退出登录');
+                return 'completed';
+            }
+            return 'canceled';
+        }
+        catch (error) {
+            console.error('[PlaywrightLogin] 等待用户操作超时或出错:', error instanceof Error ? error.message : error);
+            return 'canceled';
+        }
     }
     async captureQRCode(page) {
         try {
@@ -325,24 +573,69 @@ class PlaywrightLoginManager {
             clearTimeout(session.timeoutTimer);
         }
         try {
+            // 🔥 修复：使用字符串形式避免TypeScript编译时检查浏览器API
+            await session.page.evaluate(`
+        try {
+          // 清除localStorage
+          if (typeof localStorage !== 'undefined') {
+            localStorage.clear();
+          }
+          // 清除sessionStorage
+          if (typeof sessionStorage !== 'undefined') {
+            sessionStorage.clear();
+          }
+          // 清除IndexedDB
+          if (typeof indexedDB !== 'undefined' && typeof window !== 'undefined') {
+            indexedDB.databases().then(function(databases) {
+              databases.forEach(function(db) {
+                if (db.name) {
+                  indexedDB.deleteDatabase(db.name);
+                }
+              });
+            }).catch(function() {});
+          }
+        } catch (evalError) {
+          console.warn('浏览器存储清理失败:', evalError);
+        }
+      `);
+            // Enhanced cleanup: Clear browser context data
+            await session.context.clearCookies();
+            await session.context.clearPermissions();
+            // Close page first
             await session.page.close({ runBeforeUnload: false });
         }
         catch (error) {
-            // ignore
+            console.warn('[PlaywrightLogin] Page cleanup error:', error instanceof Error ? error.message : error);
         }
         try {
+            // Close context
             await session.context.close();
         }
         catch (error) {
-            // ignore
+            console.warn('[PlaywrightLogin] Context cleanup error:', error instanceof Error ? error.message : error);
         }
         try {
+            // Close browser
             await session.browser.close();
         }
         catch (error) {
-            // ignore
+            console.warn('[PlaywrightLogin] Browser cleanup error:', error instanceof Error ? error.message : error);
+        }
+        // 🔥 清理临时用户数据目录
+        if (session.tempUserDataDir) {
+            try {
+                const fs = await import('fs');
+                if (fs.existsSync(session.tempUserDataDir)) {
+                    await fs.promises.rm(session.tempUserDataDir, { recursive: true, force: true });
+                    console.log(`[PlaywrightLogin] ✅ 已清理临时用户数据目录: ${session.tempUserDataDir}`);
+                }
+            }
+            catch (cleanupError) {
+                console.warn(`[PlaywrightLogin] 清理临时目录失败: ${session.tempUserDataDir}`, cleanupError instanceof Error ? cleanupError.message : cleanupError);
+            }
         }
         this.sessions.delete(userId);
+        console.log(`[PlaywrightLogin] ✅ Session completely disposed for user ${userId}`);
     }
 }
 const playwrightLoginManager = new PlaywrightLoginManager(async (userId, cookies, source = 'playwright') => {
@@ -1212,6 +1505,18 @@ app.post('/agent/xiaohongshu/auto-login', async (req, res) => {
             });
         }
         console.log(`[XHS Auto Login] Starting popup QR code login for user ${userId}`);
+        // 🔥 关键修复：检查全局退出状态，阻止新登录会话创建
+        const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+        if (!globalLogoutState.canCreateNewLoginSession(userId)) {
+            return res.json({
+                success: false,
+                error: '系统刚刚退出登录，请稍等片刻再重新登录',
+                needWait: true,
+                logoutInfo: globalLogoutState.getGlobalLogoutInfo(),
+                message: '检测到用户刚刚退出登录，为了确保数据完全清理，请等待片刻再重新登录'
+            });
+        }
+        console.log(`[XHS Auto Login] ✅ 全局状态检查通过，允许创建新登录会话`);
         // 导入Cookie检测服务
         const { AutoCookieDetector } = await import('./autoCookieDetector.js');
         const { CookieManager } = await import('./cookieManager.js');
@@ -1539,6 +1844,31 @@ app.get('/agent/xiaohongshu/login/status', async (req, res) => {
         });
     }
 });
+// 检查全局退出状态API（供前端调用）
+app.get('/agent/xiaohongshu/logout-status', async (req, res) => {
+    try {
+        const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+        const globalInfo = globalLogoutState.getGlobalLogoutInfo();
+        res.json({
+            success: true,
+            data: {
+                inGlobalLogoutState: globalInfo.inGlobalCooldown,
+                remainingSeconds: globalInfo.remainingSeconds || 0,
+                canCreateNewSession: !globalInfo.inGlobalCooldown,
+                globalLogoutTime: globalInfo.globalLogoutTime,
+                message: globalInfo.inGlobalCooldown
+                    ? `系统在全局退出保护期内，剩余 ${globalInfo.remainingSeconds} 秒`
+                    : '系统允许新登录会话'
+            }
+        });
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Failed to get logout status'
+        });
+    }
+});
 // 小红书登出API
 app.post('/agent/xiaohongshu/logout', async (req, res) => {
     try {
@@ -1558,6 +1888,21 @@ app.post('/agent/xiaohongshu/logout', async (req, res) => {
                 headers: { 'Content-Type': 'application/json' }
             });
             console.log(`[XHS Logout] MCP Router logout response:`, response.status);
+            // 🔥 关键修复：使用全局状态管理器阻止所有Cookie保存机制
+            try {
+                const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+                globalLogoutState.notifyUserLogout(userId);
+                console.log(`[XHS Logout] ✅ 已启动全局退出保护机制，阻止所有Cookie保存机制为用户 ${userId} 重新保存`);
+                // 🔥 新增：强制清理PlaywrightLoginManager所有会话
+                await playwrightLoginManager.forceCleanupAllSessions();
+                console.log(`[XHS Logout] ✅ 已清理PlaywrightLoginManager所有会话，防止会话复用`);
+                // 同时通知AutoCookieImporter（双重保护）
+                autoCookieImporter.notifyUserLogout(userId);
+                console.log(`[XHS Logout] ✅ 已通知AutoCookieImporter阻止用户 ${userId} 的自动重新导入`);
+            }
+            catch (notifyError) {
+                console.warn(`[XHS Logout] 通知全局退出保护失败: ${notifyError instanceof Error ? notifyError.message : String(notifyError)}`);
+            }
             res.json({
                 success: true,
                 message: 'Logout successful',
@@ -1583,6 +1928,21 @@ app.post('/agent/xiaohongshu/logout', async (req, res) => {
             }
             catch (localError) {
                 console.error(`[XHS Logout] Local cleanup error:`, localError.message);
+            }
+            // 🔥 关键修复：在本地清理模式下也启动全局退出保护
+            try {
+                const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+                globalLogoutState.notifyUserLogout(userId);
+                console.log(`[XHS Logout] ✅ (本地模式) 已启动全局退出保护机制，阻止所有Cookie保存机制为用户 ${userId} 重新保存`);
+                // 🔥 新增：强制清理PlaywrightLoginManager所有会话
+                await playwrightLoginManager.forceCleanupAllSessions();
+                console.log(`[XHS Logout] ✅ (本地模式) 已清理PlaywrightLoginManager所有会话，防止会话复用`);
+                // 同时通知AutoCookieImporter（双重保护）
+                autoCookieImporter.notifyUserLogout(userId);
+                console.log(`[XHS Logout] ✅ (本地模式) 已通知AutoCookieImporter阻止用户 ${userId} 的自动重新导入`);
+            }
+            catch (notifyError) {
+                console.warn(`[XHS Logout] (本地模式) 通知全局退出保护失败: ${notifyError instanceof Error ? notifyError.message : String(notifyError)}`);
             }
             res.json({
                 success: true,
@@ -1876,9 +2236,22 @@ const shutdown = async () => {
 process.on('SIGINT', () => { shutdown(); });
 process.on('SIGTERM', () => { shutdown(); });
 async function persistUserCookies(userId, cookies, source = 'unknown') {
+    // 🔥 关键修复：检查全局退出状态
+    const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+    if (!globalLogoutState.canSaveCookies(userId, source)) {
+        console.log(`[Cookie Persist] 🚫 阻止 ${source} 为用户 ${userId} 保存Cookie - 用户在退出保护期内`);
+        return { mcpSynced: false, writtenPaths: [] };
+    }
+    console.log(`[Cookie Persist] ✅ 允许 ${source} 为用户 ${userId} 保存Cookie`);
     const { CookieManager } = await import('./cookieManager.js');
     const cookieManager = new CookieManager();
-    await cookieManager.saveCookies(userId, cookies);
+    // 🔥 关键修复：在直接保存Cookie前再次检查退出状态
+    if (globalLogoutState.canSaveCookies(userId, `${source}-direct-save`)) {
+        await cookieManager.saveCookies(userId, cookies);
+    }
+    else {
+        console.log(`[Cookie Persist] 🚫 阻止直接保存Cookie到CookieManager - 用户 ${userId} 在退出保护期内`);
+    }
     const cookiePayload = {
         userId,
         source,
