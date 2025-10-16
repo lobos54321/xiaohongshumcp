@@ -42,6 +42,9 @@ export class AutoCookieImporter {
   private mcpRouterURL: string;
   private watchInterval: NodeJS.Timeout | null = null;
   private lastImportTime: number = 0;
+  private loggedOutUsers: Set<string> = new Set(); // 跟踪已退出的用户
+  private logoutTimestamps: Map<string, number> = new Map(); // 退出时间戳
+  private static readonly LOGOUT_COOLDOWN = 60000; // 退出后1分钟内不重新导入
 
   // 监控的Cookie文件路径 (按优先级排列)
   private readonly WATCH_PATHS = [
@@ -91,6 +94,39 @@ export class AutoCookieImporter {
       this.watchInterval = null;
       console.log('[AutoCookieImporter] 自动监控已停止');
     }
+  }
+
+  /**
+   * 通知用户已退出登录，阻止重新导入
+   */
+  notifyUserLogout(userId: string): void {
+    console.log(`[AutoCookieImporter] 🚪 用户 ${userId} 已退出登录，阻止自动重新导入`);
+    this.loggedOutUsers.add(userId);
+    this.logoutTimestamps.set(userId, Date.now());
+
+    // 设置定时器，在冷却期后自动清除退出状态
+    setTimeout(() => {
+      this.loggedOutUsers.delete(userId);
+      this.logoutTimestamps.delete(userId);
+      console.log(`[AutoCookieImporter] 用户 ${userId} 的退出冷却期已结束`);
+    }, AutoCookieImporter.LOGOUT_COOLDOWN);
+  }
+
+  /**
+   * 检查用户是否在退出冷却期内
+   */
+  private isUserInLogoutCooldown(userId: string): boolean {
+    if (!this.loggedOutUsers.has(userId)) {
+      return false;
+    }
+
+    const logoutTime = this.logoutTimestamps.get(userId);
+    if (!logoutTime) {
+      return false;
+    }
+
+    const timeSinceLogout = Date.now() - logoutTime;
+    return timeSinceLogout < AutoCookieImporter.LOGOUT_COOLDOWN;
   }
 
   /**
@@ -212,6 +248,20 @@ export class AutoCookieImporter {
 
       // 生成用户ID (基于session的一部分)
       const userId = `auto_${sessionCookie.value.substring(0, 8)}`;
+
+      // 🔥 关键修复：检查用户是否在退出冷却期内
+      if (this.isUserInLogoutCooldown(userId)) {
+        console.log(`[AutoCookieImporter] 🚫 用户 ${userId} 在退出冷却期内，跳过自动导入`);
+        return {
+          success: false,
+          cookieCount: xiaohongshuCookies.length,
+          userId: userId,
+          source: filePath,
+          message: `用户${userId}在退出冷却期内，阻止自动重新导入`
+        };
+      }
+
+      console.log(`[AutoCookieImporter] ✅ 用户 ${userId} 不在退出冷却期，继续导入`);
 
       // 保存到本地加密存储
       await this.cookieManager.saveCookies(userId, standardCookies);

@@ -1805,6 +1805,14 @@ app.post('/agent/xiaohongshu/logout', async (req: Request, res: Response) => {
 
       console.log(`[XHS Logout] MCP Router logout response:`, response.status);
 
+      // 🔥 关键修复：通知AutoCookieImporter阻止重新导入
+      try {
+        autoCookieImporter.notifyUserLogout(userId);
+        console.log(`[XHS Logout] ✅ 已通知AutoCookieImporter阻止用户 ${userId} 的自动重新导入`);
+      } catch (notifyError) {
+        console.warn(`[XHS Logout] 通知AutoCookieImporter失败: ${notifyError instanceof Error ? notifyError.message : String(notifyError)}`);
+      }
+
       res.json({
         success: true,
         message: 'Logout successful',
@@ -1830,6 +1838,14 @@ app.post('/agent/xiaohongshu/logout', async (req: Request, res: Response) => {
         }
       } catch (localError: any) {
         console.error(`[XHS Logout] Local cleanup error:`, localError.message);
+      }
+
+      // 🔥 关键修复：在本地清理模式下也通知AutoCookieImporter
+      try {
+        autoCookieImporter.notifyUserLogout(userId);
+        console.log(`[XHS Logout] ✅ (本地模式) 已通知AutoCookieImporter阻止用户 ${userId} 的自动重新导入`);
+      } catch (notifyError) {
+        console.warn(`[XHS Logout] (本地模式) 通知AutoCookieImporter失败: ${notifyError instanceof Error ? notifyError.message : String(notifyError)}`);
       }
 
       res.json({
