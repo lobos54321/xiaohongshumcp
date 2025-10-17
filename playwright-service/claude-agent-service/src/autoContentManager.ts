@@ -343,6 +343,103 @@ export class AutoContentManager {
   }
 
   /**
+   * 🔥 智能提取任务字段：支持多种字段名和嵌套结构
+   */
+  private extractTaskFields(rawData: any): {
+    title: string;
+    content: string;
+    imagePrompts: string[];
+    hashtags: string[];
+  } {
+    console.log('🔍 [字段提取] 开始智能提取任务字段...');
+    console.log('🔍 [字段提取] 原始数据结构:', JSON.stringify(rawData, null, 2).substring(0, 500) + '...');
+
+    // 支持的字段名变体
+    const titleKeys = ['title', '标题', 'heading', 'topic'];
+    const contentKeys = ['content', '内容', '正文', 'text', 'body'];
+    const imagePromptsKeys = ['imagePrompts', 'image_prompts', '配图描述', '图片提示词', 'images'];
+    const hashtagsKeys = ['hashtags', 'tags', '标签', '话题标签'];
+
+    const extracted = {
+      title: '',
+      content: '',
+      imagePrompts: [] as string[],
+      hashtags: [] as string[]
+    };
+
+    // 提取title
+    for (const key of titleKeys) {
+      if (rawData[key] && typeof rawData[key] === 'string') {
+        extracted.title = rawData[key];
+        console.log(`✅ [字段提取] 找到标题字段 "${key}":`, extracted.title.substring(0, 50));
+        break;
+      }
+    }
+
+    // 提取content
+    for (const key of contentKeys) {
+      if (rawData[key] && typeof rawData[key] === 'string') {
+        extracted.content = rawData[key];
+        console.log(`✅ [字段提取] 找到内容字段 "${key}":`, extracted.content.substring(0, 100) + '...');
+        break;
+      }
+    }
+
+    // 提取imagePrompts
+    for (const key of imagePromptsKeys) {
+      if (rawData[key]) {
+        if (Array.isArray(rawData[key])) {
+          extracted.imagePrompts = rawData[key];
+          console.log(`✅ [字段提取] 找到图片提示词字段 "${key}":`, extracted.imagePrompts.length, '张');
+          break;
+        } else if (typeof rawData[key] === 'string') {
+          // 如果是字符串，尝试分割
+          extracted.imagePrompts = [rawData[key]];
+          console.log(`✅ [字段提取] 找到单个图片提示词 "${key}"`);
+          break;
+        }
+      }
+    }
+
+    // 提取hashtags
+    for (const key of hashtagsKeys) {
+      if (rawData[key]) {
+        if (Array.isArray(rawData[key])) {
+          extracted.hashtags = rawData[key];
+          console.log(`✅ [字段提取] 找到标签字段 "${key}":`, extracted.hashtags.length, '个');
+          break;
+        } else if (typeof rawData[key] === 'string') {
+          // 如果是字符串，尝试分割
+          extracted.hashtags = rawData[key].split(/[,、，]/).map((tag: string) => tag.trim()).filter((tag: string) => tag);
+          console.log(`✅ [字段提取] 从字符串分割标签 "${key}":`, extracted.hashtags.length, '个');
+          break;
+        }
+      }
+    }
+
+    // 🔥 检查是否有嵌套结构（如 {data: {...}} 或 {response: {...}}）
+    if (!extracted.title && !extracted.content) {
+      console.log('⚠️ [字段提取] 直接字段未找到，尝试查找嵌套结构...');
+      const nestedKeys = ['data', 'response', 'result', 'task', '任务'];
+      for (const nestedKey of nestedKeys) {
+        if (rawData[nestedKey] && typeof rawData[nestedKey] === 'object') {
+          console.log(`🔍 [字段提取] 发现嵌套对象 "${nestedKey}"，递归提取...`);
+          return this.extractTaskFields(rawData[nestedKey]);
+        }
+      }
+    }
+
+    console.log('📋 [字段提取] 最终提取结果:', {
+      title: extracted.title ? '✅ ' + extracted.title.substring(0, 30) : '❌ 未找到',
+      content: extracted.content ? '✅ ' + extracted.content.substring(0, 50) + '...' : '❌ 未找到',
+      imagePrompts: extracted.imagePrompts.length > 0 ? `✅ ${extracted.imagePrompts.length}张` : '❌ 未找到',
+      hashtags: extracted.hashtags.length > 0 ? `✅ ${extracted.hashtags.length}个` : '❌ 未找到'
+    });
+
+    return extracted;
+  }
+
+  /**
    * 使用Claude制定内容策略
    */
   private async createContentStrategy(profile: UserProfile): Promise<ContentStrategy> {
@@ -1034,6 +1131,7 @@ export class AutoContentManager {
       let taskDetails;
       try {
         taskDetails = JSON.parse(cleanedText);
+        console.log('✅ [任务创建] JSON解析成功，原始字段:', Object.keys(taskDetails).join(', '));
       } catch (parseError) {
         console.error('❌ [任务创建] JSON解析失败:', parseError);
         console.error('📝 [任务创建] 完整响应文本:', responseText);
@@ -1041,9 +1139,18 @@ export class AutoContentManager {
         throw new Error(`JSON解析失败: ${parseError instanceof Error ? parseError.message : String(parseError)}. 请检查Claude响应格式。`);
       }
 
+      // 🔥 智能字段提取：支持多种字段名和嵌套结构
+      const extractedData = this.extractTaskFields(taskDetails);
+      console.log('📋 [任务创建] 提取的字段:', {
+        title: extractedData.title?.substring(0, 30) + '...',
+        content: extractedData.content?.substring(0, 50) + '...',
+        imagePrompts: extractedData.imagePrompts?.length,
+        hashtags: extractedData.hashtags?.length
+      });
+
       // 生成多张图片
-      const imagePrompts = Array.isArray(taskDetails.imagePrompts)
-        ? taskDetails.imagePrompts
+      const imagePrompts = Array.isArray(extractedData.imagePrompts)
+        ? extractedData.imagePrompts
         : ['默认图片描述'];
 
       console.log(`🎨 [任务创建] 开始生成 ${imagePrompts.length} 张图片...`);
@@ -1067,12 +1174,12 @@ export class AutoContentManager {
       return {
         scheduledTime: new Date(post.scheduledTime),
         contentType: post.type,
-        title: taskDetails.title || '默认标题',
-        content: taskDetails.content || '默认内容',
+        title: extractedData.title || '默认标题',
+        content: extractedData.content || '默认内容',
         imagePrompts: imagePrompts,
         imageUrls: imageUrls,
         storageKeys: storageKeys,
-        hashtags: Array.isArray(taskDetails.hashtags) ? taskDetails.hashtags : ['默认标签'],
+        hashtags: Array.isArray(extractedData.hashtags) ? extractedData.hashtags : ['默认标签'],
         status: 'ready'  // 图片已生成，状态改为ready
       };
     } catch (error) {
