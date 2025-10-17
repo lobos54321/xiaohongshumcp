@@ -530,28 +530,77 @@ export class AutoContentManager {
       // 处理各种可能的返回格式
       let daysData: any[] = [];
 
+      // 🔥 新增：详细的格式检查日志
+      console.log('📅 [FORMAT CHECK] 开始格式识别...');
+      console.log('📅 [FORMAT CHECK] rawPlan类型:', typeof rawPlan);
+      console.log('📅 [FORMAT CHECK] 是否为数组:', Array.isArray(rawPlan));
+      console.log('📅 [FORMAT CHECK] 包含的键:', Object.keys(rawPlan || {}).join(', '));
+
       // 智能解析不同的返回格式
       if (Array.isArray(rawPlan.days)) {
-        console.log('📅 [DEBUG] 使用 rawPlan.days 格式');
+        console.log('✅ [FORMAT] 匹配格式: rawPlan.days 数组');
         daysData = rawPlan.days;
       } else if (rawPlan.weekly_plan) {
-        console.log('📅 [DEBUG] 使用 rawPlan.weekly_plan 格式');
+        console.log('✅ [FORMAT] 匹配格式: rawPlan.weekly_plan');
         // 格式: {weekly_plan: {Monday: [...], Tuesday: [...]}}
         daysData = Object.entries(rawPlan.weekly_plan).map(([dayName, posts]: [string, any]) => ({
           date: this.getDateFromDayName(dayName),
           posts: Array.isArray(posts) ? posts : Object.values(posts || {})
         }));
       } else if (rawPlan.days && typeof rawPlan.days === 'object') {
-        console.log('📅 [DEBUG] 使用 rawPlan.days 对象格式');
+        console.log('✅ [FORMAT] 匹配格式: rawPlan.days 对象');
         daysData = Object.values(rawPlan.days);
       } else if (rawPlan['每日计划']) {
-        console.log('📅 [DEBUG] 使用中文每日计划格式');
+        console.log('✅ [FORMAT] 匹配格式: 中文每日计划');
         daysData = Object.values(rawPlan['每日计划']);
       } else if (Array.isArray(rawPlan)) {
-        console.log('📅 [DEBUG] 直接使用数组格式');
+        console.log('✅ [FORMAT] 匹配格式: 直接数组');
         daysData = rawPlan;
+      } else if (rawPlan.date && rawPlan.posts) {
+        // 🔥 新增：单个day对象格式
+        console.log('✅ [FORMAT] 匹配格式: 单个day对象（包含date和posts）');
+        console.log('📅 [SINGLE DAY] 检测到单天数据，扩展为7天计划...');
+        // 将单个day对象扩展为7天
+        const singleDay = rawPlan;
+        const baseDate = new Date(singleDay.date);
+        for (let i = 0; i < 7; i++) {
+          const dayDate = new Date(baseDate.getTime() + i * 24 * 60 * 60 * 1000);
+          daysData.push({
+            date: dayDate.toISOString().split('T')[0],
+            posts: singleDay.posts.map((post: any) => ({
+              theme: post.theme || `第${i + 1}天内容`,
+              type: post.type || '图文',
+              scheduledTime: post.scheduledTime || '09:30',
+              target: post.target,
+              expectedOutcome: post.expectedOutcome
+            }))
+          });
+        }
+      } else if (Object.keys(rawPlan || {}).length > 0) {
+        // 🔥 新增：尝试智能提取任何包含date/posts的对象
+        console.log('⚠️ [FORMAT] 未匹配标准格式，尝试智能提取...');
+        const extracted = this.extractDaysFromUnknownFormat(rawPlan);
+        if (extracted.length > 0) {
+          console.log(`✅ [EXTRACT] 成功提取 ${extracted.length} 天数据`);
+          daysData = extracted;
+        } else {
+          console.log('❌ [FORMAT] 智能提取失败，使用默认数据');
+          // 生成默认的7天数据
+          const today = new Date();
+          for (let i = 0; i < 7; i++) {
+            const date = new Date(today.getTime() + i * 24 * 60 * 60 * 1000);
+            daysData.push({
+              date: date,
+              posts: [{
+                theme: `第${i + 1}天内容`,
+                type: '图文',
+                scheduledTime: new Date(date.getTime() + 9 * 60 * 60 * 1000) // 上午9点
+              }]
+            });
+          }
+        }
       } else {
-        console.log('📅 [DEBUG] 未识别格式，尝试生成默认数据');
+        console.log('📅 [DEBUG] rawPlan为空或无效，生成默认数据');
         // 生成默认的7天数据
         const today = new Date();
         for (let i = 0; i < 7; i++) {
@@ -690,6 +739,88 @@ export class AutoContentManager {
     const date = new Date(today);
     date.setDate(today.getDate() + daysUntilTarget);
     return date;
+  }
+
+  /**
+   * 智能提取未知格式中的day数据
+   */
+  private extractDaysFromUnknownFormat(rawPlan: any): any[] {
+    const extracted: any[] = [];
+
+    try {
+      console.log('🔍 [EXTRACT] 开始智能提取，rawPlan结构:', JSON.stringify(Object.keys(rawPlan)));
+
+      // 策略1: 检查所有值，看是否包含date和posts的对象
+      for (const [key, value] of Object.entries(rawPlan)) {
+        if (value && typeof value === 'object') {
+          // 检查是否是day对象（包含date和posts）
+          if ((value as any).date && (value as any).posts) {
+            console.log(`✅ [EXTRACT] 在键 "${key}" 中找到day对象`);
+            extracted.push(value);
+          }
+          // 检查是否是day对象数组
+          else if (Array.isArray(value) && value.length > 0 && value[0].date && value[0].posts) {
+            console.log(`✅ [EXTRACT] 在键 "${key}" 中找到day对象数组`);
+            extracted.push(...value);
+          }
+        }
+      }
+
+      // 策略2: 如果extracted仍为空，尝试查找任何包含theme的对象
+      if (extracted.length === 0) {
+        console.log('🔍 [EXTRACT] 策略1失败，尝试查找包含theme的对象...');
+        for (const [key, value] of Object.entries(rawPlan)) {
+          if (value && typeof value === 'object') {
+            // 检查是否直接包含theme（可能是posts数组）
+            if (Array.isArray(value) && value.length > 0 && value[0].theme) {
+              console.log(`✅ [EXTRACT] 在键 "${key}" 中找到posts数组`);
+              // 将posts数组包装成day对象
+              const today = new Date();
+              extracted.push({
+                date: today.toISOString().split('T')[0],
+                posts: value
+              });
+            }
+            // 检查是否包含posts属性（可能是单个day对象，但没有date）
+            else if ((value as any).posts && Array.isArray((value as any).posts)) {
+              console.log(`✅ [EXTRACT] 在键 "${key}" 中找到包含posts的对象（无date）`);
+              const today = new Date();
+              extracted.push({
+                date: today.toISOString().split('T')[0],
+                posts: (value as any).posts
+              });
+            }
+          }
+        }
+      }
+
+      // 策略3: 如果找到单个day，扩展为7天
+      if (extracted.length === 1) {
+        console.log('🔄 [EXTRACT] 只找到1天数据，扩展为7天...');
+        const singleDay = extracted[0];
+        const expandedDays: any[] = [];
+        const baseDate = singleDay.date ? new Date(singleDay.date) : new Date();
+
+        for (let i = 0; i < 7; i++) {
+          const dayDate = new Date(baseDate.getTime() + i * 24 * 60 * 60 * 1000);
+          expandedDays.push({
+            date: dayDate.toISOString().split('T')[0],
+            posts: singleDay.posts.map((post: any) => ({
+              ...post,
+              theme: post.theme || `第${i + 1}天内容`
+            }))
+          });
+        }
+        return expandedDays;
+      }
+
+      console.log(`🎯 [EXTRACT] 提取结果: ${extracted.length} 天数据`);
+      return extracted;
+
+    } catch (error) {
+      console.error('❌ [EXTRACT] 智能提取出错:', error);
+      return [];
+    }
   }
 
   /**
