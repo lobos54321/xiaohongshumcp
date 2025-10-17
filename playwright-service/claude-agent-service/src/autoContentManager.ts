@@ -211,48 +211,16 @@ export class AutoContentManager {
       console.log(`🚀 [DEBUG] 步骤2完成: 周计划生成成功，包含 ${weeklyPlan.days.length} 天计划`);
       this.addRealTimeActivity(userProfile.userId, `✅ 周计划生成成功，规划了${weeklyPlan.days.length}天的内容`, 'generation');
 
-      // 3. 生成详细的每日任务
+      // 3. 生成详细的每日任务（包含图片生成）
       console.log(`🚀 [DEBUG] 步骤3: 开始生成详细任务...`);
-      this.addRealTimeActivity(userProfile.userId, '📝 正在创建详细的每日任务...', 'generation');
+      this.addRealTimeActivity(userProfile.userId, '📝 正在创建详细的每日任务（包含配图）...', 'generation');
       const dailyTasks = await this.generateDailyTasks(userProfile, weeklyPlan);
-      console.log(`🚀 [DEBUG] 步骤3完成: 生成了 ${dailyTasks.length} 个每日任务`);
-      this.addRealTimeActivity(userProfile.userId, `✅ 生成了${dailyTasks.length}个每日任务`, 'generation');
+      console.log(`🚀 [DEBUG] 步骤3完成: 生成了 ${dailyTasks.length} 个每日任务，所有图片已生成`);
+      this.addRealTimeActivity(userProfile.userId, `✅ 生成了${dailyTasks.length}个每日任务，配图已就绪`, 'generation');
 
-      // 3.5. 为第一个任务异步生成图片（不阻塞API返回）
-      if (dailyTasks.length > 0) {
-        const firstTask = dailyTasks[0];
-        console.log(`🚀 [DEBUG] 步骤3.5: 启动后台异步生成${firstTask.imagePrompts.length}张图片...`);
-        this.addRealTimeActivity(userProfile.userId, `🎨 正在后台生成第一篇内容的${firstTask.imagePrompts.length}张配图...`, 'generation');
-
-        // 【关键修复】异步生成图片，不阻塞API返回
-        (async () => {
-          try {
-            firstTask.imageUrls = [];
-            firstTask.storageKeys = [];
-            for (let i = 0; i < firstTask.imagePrompts.length; i++) {
-              const imageResult = await this.generateImage(firstTask.imagePrompts[i], userProfile.userId);
-              firstTask.imageUrls.push(imageResult.url);
-              if (imageResult.storageKey) {
-                firstTask.storageKeys.push(imageResult.storageKey);
-              }
-              console.log(`🚀 [后台] 第${i + 1}/${firstTask.imagePrompts.length}张图片已生成`);
-              console.log(`   URL: ${imageResult.url}`);
-              console.log(`   Storage Key: ${imageResult.storageKey || '无'}`);
-            }
-            firstTask.status = 'ready'; // 标记为已准备好
-            this.addRealTimeActivity(userProfile.userId, `✅ 首篇内容${firstTask.imageUrls.length}张配图已生成，可以预览`, 'generation');
-            console.log(`🚀 [后台] 所有${firstTask.imageUrls.length}张图片已生成完成`);
-
-            // 图片生成完成后，更新保存的数据
-            this.saveData(userProfile.userId);
-          } catch (error: any) {
-            console.error(`❌ [后台] 图片生成失败:`, error.message);
-            this.addRealTimeActivity(userProfile.userId, '⚠️ 配图生成失败，将在发布时重试', 'generation');
-          }
-        })();
-
-        console.log(`🚀 [DEBUG] 步骤3.5完成: 图片生成任务已启动（后台执行）`);
-      }
+      // 🔥 修复：删除了重复的异步图片生成逻辑
+      // 原因：createDetailedTask已经同步生成了所有图片
+      // 异步重新生成会清空已生成的图片，导致竞争条件
 
       // 4. 保存完整计划
       console.log(`🚀 [DEBUG] 步骤4: 保存完整计划到 contentPlans...`);
