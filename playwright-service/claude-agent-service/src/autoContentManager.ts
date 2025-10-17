@@ -893,6 +893,9 @@ export class AutoContentManager {
    */
   private cleanJSONResponse(responseText: string): string {
     try {
+      console.log('🔧 [JSON清理] 原始响应长度:', responseText.length, '字符');
+      console.log('🔧 [JSON清理] 原始响应前500字符:', responseText.substring(0, 500));
+
       // 移除markdown代码块标记
       let cleanedText = responseText.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
 
@@ -901,26 +904,49 @@ export class AutoContentManager {
         .replace(/^[^{[\n]*/m, '') // 移除第一行非JSON字符
         .replace(/[^}\]]*$/m, ''); // 移除最后一行非JSON字符
 
+      console.log('🔧 [JSON清理] 清理后长度:', cleanedText.length, '字符');
+      console.log('🔧 [JSON清理] 清理后前500字符:', cleanedText.substring(0, 500));
+
       // 多种策略尝试提取JSON
       const strategies = [
         // 策略1：直接查找完整JSON对象/数组
-        () => this.extractCompleteJSON(cleanedText),
+        () => {
+          const result = this.extractCompleteJSON(cleanedText);
+          console.log('📋 [策略1-完整JSON] 提取结果长度:', result.length, '字符');
+          if (result) console.log('📋 [策略1-完整JSON] 提取结果前200字符:', result.substring(0, 200));
+          return result;
+        },
         // 策略2：使用正则表达式匹配
-        () => this.extractJSONByRegex(cleanedText),
+        () => {
+          const result = this.extractJSONByRegex(cleanedText);
+          console.log('📋 [策略2-正则] 提取结果长度:', result.length, '字符');
+          if (result) console.log('📋 [策略2-正则] 提取结果前200字符:', result.substring(0, 200));
+          return result;
+        },
         // 策略3：逐行解析寻找JSON
-        () => this.extractJSONByLines(cleanedText),
+        () => {
+          const result = this.extractJSONByLines(cleanedText);
+          console.log('📋 [策略3-逐行] 提取结果长度:', result.length, '字符');
+          if (result) console.log('📋 [策略3-逐行] 提取结果前200字符:', result.substring(0, 200));
+          return result;
+        },
         // 策略4：返回清理后的原文本（最后兜底）
         () => cleanedText.trim()
       ];
 
-      for (const strategy of strategies) {
-        const result = strategy();
+      for (let i = 0; i < strategies.length; i++) {
+        const result = strategies[i]();
         if (result && this.isValidJSONString(result)) {
+          console.log(`✅ [JSON清理] 策略${i + 1}成功，返回JSON长度:`, result.length, '字符');
+          console.log(`✅ [JSON清理] 最终JSON前300字符:`, result.substring(0, 300));
           return result;
+        } else {
+          console.log(`❌ [JSON清理] 策略${i + 1}失败`);
         }
       }
 
       // 所有策略都失败，返回清理后的文本
+      console.warn('⚠️ [JSON清理] 所有策略都失败，返回原始清理文本');
       return this.sanitizeText(cleanedText);
 
     } catch (error) {
@@ -933,18 +959,28 @@ export class AutoContentManager {
     const objectStart = text.indexOf('{');
     const arrayStart = text.indexOf('[');
 
+    console.log('🔍 [extractCompleteJSON] objectStart:', objectStart, 'arrayStart:', arrayStart);
+
     let jsonStart = -1;
     let isObject = false;
 
-    if (objectStart !== -1 && (arrayStart === -1 || objectStart < arrayStart)) {
+    // 🔥 修复：总是优先提取对象（任务数据），而不是数组（可能是hashtags）
+    if (objectStart !== -1) {
+      // 优先选择对象，无论数组位置在哪
       jsonStart = objectStart;
       isObject = true;
+      console.log('✅ [extractCompleteJSON] 选择提取对象，起始位置:', jsonStart);
     } else if (arrayStart !== -1) {
+      // 只有在没有对象时才提取数组
       jsonStart = arrayStart;
       isObject = false;
+      console.log('⚠️ [extractCompleteJSON] 未找到对象，提取数组，起始位置:', jsonStart);
     }
 
-    if (jsonStart === -1) return '';
+    if (jsonStart === -1) {
+      console.log('❌ [extractCompleteJSON] 未找到JSON起始标记');
+      return '';
+    }
 
     // 改进的括号计数，支持中文和转义字符
     let depth = 0;
@@ -988,9 +1024,13 @@ export class AutoContentManager {
     }
 
     if (jsonEnd > jsonStart) {
-      return text.substring(jsonStart, jsonEnd);
+      const extracted = text.substring(jsonStart, jsonEnd);
+      console.log('✅ [extractCompleteJSON] 成功提取JSON，长度:', extracted.length, '字符');
+      console.log('✅ [extractCompleteJSON] 提取内容前200字符:', extracted.substring(0, 200));
+      return extracted;
     }
 
+    console.log('❌ [extractCompleteJSON] 未找到JSON结束标记');
     return '';
   }
 
