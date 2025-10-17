@@ -111,6 +111,12 @@ echo "  • APP_PORT: $APP_PORT"
 echo "  • MCP_HTTP_PORT: $MCP_HTTP_PORT"
 echo "  • MCP_ROUTER_URL: $MCP_ROUTER_URL_EFFECTIVE"
 
+# 清理旧的MCP进程（防止端口冲突）
+echo "🧹 Cleaning up old MCP processes..."
+pkill -f "httpServer.js" 2>/dev/null || true
+pkill -f "xiaohongshu-mcp" 2>/dev/null || true
+sleep 2
+
 # 启动MCP Router
 echo "🔧 Starting MCP Router..."
 cd playwright-service/mcp-router
