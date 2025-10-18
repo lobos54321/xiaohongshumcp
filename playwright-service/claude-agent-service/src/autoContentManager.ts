@@ -1035,15 +1035,17 @@ export class AutoContentManager {
   }
 
   private extractJSONByRegex(text: string): string {
-    // 尝试匹配完整的JSON对象（支持多行和中文）
-    const objectMatch = text.match(/\{[\s\S]*?\}/);
-    if (objectMatch) return objectMatch[0];
-
-    // 尝试匹配JSON数组
-    const arrayMatch = text.match(/\[[\s\S]*?\]/);
-    if (arrayMatch) return arrayMatch[0];
-
+    // 🔥 禁用正则策略，因为非贪婪匹配会截断JSON
+    // 只依赖extractCompleteJSON的括号计数算法
+    console.log('⚠️ [extractJSONByRegex] 策略已禁用，跳过');
     return '';
+
+    // 原有代码（已禁用）：
+    // const objectMatch = text.match(/\{[\s\S]*?\}/);  // ❌ 非贪婪匹配会截断
+    // if (objectMatch) return objectMatch[0];
+    // const arrayMatch = text.match(/\[[\s\S]*?\]/);
+    // if (arrayMatch) return arrayMatch[0];
+    // return '';
   }
 
   private extractJSONByLines(text: string): string {
