@@ -896,63 +896,103 @@ export class AutoContentManager {
       console.log('🔧 [JSON清理] 原始响应长度:', responseText.length, '字符');
       console.log('🔧 [JSON清理] 原始响应前500字符:', responseText.substring(0, 500));
 
-      // 移除markdown代码块标记
-      let cleanedText = responseText.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
-
-      // 移除可能的前后文说明文字（常见于Claude响应）
-      cleanedText = cleanedText
-        .replace(/^[^{[\n]*/m, '') // 移除第一行非JSON字符
-        .replace(/[^}\]]*$/m, ''); // 移除最后一行非JSON字符
+      // 🔥 简化策略：只移除markdown标记，保留所有内容
+      let cleanedText = responseText
+        .replace(/```json\s*/gi, '')
+        .replace(/```\s*/g, '')
+        .trim();
 
       console.log('🔧 [JSON清理] 清理后长度:', cleanedText.length, '字符');
       console.log('🔧 [JSON清理] 清理后前500字符:', cleanedText.substring(0, 500));
 
-      // 多种策略尝试提取JSON
-      const strategies = [
-        // 策略1：直接查找完整JSON对象/数组
-        () => {
-          const result = this.extractCompleteJSON(cleanedText);
-          console.log('📋 [策略1-完整JSON] 提取结果长度:', result.length, '字符');
-          if (result) console.log('📋 [策略1-完整JSON] 提取结果前200字符:', result.substring(0, 200));
-          return result;
-        },
-        // 策略2：使用正则表达式匹配
-        () => {
-          const result = this.extractJSONByRegex(cleanedText);
-          console.log('📋 [策略2-正则] 提取结果长度:', result.length, '字符');
-          if (result) console.log('📋 [策略2-正则] 提取结果前200字符:', result.substring(0, 200));
-          return result;
-        },
-        // 策略3：逐行解析寻找JSON
-        () => {
-          const result = this.extractJSONByLines(cleanedText);
-          console.log('📋 [策略3-逐行] 提取结果长度:', result.length, '字符');
-          if (result) console.log('📋 [策略3-逐行] 提取结果前200字符:', result.substring(0, 200));
-          return result;
-        },
-        // 策略4：返回清理后的原文本（最后兜底）
-        () => cleanedText.trim()
-      ];
+      // 🔥 直接尝试完整JSON提取
+      console.log('🔍 [JSON清理] 开始提取完整JSON对象...');
+      const extracted = this.extractCompleteJSON(cleanedText);
 
-      for (let i = 0; i < strategies.length; i++) {
-        const result = strategies[i]();
-        if (result && this.isValidJSONString(result)) {
-          console.log(`✅ [JSON清理] 策略${i + 1}成功，返回JSON长度:`, result.length, '字符');
-          console.log(`✅ [JSON清理] 最终JSON前300字符:`, result.substring(0, 300));
-          return result;
-        } else {
-          console.log(`❌ [JSON清理] 策略${i + 1}失败`);
+      if (extracted && this.isValidJSONString(extracted)) {
+        console.log('✅ [JSON清理] 成功提取，JSON长度:', extracted.length, '字符');
+        console.log('✅ [JSON清理] 最终JSON前300字符:', extracted.substring(0, 300));
+
+        // 🔥 关键检查：确保提取的是对象而不是数组
+        const parsed = JSON.parse(extracted);
+        if (Array.isArray(parsed)) {
+          console.warn('⚠️ [JSON清理] 警告：提取的是数组而不是对象！');
+          console.log('⚠️ [JSON清理] 数组内容:', JSON.stringify(parsed));
+          // 尝试在原文中查找对象
+          const objectExtracted = this.forceExtractObject(cleanedText);
+          if (objectExtracted && this.isValidJSONString(objectExtracted)) {
+            console.log('✅ [JSON清理] 强制提取对象成功，长度:', objectExtracted.length);
+            return objectExtracted;
+          }
         }
+
+        return extracted;
       }
 
-      // 所有策略都失败，返回清理后的文本
-      console.warn('⚠️ [JSON清理] 所有策略都失败，返回原始清理文本');
-      return this.sanitizeText(cleanedText);
+      // 如果extractCompleteJSON失败，直接返回清理后的文本
+      console.warn('⚠️ [JSON清理] extractCompleteJSON失败，返回清理文本');
+      return cleanedText;
 
     } catch (error) {
       console.warn('🔧 [JSON清理] 清理过程出错，返回原始文本:', error);
       return responseText.trim();
     }
+  }
+
+  /**
+   * 🔥 强制提取对象（跳过数组）
+   */
+  private forceExtractObject(text: string): string {
+    console.log('🔍 [forceExtractObject] 开始强制提取对象...');
+
+    const objectStart = text.indexOf('{');
+    if (objectStart === -1) {
+      console.log('❌ [forceExtractObject] 未找到对象起始标记');
+      return '';
+    }
+
+    console.log('✅ [forceExtractObject] 找到对象起始位置:', objectStart);
+
+    // 使用括号计数找到完整对象
+    let depth = 0;
+    let inString = false;
+    let escapeNext = false;
+
+    for (let i = objectStart; i < text.length; i++) {
+      const char = text[i];
+
+      if (escapeNext) {
+        escapeNext = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        escapeNext = true;
+        continue;
+      }
+
+      if (char === '"' && !escapeNext) {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) continue;
+
+      if (char === '{') {
+        depth++;
+      } else if (char === '}') {
+        depth--;
+        if (depth === 0) {
+          const extracted = text.substring(objectStart, i + 1);
+          console.log('✅ [forceExtractObject] 成功提取对象，长度:', extracted.length);
+          console.log('✅ [forceExtractObject] 提取内容前200字符:', extracted.substring(0, 200));
+          return extracted;
+        }
+      }
+    }
+
+    console.log('❌ [forceExtractObject] 未找到对象结束标记');
+    return '';
   }
 
   private extractCompleteJSON(text: string): string {
