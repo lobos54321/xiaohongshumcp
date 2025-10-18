@@ -325,6 +325,34 @@ export class AutoContentManager {
 
       if (Array.isArray(value)) {
         console.log(`✅ [DEBUG] 找到数组数据，键: "${key}", 长度: ${value.length}`);
+
+        // 🔥 新增：检查是否为对象数组
+        if (value.length > 0 && typeof value[0] === 'object' && value[0] !== null) {
+          console.log(`🔍 [DEBUG] 检测到对象数组，尝试提取文本字段...`);
+
+          // 尝试从对象中提取文本字段
+          const textFields = ['theme', 'topic', 'name', 'title', 'text', 'value'];
+          for (const field of textFields) {
+            if (value[0][field]) {
+              const extracted = value.map((item: any) => item[field]).filter((text: any) => text);
+              console.log(`✅ [DEBUG] 从对象数组提取 "${field}" 字段，得到 ${extracted.length} 个字符串`);
+              return extracted as string[];
+            }
+          }
+
+          // 如果找不到已知字段，返回对象的第一个字符串值
+          const firstItem = value[0];
+          const firstStringKey = Object.keys(firstItem).find(k => typeof firstItem[k] === 'string');
+          if (firstStringKey) {
+            const extracted = value.map((item: any) => item[firstStringKey]).filter((text: any) => text);
+            console.log(`✅ [DEBUG] 从对象数组提取 "${firstStringKey}" 字段，得到 ${extracted.length} 个字符串`);
+            return extracted as string[];
+          }
+
+          console.warn(`⚠️ [DEBUG] 对象数组中未找到可提取的文本字段`);
+        }
+
+        // 如果是字符串数组，直接返回
         return value;
       }
 
