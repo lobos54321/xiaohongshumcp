@@ -9,4 +9,7 @@ cookies
 *.local
 .vscode
 .idea
+# 排除所有平台的二进制文件（由Dockerfile下载Linux版本）
 playwright-service/mcp-router/xiaohongshu-mcp
+playwright-service/claude-agent-service/xiaohongshu-login
+playwright-service/claude-agent-service/bin/

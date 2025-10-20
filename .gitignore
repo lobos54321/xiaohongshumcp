@@ -47,6 +47,7 @@ cookies/
 !zbpack.json
 !.zeabur/config.json
 
-# Binary
+# Binary (排除所有平台的二进制文件，由Dockerfile下载Linux版本)
 xiaohongshu-mcp
-!playwright-service/mcp-router/xiaohongshu-mcp
+xiaohongshu-login
+*.tar.gz
