@@ -2,6 +2,12 @@
 
 echo "🚀 Starting Xiaohongshu AI Automation System v2.1.1 (binary-included)..."
 
+# 🔥 强制Playwright使用headless模式（Zeabur容器没有GUI）
+export PLAYWRIGHT_HEADLESS=true
+export DISPLAY=:99
+export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+echo "✅ Playwright环境变量已设置（headless模式）"
+
 # 首先加载环境变量
 if [ -f ".env" ]; then
     echo "📋 Loading environment variables from .env..."
@@ -115,7 +121,20 @@ echo "  • MCP_ROUTER_URL: $MCP_ROUTER_URL_EFFECTIVE"
 echo "🧹 Cleaning up old MCP processes..."
 pkill -f "httpServer.js" 2>/dev/null || true
 pkill -f "xiaohongshu-mcp" 2>/dev/null || true
+pkill -f "Xvfb" 2>/dev/null || true
 sleep 2
+
+# 🔥 启动虚拟显示服务器（用于Playwright headless浏览器）
+echo "🖥️  Starting virtual display server (Xvfb)..."
+if command -v Xvfb >/dev/null 2>&1; then
+    Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp -nolisten unix > /dev/null 2>&1 &
+    XVFB_PID=$!
+    export DISPLAY=:99
+    echo "✅ Xvfb started on display :99 (PID: $XVFB_PID)"
+    sleep 1
+else
+    echo "⚠️  Xvfb not found, relying on PLAYWRIGHT_HEADLESS=true"
+fi
 
 # 启动MCP Router
 echo "🔧 Starting MCP Router..."

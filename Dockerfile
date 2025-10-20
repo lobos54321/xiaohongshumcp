@@ -6,13 +6,14 @@ LABEL "language"="nodejs"
 ARG CACHEBUST=v12-fix-playwright-deps-20251016-0300
 RUN echo "CRITICAL: Installing Playwright dependencies with libcups2" > /tmp/rebuild.txt
 
-# Install necessary system dependencies (including ALL Playwright browser dependencies)
+# Install necessary system dependencies (including ALL Playwright browser dependencies + xvfb)
 RUN apt-get update && apt-get install -y \
     wget \
     curl \
     ca-certificates \
     python3 \
     procps \
+    xvfb \
     libglib2.0-0 \
     libnspr4 \
     libnss3 \
