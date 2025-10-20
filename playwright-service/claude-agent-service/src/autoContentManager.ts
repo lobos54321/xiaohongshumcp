@@ -1005,9 +1005,19 @@ export class AutoContentManager {
         return extracted;
       }
 
-      // 如果extractCompleteJSON失败，直接返回清理后的文本
-      console.warn('⚠️ [JSON清理] extractCompleteJSON失败，返回清理文本');
-      return cleanedText;
+      // 如果extractCompleteJSON失败，对清理后的文本也进行转义
+      console.warn('⚠️ [JSON清理] extractCompleteJSON失败，尝试转义清理文本');
+      const escapedCleanedText = this.escapeJSONStringLiterals(cleanedText);
+      console.log('🔧 [JSON清理] 清理文本转义后长度:', escapedCleanedText.length, '字符');
+
+      // 再次验证转义后的文本
+      if (this.isValidJSONString(escapedCleanedText)) {
+        console.log('✅ [JSON清理] 转义后的清理文本验证成功');
+        return escapedCleanedText;
+      }
+
+      console.warn('⚠️ [JSON清理] 转义后仍然无效，返回原始转义文本');
+      return escapedCleanedText;  // 返回转义后的版本，即使验证失败
 
     } catch (error) {
       console.warn('🔧 [JSON清理] 清理过程出错，返回原始文本:', error);
@@ -1207,6 +1217,7 @@ export class AutoContentManager {
   /**
    * 🔥 转义JSON字符串字面量中的真实换行符和其他特殊字符
    * Claude返回的JSON在字符串值中包含真实换行符，需要转换为\n
+   * 同时处理中文引号和其他可能导致JSON解析失败的字符
    */
   private escapeJSONStringLiterals(jsonString: string): string {
     let result = '';
@@ -1229,7 +1240,7 @@ export class AutoContentManager {
         continue;
       }
 
-      // 检测字符串边界
+      // 检测字符串边界（只有ASCII双引号才是字符串边界）
       if (char === '"') {
         result += char;
         inString = !inString;
@@ -1248,6 +1259,15 @@ export class AutoContentManager {
           case '\t':
             result += '\\t';
             break;
+          case '\b':
+            result += '\\b';
+            break;
+          case '\f':
+            result += '\\f';
+            break;
+          // 🔥 处理中文引号和其他Unicode引号（转换为普通文本，不转义）
+          // JSON字符串内部的中文引号不需要转义，直接保留
+          // 因为它们不是JSON语法字符
           default:
             result += char;
         }

@@ -1297,6 +1297,14 @@
                                 updateStrategy(strategyData.strategy);
                             }
 
+                            // 🔥 【新增】轮询周计划 - 修复需要刷新页面才能看到的问题
+                            const weekPlanRes = await fetch(`${CLAUDE_API}/agent/auto/week-plan/${currentUser}`);
+                            const weekPlanData = await weekPlanRes.json();
+                            if (weekPlanData.success && weekPlanData.weeklyPlan) {
+                                console.log('[Frontend DEBUG] 周计划自动更新成功');
+                                updateWeekPlan(weekPlanData.weeklyPlan);
+                            }
+
                             const statsRes = await fetch(`${CLAUDE_API}/agent/auto/stats/${currentUser}`);
                             const statsData = await statsRes.json();
                             if (statsData.success && statsData.stats) {
