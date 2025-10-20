@@ -46,16 +46,34 @@ if [ "$CLAUDE_BUILD_MISSING" = true ]; then
 fi
 
 # 检查二进制文件
+echo "🔍 [start.sh] Checking for MCP binary..."
+echo "📂 [start.sh] Current directory: $(pwd)"
+echo "📋 [start.sh] Listing playwright-service/mcp-router/:"
+ls -lah playwright-service/mcp-router/ 2>&1 | head -20 || echo "Directory does not exist"
+
 if [ -f "playwright-service/mcp-router/xiaohongshu-mcp" ]; then
-    echo "✅ Found binary from repository"
+    BINARY_SIZE=$(stat -c%s "playwright-service/mcp-router/xiaohongshu-mcp" 2>/dev/null || stat -f%z "playwright-service/mcp-router/xiaohongshu-mcp" 2>/dev/null)
+    echo "✅ [start.sh] Found binary from repository"
+    echo "📏 [start.sh] Binary size: $BINARY_SIZE bytes"
+
+    if [ "$BINARY_SIZE" -lt 1000 ]; then
+        echo "⚠️ [start.sh] WARNING: Binary is suspiciously small ($BINARY_SIZE bytes)!"
+        echo "🔍 [start.sh] Binary content preview:"
+        head -5 playwright-service/mcp-router/xiaohongshu-mcp
+        echo "❌ [start.sh] This appears to be a mock script, not the real binary!"
+    fi
+
     chmod +x playwright-service/mcp-router/xiaohongshu-mcp
 elif [ -f "playwright-service/mcp-router/bin/xiaohongshu-mcp" ]; then
-    echo "✅ Found binary in bin/"
+    echo "✅ [start.sh] Found binary in bin/"
     cp playwright-service/mcp-router/bin/xiaohongshu-mcp playwright-service/mcp-router/xiaohongshu-mcp
     chmod +x playwright-service/mcp-router/xiaohongshu-mcp
 else
-    echo "❌ Binary not found and download not supported in this environment"
-    echo "⚠️  MCP Router will run in mock mode"
+    echo "❌ [start.sh] Binary not found at expected locations!"
+    echo "🔍 [start.sh] Searching for any xiaohongshu binaries..."
+    find . -name "*xiaohongshu*" -type f 2>/dev/null | head -20 || echo "No binaries found"
+
+    echo "⚠️ [start.sh] MCP Router will run in mock mode"
     mkdir -p playwright-service/mcp-router
     cat > playwright-service/mcp-router/xiaohongshu-mcp <<'BIN'
 #!/bin/bash

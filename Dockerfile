@@ -87,13 +87,26 @@ WORKDIR /app
 
 # Step 6: Download and extract xiaohongshu-mcp binary files
 RUN set -e && \
-    echo "Downloading xiaohongshu-mcp binary..." && \
+    echo "🔽 [Dockerfile] Downloading xiaohongshu-mcp binary..." && \
     wget -v -O /tmp/xiaohongshu-mcp.tar.gz https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz && \
+    echo "📦 [Dockerfile] Downloaded file size:" && \
+    ls -lh /tmp/xiaohongshu-mcp.tar.gz && \
+    echo "🗜️ [Dockerfile] Extracting binary..." && \
     tar -xzf /tmp/xiaohongshu-mcp.tar.gz -C /tmp && \
-    find /tmp -name "xiaohongshu-mcp-linux-amd64" -type f -exec cp {} /app/playwright-service/mcp-router/xiaohongshu-mcp \; && \
-    find /tmp -name "xiaohongshu-login-linux-amd64" -type f -exec cp {} /app/playwright-service/claude-agent-service/xiaohongshu-login \; && \
+    echo "📂 [Dockerfile] Extracted files:" && \
+    find /tmp -name "*xiaohongshu*" -type f -ls && \
+    echo "📋 [Dockerfile] Copying MCP binary..." && \
+    find /tmp -name "xiaohongshu-mcp-linux-amd64" -type f -exec cp -v {} /app/playwright-service/mcp-router/xiaohongshu-mcp \; && \
+    echo "📋 [Dockerfile] Copying Login binary..." && \
+    find /tmp -name "xiaohongshu-login-linux-amd64" -type f -exec cp -v {} /app/playwright-service/claude-agent-service/xiaohongshu-login \; && \
+    echo "🔑 [Dockerfile] Setting permissions..." && \
     chmod +x /app/playwright-service/mcp-router/xiaohongshu-mcp && \
     chmod +x /app/playwright-service/claude-agent-service/xiaohongshu-login && \
+    echo "✅ [Dockerfile] Final MCP binary:" && \
+    ls -lh /app/playwright-service/mcp-router/xiaohongshu-mcp && \
+    echo "✅ [Dockerfile] Final Login binary:" && \
+    ls -lh /app/playwright-service/claude-agent-service/xiaohongshu-login && \
+    echo "🧹 [Dockerfile] Cleaning up..." && \
     rm -rf /tmp/xiaohongshu-mcp.tar.gz /tmp/xiaohongshu-mcp*
 
 # Step 7: Set permissions for all necessary files (only set existing files)
