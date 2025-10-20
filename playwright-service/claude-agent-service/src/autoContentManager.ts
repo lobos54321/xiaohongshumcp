@@ -413,12 +413,36 @@ export class AutoContentManager {
       }
     }
 
-    // 提取imagePrompts
+    // 提取imagePrompts - 🔥 使用智能提取，处理对象数组
     for (const key of imagePromptsKeys) {
       if (rawData[key]) {
         if (Array.isArray(rawData[key])) {
-          extracted.imagePrompts = rawData[key];
-          console.log(`✅ [字段提取] 找到图片提示词字段 "${key}":`, extracted.imagePrompts.length, '张');
+          // 🔥 检查是否为对象数组
+          const array = rawData[key];
+          if (array.length > 0 && typeof array[0] === 'object' && array[0] !== null) {
+            console.log(`🔍 [字段提取] 检测到图片提示词对象数组，尝试提取文本字段...`);
+            // 尝试从对象中提取文本字段
+            const textFields = ['description', 'prompt', 'text', 'content', 'value'];
+            for (const field of textFields) {
+              if (array[0][field]) {
+                extracted.imagePrompts = array.map((item: any) => item[field]).filter((text: any) => text && typeof text === 'string');
+                console.log(`✅ [字段提取] 从对象数组提取 "${field}" 字段，得到 ${extracted.imagePrompts.length} 个图片提示词`);
+                break;
+              }
+            }
+            // 如果没找到已知字段，尝试找第一个字符串字段
+            if (extracted.imagePrompts.length === 0) {
+              const firstStringField = Object.keys(array[0]).find(k => typeof array[0][k] === 'string');
+              if (firstStringField) {
+                extracted.imagePrompts = array.map((item: any) => item[firstStringField]).filter((text: any) => text);
+                console.log(`✅ [字段提取] 从对象数组自动提取 "${firstStringField}" 字段，得到 ${extracted.imagePrompts.length} 个图片提示词`);
+              }
+            }
+          } else {
+            // 字符串数组，直接使用
+            extracted.imagePrompts = array.filter((item: any) => typeof item === 'string');
+            console.log(`✅ [字段提取] 找到图片提示词字段 "${key}":`, extracted.imagePrompts.length, '张');
+          }
           break;
         } else if (typeof rawData[key] === 'string') {
           // 如果是字符串，尝试分割
@@ -429,12 +453,36 @@ export class AutoContentManager {
       }
     }
 
-    // 提取hashtags
+    // 提取hashtags - 🔥 使用智能提取，处理对象数组
     for (const key of hashtagsKeys) {
       if (rawData[key]) {
         if (Array.isArray(rawData[key])) {
-          extracted.hashtags = rawData[key];
-          console.log(`✅ [字段提取] 找到标签字段 "${key}":`, extracted.hashtags.length, '个');
+          // 🔥 检查是否为对象数组
+          const array = rawData[key];
+          if (array.length > 0 && typeof array[0] === 'object' && array[0] !== null) {
+            console.log(`🔍 [字段提取] 检测到标签对象数组，尝试提取文本字段...`);
+            // 尝试从对象中提取文本字段
+            const textFields = ['tag', 'hashtag', 'name', 'text', 'value', 'label'];
+            for (const field of textFields) {
+              if (array[0][field]) {
+                extracted.hashtags = array.map((item: any) => item[field]).filter((text: any) => text && typeof text === 'string');
+                console.log(`✅ [字段提取] 从对象数组提取 "${field}" 字段，得到 ${extracted.hashtags.length} 个标签`);
+                break;
+              }
+            }
+            // 如果没找到已知字段，尝试找第一个字符串字段
+            if (extracted.hashtags.length === 0) {
+              const firstStringField = Object.keys(array[0]).find(k => typeof array[0][k] === 'string');
+              if (firstStringField) {
+                extracted.hashtags = array.map((item: any) => item[firstStringField]).filter((text: any) => text);
+                console.log(`✅ [字段提取] 从对象数组自动提取 "${firstStringField}" 字段，得到 ${extracted.hashtags.length} 个标签`);
+              }
+            }
+          } else {
+            // 字符串数组，直接使用
+            extracted.hashtags = array.filter((item: any) => typeof item === 'string');
+            console.log(`✅ [字段提取] 找到标签字段 "${key}":`, extracted.hashtags.length, '个');
+          }
           break;
         } else if (typeof rawData[key] === 'string') {
           // 如果是字符串，尝试分割
