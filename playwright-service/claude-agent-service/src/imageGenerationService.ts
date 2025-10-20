@@ -125,6 +125,15 @@ export class ImageGenerationService {
       const data = await response.json() as any;
       console.log('🎨 [Gemini] API响应状态:', response.status);
 
+      // 🔥 增强调试：记录完整响应结构
+      console.log('🎨 [Gemini] 响应结构:', JSON.stringify({
+        has_candidates: !!data.candidates,
+        candidates_length: data.candidates?.length || 0,
+        first_candidate_has_content: !!data.candidates?.[0]?.content,
+        parts_count: data.candidates?.[0]?.content?.parts?.length || 0,
+        parts_types: data.candidates?.[0]?.content?.parts?.map((p: any) => Object.keys(p)) || []
+      }));
+
       // 从响应中提取图片数据（base64）
       if (data.candidates && data.candidates[0] && data.candidates[0].content) {
         const parts = data.candidates[0].content.parts;
@@ -170,7 +179,20 @@ export class ImageGenerationService {
         }
       }
 
-      console.error('🎨 [Gemini] 响应中未找到图片数据');
+      // 🔥 详细记录为什么找不到图片数据
+      console.error('🎨 [Gemini] 响应中未找到图片数据！');
+      console.error('🎨 [Gemini] 完整响应:', JSON.stringify(data, null, 2).substring(0, 1000));
+
+      // 检查是否有错误信息
+      if (data.error) {
+        console.error('🎨 [Gemini] API返回错误:', data.error);
+      }
+
+      // 检查是否被安全过滤
+      if (data.candidates?.[0]?.finishReason) {
+        console.error('🎨 [Gemini] 生成终止原因:', data.candidates[0].finishReason);
+      }
+
       return null;
 
     } catch (error: any) {

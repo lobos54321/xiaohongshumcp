@@ -1398,15 +1398,43 @@ export class AutoContentManager {
       const storageKeys: string[] = [];
 
       for (let i = 0; i < imagePrompts.length; i++) {
-        try {
-          const imageResult = await this.generateImage(imagePrompts[i], profile.userId);
-          imageUrls.push(imageResult.url);
-          if (imageResult.storageKey) {
-            storageKeys.push(imageResult.storageKey);
+        // 🔥 重试机制：最多重试2次
+        let retryCount = 0;
+        const maxRetries = 2;
+        let imageResult: { url: string; storageKey?: string } | null = null;
+
+        while (retryCount <= maxRetries && !imageResult) {
+          try {
+            if (retryCount > 0) {
+              console.log(`🔄 [任务创建] 第 ${i + 1} 张图片重试第 ${retryCount} 次...`);
+              // 延迟重试，避免API限流
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+
+            const result = await this.generateImage(imagePrompts[i], profile.userId);
+
+            // 🔥 检查是否是占位符（data:image/svg）
+            if (result.url.startsWith('data:image/svg')) {
+              console.warn(`⚠️ [任务创建] 第 ${i + 1} 张图片生成返回占位符，准备重试...`);
+              retryCount++;
+              continue; // 重试
+            }
+
+            imageResult = result;
+            imageUrls.push(result.url);
+            if (result.storageKey) {
+              storageKeys.push(result.storageKey);
+            }
+            console.log(`✅ [任务创建] 第 ${i + 1} 张图片生成成功${retryCount > 0 ? ` (重试${retryCount}次后)` : ''}: ${result.url.substring(0, 50)}...`);
+          } catch (error: any) {
+            console.error(`❌ [任务创建] 第 ${i + 1} 张图片生成失败:`, error.message);
+            retryCount++;
           }
-          console.log(`✅ [任务创建] 第 ${i + 1} 张图片生成成功: ${imageResult.url.substring(0, 50)}...`);
-        } catch (error: any) {
-          console.error(`❌ [任务创建] 第 ${i + 1} 张图片生成失败:`, error.message);
+        }
+
+        // 所有重试都失败，使用占位符
+        if (!imageResult) {
+          console.error(`❌ [任务创建] 第 ${i + 1} 张图片在 ${maxRetries + 1} 次尝试后仍失败，使用占位符`);
           imageUrls.push(`https://via.placeholder.com/1080x1080/667eea/FFFFFF?text=Image+${i + 1}+Failed`);
         }
       }
