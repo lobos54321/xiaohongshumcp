@@ -1140,9 +1140,15 @@ export class AutoContentManager {
     }
 
     if (jsonEnd > jsonStart) {
-      const extracted = text.substring(jsonStart, jsonEnd);
+      let extracted = text.substring(jsonStart, jsonEnd);
       console.log('✅ [extractCompleteJSON] 成功提取JSON，长度:', extracted.length, '字符');
       console.log('✅ [extractCompleteJSON] 提取内容前200字符:', extracted.substring(0, 200));
+
+      // 🔥 关键修复：转义字符串字面量中的真实换行符
+      // Claude返回的JSON在字符串值中包含真实换行符，需要转换为\n
+      extracted = this.escapeJSONStringLiterals(extracted);
+      console.log('✅ [extractCompleteJSON] JSON转义后长度:', extracted.length, '字符');
+
       return extracted;
     }
 
@@ -1196,6 +1202,62 @@ export class AutoContentManager {
     }
 
     return jsonLines.join('\n');
+  }
+
+  /**
+   * 🔥 转义JSON字符串字面量中的真实换行符和其他特殊字符
+   * Claude返回的JSON在字符串值中包含真实换行符，需要转换为\n
+   */
+  private escapeJSONStringLiterals(jsonString: string): string {
+    let result = '';
+    let inString = false;
+    let escapeNext = false;
+
+    for (let i = 0; i < jsonString.length; i++) {
+      const char = jsonString[i];
+
+      // 处理转义字符
+      if (escapeNext) {
+        result += char;
+        escapeNext = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        result += char;
+        escapeNext = true;
+        continue;
+      }
+
+      // 检测字符串边界
+      if (char === '"') {
+        result += char;
+        inString = !inString;
+        continue;
+      }
+
+      // 如果在字符串内部，转义特殊字符
+      if (inString) {
+        switch (char) {
+          case '\n':
+            result += '\\n';
+            break;
+          case '\r':
+            result += '\\r';
+            break;
+          case '\t':
+            result += '\\t';
+            break;
+          default:
+            result += char;
+        }
+      } else {
+        // 字符串外部，直接添加
+        result += char;
+      }
+    }
+
+    return result;
   }
 
   private isValidJSONString(str: string): boolean {
