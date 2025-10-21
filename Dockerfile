@@ -3,8 +3,9 @@ FROM node:18-slim
 LABEL "language"="nodejs"
 
 # Force rebuild of all Docker layers - fix dist files not rebuilding
-# ARG CACHEBUST alone is sufficient to invalidate cache - no need for RUN echo
-ARG CACHEBUST=v14-mcp-router-logs-enabled-20251021
+# NOTE: ARG CACHEBUST is sufficient to invalidate Docker layer cache
+# Changing the ARG value forces all subsequent layers to rebuild
+ARG CACHEBUST=v17-final-mcp-logs-20251021
 
 # Install necessary system dependencies (including ALL Playwright browser dependencies + xvfb)
 RUN apt-get update && apt-get install -y \
