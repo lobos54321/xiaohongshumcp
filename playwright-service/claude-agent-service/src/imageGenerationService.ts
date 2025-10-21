@@ -167,7 +167,11 @@ export class ImageGenerationService {
             console.warn('⚠️ [Gemini] Supabase未配置，使用本地存储');
             const localPath = await this.saveBase64Image(base64Data, 'gemini', mimeType);
             const filename = path.basename(localPath);
-            const imageUrl = `/images/${filename}`;
+
+            // 🔥 CRITICAL FIX: 返回完整URL，MCP binary需要完整HTTP URL才能下载
+            const baseUrl = process.env.PUBLIC_URL || process.env.ZEABUR_URL || 'http://localhost:8080';
+            const imageUrl = `${baseUrl}/images/${filename}`;
+            console.log(`🎨 [Gemini] 本地图片URL: ${imageUrl}`);
 
             return {
               url: imageUrl,
