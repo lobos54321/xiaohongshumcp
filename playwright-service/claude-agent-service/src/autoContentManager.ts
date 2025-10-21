@@ -217,43 +217,37 @@ export class AutoContentManager {
       console.log(`🚀 [DEBUG] 步骤2完成: 周计划生成成功，包含 ${weeklyPlan.days.length} 天计划`);
       this.addRealTimeActivity(userProfile.userId, `✅ 周计划生成成功，规划了${weeklyPlan.days.length}天的内容`, 'generation');
 
-      // 3. 生成详细的每日任务（包含图片生成）
+      // 3. 生成详细的每日任务（包含图片生成 + 渐进式保存）
       console.log(`🚀 [DEBUG] 步骤3: 开始生成详细任务...`);
       this.addRealTimeActivity(userProfile.userId, '📝 正在创建详细的每日任务（包含配图）...', 'generation');
-      const dailyTasks = await this.generateDailyTasks(userProfile, weeklyPlan);
+
+      // 🔥 传入strategy，支持渐进式保存和错误容忍
+      const dailyTasks = await this.generateDailyTasks(userProfile, weeklyPlan, strategy);
+
       console.log(`🚀 [DEBUG] 步骤3完成: 生成了 ${dailyTasks.length} 个每日任务，所有图片已生成`);
       this.addRealTimeActivity(userProfile.userId, `✅ 生成了${dailyTasks.length}个每日任务，配图已就绪`, 'generation');
 
-      // 🔥 修复：删除了重复的异步图片生成逻辑
-      // 原因：createDetailedTask已经同步生成了所有图片
-      // 异步重新生成会清空已生成的图片，导致竞争条件
+      // 🔥 注意：步骤4和5已在generateDailyTasks中渐进式完成
+      // 每生成一个任务就保存一次，确保即使部分失败也能保留已生成的内容
 
-      // 4. 保存完整计划
-      console.log(`🚀 [DEBUG] 步骤4: 保存完整计划到 contentPlans...`);
-      this.contentPlans.set(userProfile.userId, {
-        strategy,
-        weeklyPlan,
-        dailyTasks
-      });
-      console.log(`🚀 [DEBUG] 步骤4完成: 计划已保存，contentPlans 大小: ${this.contentPlans.size}`);
-      console.log(`🚀 [DEBUG] 策略内容:`, JSON.stringify(strategy, null, 2));
-      console.log(`🚀 [DEBUG] 周计划内容:`, JSON.stringify(weeklyPlan, null, 2));
+      // 4. 最终验证和状态确认
+      console.log(`🚀 [DEBUG] 步骤4: 验证数据完整性...`);
+      const savedPlan = this.contentPlans.get(userProfile.userId);
+      if (!savedPlan || savedPlan.dailyTasks.length === 0) {
+        throw new Error('数据保存验证失败：contentPlans中没有找到任务');
+      }
+      console.log(`🚀 [DEBUG] 步骤4完成: 数据验证通过，contentPlans 大小: ${this.contentPlans.size}, 任务数: ${savedPlan.dailyTasks.length}`);
+      this.addRealTimeActivity(userProfile.userId, '💾 计划数据已保存并验证', 'optimization');
 
-      // 5. 持久化数据
-      console.log(`🚀 [DEBUG] 步骤5: 持久化数据到文件...`);
-      this.saveData(userProfile.userId);
-      console.log(`🚀 [DEBUG] 步骤5完成: 数据持久化完成`);
-      this.addRealTimeActivity(userProfile.userId, '💾 计划数据已保存', 'optimization');
-
-      // 6. 设置完成状态
-      console.log(`🚀 [DEBUG] 步骤6: 设置生成状态为 completed...`);
+      // 5. 设置完成状态
+      console.log(`🚀 [DEBUG] 步骤5: 设置生成状态为 completed...`);
       this.generationStatus.set(userProfile.userId, 'completed');
-      console.log(`🚀 [DEBUG] 步骤6完成: 生成状态已设置为 completed`);
+      console.log(`🚀 [DEBUG] 步骤5完成: 生成状态已设置为 completed`);
 
-      // 7. 启动定时执行器
-      console.log(`🚀 [DEBUG] 步骤7: 启动定时执行器...`);
+      // 6. 启动定时执行器
+      console.log(`🚀 [DEBUG] 步骤6: 启动定时执行器...`);
       this.startScheduler(userProfile.userId);
-      console.log(`🚀 [DEBUG] 步骤7完成: 定时执行器已启动`);
+      console.log(`🚀 [DEBUG] 步骤6完成: 定时执行器已启动`);
       this.addRealTimeActivity(userProfile.userId, '⏰ 定时发布系统已启动', 'execution');
 
       console.log(`✅ [DEBUG] 自动运营模式启动成功！已为接下来7天规划了${dailyTasks.length}个任务`);
@@ -545,11 +539,16 @@ export class AutoContentManager {
 请以JSON格式返回，确保建议专业且具有可执行性。
 `;
 
-    const response = await this.anthropic.messages.create({
-      model: process.env.CLAUDE_MODEL || 'claude-3-haiku-20240307',
-      max_tokens: 2000,
-      messages: [{ role: 'user', content: prompt }]
-    });
+    // 🔥 使用重试机制调用Claude API
+    const response = await this.callClaudeWithRetry(
+      () => this.anthropic.messages.create({
+        model: process.env.CLAUDE_MODEL || 'claude-3-haiku-20240307',
+        max_tokens: 2000,
+        messages: [{ role: 'user', content: prompt }]
+      }),
+      3, // 最多重试3次
+      `生成内容策略 - 产品:${profile.productName}`
+    );
 
     try {
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
@@ -657,11 +656,16 @@ export class AutoContentManager {
 只返回JSON，不要有其他文字。
 `;
 
-    const response = await this.anthropic.messages.create({
-      model: process.env.CLAUDE_MODEL || 'claude-3-haiku-20240307',
-      max_tokens: 4000,
-      messages: [{ role: 'user', content: prompt }]
-    });
+    // 🔥 使用重试机制调用Claude API
+    const response = await this.callClaudeWithRetry(
+      () => this.anthropic.messages.create({
+        model: process.env.CLAUDE_MODEL || 'claude-3-haiku-20240307',
+        max_tokens: 4000,
+        messages: [{ role: 'user', content: prompt }]
+      }),
+      3, // 最多重试3次
+      `生成周计划 - 产品:${profile.productName}`
+    );
 
     try {
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
@@ -1308,16 +1312,132 @@ export class AutoContentManager {
   }
 
   /**
-   * 生成详细的每日任务
+   * 带重试机制的Claude API调用
    */
-  private async generateDailyTasks(profile: UserProfile, weeklyPlan: WeeklyPlan): Promise<DailyTask[]> {
+  private async callClaudeWithRetry<T>(
+    apiCall: () => Promise<T>,
+    maxRetries: number = 3,
+    taskDescription: string = 'Claude API调用'
+  ): Promise<T> {
+    let lastError: any;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          // 指数退避：2^attempt * 1000ms (1s, 2s, 4s, 8s)
+          const backoffMs = Math.pow(2, attempt) * 1000;
+          console.log(`🔄 [重试] ${taskDescription} - 第${attempt}次重试，等待${backoffMs}ms...`);
+          await new Promise(resolve => setTimeout(resolve, backoffMs));
+        }
+
+        console.log(`📡 [Claude API] ${taskDescription} - 尝试 ${attempt + 1}/${maxRetries + 1}`);
+        const result = await apiCall();
+
+        if (attempt > 0) {
+          console.log(`✅ [重试成功] ${taskDescription} - 在第${attempt}次重试后成功`);
+        }
+
+        return result;
+      } catch (error: any) {
+        lastError = error;
+        const errorMessage = error.message || String(error);
+
+        // 检查是否是可重试的错误
+        const isRetryable =
+          error.status === 529 || // Overloaded
+          error.status === 500 || // Internal Server Error
+          error.status === 503 || // Service Unavailable
+          errorMessage.includes('overloaded') ||
+          errorMessage.includes('timeout');
+
+        if (!isRetryable) {
+          console.error(`❌ [不可重试] ${taskDescription} - 错误类型: ${error.status || 'unknown'}`);
+          throw error;
+        }
+
+        if (attempt === maxRetries) {
+          console.error(`❌ [重试失败] ${taskDescription} - 已达到最大重试次数(${maxRetries})`);
+          throw error;
+        }
+
+        console.warn(`⚠️ [可重试错误] ${taskDescription} - 错误: ${errorMessage} (${error.status || 'unknown'})`);
+      }
+    }
+
+    throw lastError;
+  }
+
+  /**
+   * 生成详细的每日任务（带渐进式保存和错误容忍）
+   */
+  private async generateDailyTasks(
+    profile: UserProfile,
+    weeklyPlan: WeeklyPlan,
+    strategy: ContentStrategy
+  ): Promise<DailyTask[]> {
     const tasks: DailyTask[] = [];
+    let successCount = 0;
+    let failCount = 0;
+
+    console.log(`📝 [任务生成] 开始生成任务，预计总数: ${weeklyPlan.days.reduce((sum, d) => sum + d.posts.length, 0)}`);
 
     for (const day of weeklyPlan.days) {
       for (const post of day.posts) {
-        const task = await this.createDetailedTask(profile, post);
-        tasks.push(task);
+        try {
+          console.log(`📝 [任务生成] 正在生成任务 ${successCount + failCount + 1} - 主题: ${post.theme}`);
+          const task = await this.createDetailedTask(profile, post);
+          tasks.push(task);
+          successCount++;
+
+          // 🔥 渐进式保存：每生成一个任务立即更新contentPlans
+          this.contentPlans.set(profile.userId, {
+            strategy,
+            weeklyPlan,
+            dailyTasks: [...tasks] // 保存当前已生成的所有任务
+          });
+
+          // 同时持久化到文件
+          this.saveData(profile.userId);
+
+          console.log(`✅ [任务生成] 任务 ${successCount} 生成成功并已保存 (总进度: ${successCount}/${successCount + failCount})`);
+          this.addRealTimeActivity(
+            profile.userId,
+            `✅ 已生成 ${successCount} 个任务`,
+            'generation'
+          );
+        } catch (error: any) {
+          failCount++;
+          console.error(`❌ [任务生成] 任务生成失败 (${failCount}次失败):`, error.message);
+          console.error(`   主题: ${post.theme}, 类型: ${post.type}`);
+
+          // 🔥 错误容忍：记录错误但继续生成下一个任务
+          this.addRealTimeActivity(
+            profile.userId,
+            `⚠️ 部分任务生成失败 (已成功: ${successCount}, 失败: ${failCount})`,
+            'generation'
+          );
+
+          // 如果失败次数过多，中断生成
+          if (failCount >= 3) {
+            console.error(`❌ [任务生成] 失败次数过多(${failCount})，停止生成`);
+            this.addRealTimeActivity(
+              profile.userId,
+              `❌ 任务生成中断 - 已成功生成 ${successCount} 个任务`,
+              'generation'
+            );
+            break;
+          }
+        }
       }
+
+      // 如果失败次数过多，跳出外层循环
+      if (failCount >= 3) break;
+    }
+
+    console.log(`📊 [任务生成] 完成 - 成功: ${successCount}, 失败: ${failCount}, 总计: ${tasks.length}`);
+
+    if (tasks.length === 0) {
+      throw new Error('所有任务生成都失败了，请检查Claude API配置和网络连接');
     }
 
     return tasks;
@@ -1360,11 +1480,16 @@ export class AutoContentManager {
 }
 `;
 
-    const response = await this.anthropic.messages.create({
-      model: process.env.CLAUDE_MODEL || 'claude-3-haiku-20240307',
-      max_tokens: 1500,
-      messages: [{ role: 'user', content: prompt }]
-    });
+    // 🔥 使用重试机制调用Claude API
+    const response = await this.callClaudeWithRetry(
+      () => this.anthropic.messages.create({
+        model: process.env.CLAUDE_MODEL || 'claude-3-haiku-20240307',
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: prompt }]
+      }),
+      3, // 最多重试3次
+      `生成任务文案 - 主题:${post.theme}`
+    );
 
     try {
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
@@ -2324,11 +2449,16 @@ export class AutoContentManager {
 }
 `;
 
-      const response = await this.anthropic.messages.create({
-        model: process.env.CLAUDE_MODEL || 'claude-3-haiku-20240307',
-        max_tokens: 1500,
-        messages: [{ role: 'user', content: prompt }]
-      });
+      // 🔥 使用重试机制调用Claude API
+      const response = await this.callClaudeWithRetry(
+        () => this.anthropic.messages.create({
+          model: process.env.CLAUDE_MODEL || 'claude-3-haiku-20240307',
+          max_tokens: 1500,
+          messages: [{ role: 'user', content: prompt }]
+        }),
+        3, // 最多重试3次
+        `重新生成任务 - 主题:${oldTask.title}`
+      );
 
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
       console.log('🔄 [重新生成] Claude响应原文:', responseText.substring(0, 200) + '...');
