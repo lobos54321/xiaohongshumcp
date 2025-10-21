@@ -210,7 +210,7 @@ echo "📂 Current directory: $(pwd)"
 echo "📦 Binary exists: $(test -f xiaohongshu-mcp && echo 'YES' || echo 'NO')"
 echo "🔑 Binary permissions: $(ls -la xiaohongshu-mcp 2>&1 | head -1 || echo 'N/A')"
 
-MCP_BINARY_PATH=./xiaohongshu-mcp HTTP_PORT="$MCP_HTTP_PORT" COOKIE_DIR=./cookies node dist/httpServer.js > /tmp/mcp-router.log 2>&1 &
+MCP_BINARY_PATH=./xiaohongshu-mcp HTTP_PORT="$MCP_HTTP_PORT" COOKIE_DIR=./cookies node dist/httpServer.js 2>&1 | while IFS= read -r line; do echo "[MCP-Router] $line"; done &
 MCP_PID=$!
 cd ../..
 
