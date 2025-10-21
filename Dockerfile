@@ -4,7 +4,7 @@ LABEL "language"="nodejs"
 
 # Force rebuild of all Docker layers - fix dist files not rebuilding
 ARG CACHEBUST=v15-enable-mcp-router-logs-20251021-0450
-RUN echo "CRITICAL: Enable MCP Router logs to diagnose 500 errors - Build $(date)" > /tmp/rebuild.txt
+RUN echo "CRITICAL: Enable MCP Router logs to diagnose 500 errors - v15" > /tmp/rebuild.txt
 
 # Install necessary system dependencies (including ALL Playwright browser dependencies + xvfb)
 RUN apt-get update && apt-get install -y \
