@@ -13,3 +13,7 @@ cookies
 playwright-service/mcp-router/xiaohongshu-mcp
 playwright-service/claude-agent-service/xiaohongshu-login
 playwright-service/claude-agent-service/bin/
+# 排除dist编译文件（强制重新编译确保使用最新代码）
+dist/
+*/dist/
+**/dist/

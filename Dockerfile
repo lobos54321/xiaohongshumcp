@@ -2,9 +2,9 @@
 FROM node:18-slim
 LABEL "language"="nodejs"
 
-# Force rebuild of all Docker layers - fix MCP binary download
-ARG CACHEBUST=v13-fix-mcp-binary-download-20251021-0020
-RUN echo "CRITICAL: Fixing MCP binary download with direct paths - Build $(date)" > /tmp/rebuild.txt
+# Force rebuild of all Docker layers - fix dist files not rebuilding
+ARG CACHEBUST=v14-force-dist-rebuild-20251021-0050
+RUN echo "CRITICAL: Force dist rebuild to fix JSON parsing - Build $(date)" > /tmp/rebuild.txt
 
 # Install necessary system dependencies (including ALL Playwright browser dependencies + xvfb)
 RUN apt-get update && apt-get install -y \
