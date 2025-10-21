@@ -41,8 +41,9 @@ const MCP_ROUTER_URL = process.env.MCP_ROUTER_URL || 'http://127.0.0.1:3000';
 const imageService = new ImageGenerationService({
   geminiKey: process.env.GEMINI_API_KEY,
   unsplashKey: process.env.UNSPLASH_ACCESS_KEY,
-  supabaseUrl: process.env.SUPABASE_URL,
-  supabaseKey: process.env.SUPABASE_KEY
+  // 🔥 FIX: 支持 VITE_SUPABASE_* 环境变量（Zeabur使用的格式）
+  supabaseUrl: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
+  supabaseKey: process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY
 });
 
 // 创建 Claude Agent (HTTP版本)

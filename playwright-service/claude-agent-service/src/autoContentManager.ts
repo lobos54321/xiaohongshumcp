@@ -70,12 +70,18 @@ export class AutoContentManager {
     this.allowDemoMode = process.env.ALLOW_DEMO_MODE !== 'false';
 
     // 初始化 Supabase 客户端（用于图片清理）
-    if (process.env.SUPABASE_URL && process.env.SUPABASE_KEY) {
-      this.supabase = createClient(
-        process.env.SUPABASE_URL,
-        process.env.SUPABASE_KEY
-      );
+    // 🔥 FIX: 支持 VITE_SUPABASE_* 环境变量（Zeabur使用的格式）
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+    if (supabaseUrl && supabaseKey) {
+      this.supabase = createClient(supabaseUrl, supabaseKey);
       console.log('✅ Supabase 客户端已初始化（自动内容管理）');
+      console.log(`📦 Supabase URL: ${supabaseUrl}`);
+    } else {
+      console.warn('⚠️ Supabase 配置缺失，图片将使用本地存储');
+      console.warn(`   SUPABASE_URL: ${supabaseUrl ? '已配置' : '未配置'}`);
+      console.warn(`   SUPABASE_KEY: ${supabaseKey ? '已配置' : '未配置'}`);
     }
 
     // 创建数据存储目录 - 兼容本地开发和生产环境

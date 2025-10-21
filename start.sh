@@ -179,10 +179,21 @@ export HTTP_PORT="$MCP_HTTP_PORT"
 
 MCP_ROUTER_URL_EFFECTIVE="${MCP_ROUTER_URL:-http://127.0.0.1:${MCP_HTTP_PORT}}"
 
+# 🔥 设置PUBLIC_URL用于生成完整的图片URL（MCP binary需要）
+if [ -z "$PUBLIC_URL" ]; then
+    # 优先使用ZEABUR_URL（生产环境）
+    if [ -n "$ZEABUR_URL" ]; then
+        export PUBLIC_URL="$ZEABUR_URL"
+    else
+        export PUBLIC_URL="http://localhost:${APP_PORT}"
+    fi
+fi
+
 echo "🌐 Network configuration:"
 echo "  • APP_PORT: $APP_PORT"
 echo "  • MCP_HTTP_PORT: $MCP_HTTP_PORT"
 echo "  • MCP_ROUTER_URL: $MCP_ROUTER_URL_EFFECTIVE"
+echo "  • PUBLIC_URL: $PUBLIC_URL"
 
 # 清理旧的MCP进程（防止端口冲突）
 echo "🧹 Cleaning up old MCP processes..."
