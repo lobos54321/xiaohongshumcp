@@ -248,6 +248,8 @@ export class XiaohongshuMCPProcessManager {
     const url = `http://localhost:${port}${endpoint}`;
 
     console.log(`[ProcessManager] Calling ${method} ${url} for user ${userId}`);
+    // 🔥 DEBUG: 打印完整请求数据
+    console.log(`[ProcessManager] Request data:`, JSON.stringify(data, null, 2));
 
     try {
       const response = await axios({
