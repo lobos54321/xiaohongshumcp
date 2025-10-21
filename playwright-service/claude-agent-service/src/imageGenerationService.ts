@@ -147,39 +147,46 @@ export class ImageGenerationService {
 
           console.log('🎨 [Gemini] 成功获取图片数据，mimeType:', mimeType);
 
-          // 上传到 Supabase Storage
+          // 上传到 Supabase Storage（带自动fallback）
           if (this.supabase) {
-            const { url, storageKey } = await this.uploadToSupabase(
-              base64Data,
-              request.userId,
-              'gemini',
-              mimeType
-            );
+            try {
+              const { url, storageKey } = await this.uploadToSupabase(
+                base64Data,
+                request.userId,
+                'gemini',
+                mimeType
+              );
 
-            return {
-              url,
-              storageKey,
-              source: 'gemini',
-              cost: 0.03 // Gemini定价：$0.03 per image
-            };
-          } else {
-            // 备用方案：保存到本地
-            console.warn('⚠️ [Gemini] Supabase未配置，使用本地存储');
-            const localPath = await this.saveBase64Image(base64Data, 'gemini', mimeType);
-            const filename = path.basename(localPath);
-
-            // 🔥 CRITICAL FIX: 返回完整URL，MCP binary需要完整HTTP URL才能下载
-            const baseUrl = process.env.PUBLIC_URL || process.env.ZEABUR_URL || 'http://localhost:8080';
-            const imageUrl = `${baseUrl}/images/${filename}`;
-            console.log(`🎨 [Gemini] 本地图片URL: ${imageUrl}`);
-
-            return {
-              url: imageUrl,
-              storageKey: localPath,  // 本地路径作为storageKey
-              source: 'gemini',
-              cost: 0.03
-            };
+              console.log(`✅ [Gemini] Supabase上传成功: ${url}`);
+              return {
+                url,
+                storageKey,
+                source: 'gemini',
+                cost: 0.03 // Gemini定价：$0.03 per image
+              };
+            } catch (supabaseError: any) {
+              // 🔥 Supabase上传失败（RLS权限、网络等），自动fallback到本地存储
+              console.warn(`⚠️ [Gemini] Supabase上传失败，fallback到本地存储: ${supabaseError.message}`);
+              // 继续执行下面的本地存储逻辑
+            }
           }
+
+          // 备用方案：保存到本地（Supabase未配置或上传失败）
+          console.log('📁 [Gemini] 使用本地存储');
+          const localPath = await this.saveBase64Image(base64Data, 'gemini', mimeType);
+          const filename = path.basename(localPath);
+
+          // 🔥 CRITICAL FIX: 返回完整URL，MCP binary需要完整HTTP URL才能下载
+          const baseUrl = process.env.PUBLIC_URL || 'http://localhost:8080';
+          const imageUrl = `${baseUrl}/images/${filename}`;
+          console.log(`🎨 [Gemini] 本地图片完整URL: ${imageUrl}`);
+
+          return {
+            url: imageUrl,
+            storageKey: localPath,  // 本地路径作为storageKey
+            source: 'gemini',
+            cost: 0.03
+          };
         }
       }
 

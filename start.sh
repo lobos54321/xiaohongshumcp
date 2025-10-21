@@ -181,9 +181,9 @@ MCP_ROUTER_URL_EFFECTIVE="${MCP_ROUTER_URL:-http://127.0.0.1:${MCP_HTTP_PORT}}"
 
 # 🔥 设置PUBLIC_URL用于生成完整的图片URL（MCP binary需要）
 if [ -z "$PUBLIC_URL" ]; then
-    # 优先使用ZEABUR_URL（生产环境）
-    if [ -n "$ZEABUR_URL" ]; then
-        export PUBLIC_URL="$ZEABUR_URL"
+    # 检测环境：生产环境使用固定域名，本地开发使用localhost
+    if [ "$NODE_ENV" = "production" ]; then
+        export PUBLIC_URL="https://xiaohongshu-automation-ai.zeabur.app"
     else
         export PUBLIC_URL="http://localhost:${APP_PORT}"
     fi
