@@ -3,8 +3,8 @@ FROM node:18-slim
 LABEL "language"="nodejs"
 
 # Force rebuild of all Docker layers - fix dist files not rebuilding
-ARG CACHEBUST=v14-force-dist-rebuild-20251021-0050
-RUN echo "CRITICAL: Force dist rebuild to fix JSON parsing - Build $(date)" > /tmp/rebuild.txt
+# ARG CACHEBUST alone is sufficient to invalidate cache - no need for RUN echo
+ARG CACHEBUST=v14-mcp-router-logs-enabled-20251021
 
 # Install necessary system dependencies (including ALL Playwright browser dependencies + xvfb)
 RUN apt-get update && apt-get install -y \
