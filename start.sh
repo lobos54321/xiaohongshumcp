@@ -248,14 +248,21 @@ echo "📂 Current directory: $(pwd)"
 echo "📦 Binary exists: $(test -f xiaohongshu-mcp && echo 'YES' || echo 'NO')"
 echo "🔑 Binary permissions: $(ls -la xiaohongshu-mcp 2>&1 | head -1 || echo 'N/A')"
 
-MCP_BINARY_PATH=./xiaohongshu-mcp HTTP_PORT="$MCP_HTTP_PORT" COOKIE_DIR=./cookies node dist/httpServer.js 2>&1 | while IFS= read -r line; do echo "[MCP-Router] $line"; done &
+# 🔥 启动MCP Router进程（简化版本，避免PID问题）
+MCP_BINARY_PATH=./xiaohongshu-mcp HTTP_PORT="$MCP_HTTP_PORT" COOKIE_DIR=./cookies \
+  node dist/httpServer.js > /tmp/mcp-router.log 2>&1 &
 MCP_PID=$!
+echo "📍 MCP Router started with PID: $MCP_PID"
+
+# 启动日志跟踪进程（在后台显示日志）
+tail -f /tmp/mcp-router.log 2>/dev/null | sed 's/^/[MCP-Router] /' &
+TAIL_PID=$!
 cd ../..
 
-echo "📍 MCP Router PID: $MCP_PID"
+echo "📍 MCP Router PID: $MCP_PID (log tailer PID: $TAIL_PID)"
 echo "📄 Logs will be in /tmp/mcp-router.log"
 
-trap "kill $MCP_PID 2>/dev/null" EXIT
+trap "kill $MCP_PID $TAIL_PID 2>/dev/null" EXIT
 
 echo "⏳ Waiting for MCP Router to start..."
 sleep 5
