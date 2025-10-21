@@ -214,6 +214,33 @@ else
     echo "⚠️  Xvfb not found, relying on PLAYWRIGHT_HEADLESS=true"
 fi
 
+# 🔥 创建 Chromium 符号链接（go-rod 需要 /usr/bin/chromium）
+echo "🔧 Creating Chromium symlink for go-rod..."
+CHROMIUM_PATH=$(find /root/.cache/ms-playwright -name chrome -type f | grep "chrome-linux/chrome" | head -1)
+if [ -n "$CHROMIUM_PATH" ]; then
+    # 确保/usr/bin目录存在
+    mkdir -p /usr/bin
+    # 创建或更新符号链接
+    ln -sf "$CHROMIUM_PATH" /usr/bin/chromium
+    echo "✅ Created symlink: /usr/bin/chromium -> $CHROMIUM_PATH"
+    # 验证符号链接
+    if [ -L /usr/bin/chromium ]; then
+        echo "✅ Symlink verified: $(ls -lh /usr/bin/chromium)"
+    else
+        echo "❌ Symlink creation failed!"
+    fi
+else
+    echo "⚠️  Chromium not found in Playwright cache, searching alternative locations..."
+    # 尝试查找系统安装的Chromium
+    if command -v chromium-browser >/dev/null 2>&1; then
+        CHROMIUM_PATH=$(which chromium-browser)
+        ln -sf "$CHROMIUM_PATH" /usr/bin/chromium
+        echo "✅ Using system Chromium: $CHROMIUM_PATH"
+    else
+        echo "❌ ERROR: No Chromium found! MCP Router may fail to start."
+    fi
+fi
+
 # 启动MCP Router
 echo "🔧 Starting MCP Router..."
 cd playwright-service/mcp-router
