@@ -73,14 +73,63 @@ else
     echo "🔍 [start.sh] Searching for any xiaohongshu binaries..."
     find . -name "*xiaohongshu*" -type f 2>/dev/null | head -20 || echo "No binaries found"
 
-    echo "⚠️ [start.sh] MCP Router will run in mock mode"
-    mkdir -p playwright-service/mcp-router
-    cat > playwright-service/mcp-router/xiaohongshu-mcp <<'BIN'
+    echo "🔽 [start.sh] Attempting runtime download as fallback..."
+    if command -v wget >/dev/null 2>&1 || command -v curl >/dev/null 2>&1; then
+        echo "📦 [start.sh] Downloading MCP binary at runtime..."
+        mkdir -p /tmp/mcp-download
+
+        if command -v wget >/dev/null 2>&1; then
+            wget -q -O /tmp/mcp-download/binary.tar.gz https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz
+        else
+            curl -sL -o /tmp/mcp-download/binary.tar.gz https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz
+        fi
+
+        if [ -f /tmp/mcp-download/binary.tar.gz ]; then
+            echo "📦 [start.sh] Downloaded $(ls -lh /tmp/mcp-download/binary.tar.gz | awk '{print $5}')"
+            tar -xzf /tmp/mcp-download/binary.tar.gz -C /tmp/mcp-download/
+
+            if [ -f /tmp/mcp-download/xiaohongshu-mcp-linux-amd64 ]; then
+                cp /tmp/mcp-download/xiaohongshu-mcp-linux-amd64 playwright-service/mcp-router/xiaohongshu-mcp
+                chmod +x playwright-service/mcp-router/xiaohongshu-mcp
+                RUNTIME_SIZE=$(stat -c%s "playwright-service/mcp-router/xiaohongshu-mcp" 2>/dev/null || stat -f%z "playwright-service/mcp-router/xiaohongshu-mcp" 2>/dev/null)
+                echo "✅ [start.sh] Runtime download successful! Binary size: $RUNTIME_SIZE bytes"
+                rm -rf /tmp/mcp-download
+            else
+                echo "❌ [start.sh] Binary not found in downloaded archive!"
+                echo "📋 [start.sh] Archive contents:"
+                tar -tzf /tmp/mcp-download/binary.tar.gz
+                echo "⚠️ [start.sh] Falling back to mock mode"
+                rm -rf /tmp/mcp-download
+                mkdir -p playwright-service/mcp-router
+                cat > playwright-service/mcp-router/xiaohongshu-mcp <<'BIN'
 #!/bin/bash
 echo "MCP binary not available"
 exit 1
 BIN
-    chmod +x playwright-service/mcp-router/xiaohongshu-mcp
+                chmod +x playwright-service/mcp-router/xiaohongshu-mcp
+            fi
+        else
+            echo "❌ [start.sh] Download failed!"
+            echo "⚠️ [start.sh] MCP Router will run in mock mode"
+            mkdir -p playwright-service/mcp-router
+            cat > playwright-service/mcp-router/xiaohongshu-mcp <<'BIN'
+#!/bin/bash
+echo "MCP binary not available"
+exit 1
+BIN
+            chmod +x playwright-service/mcp-router/xiaohongshu-mcp
+        fi
+    else
+        echo "❌ [start.sh] No download tools available (wget/curl)"
+        echo "⚠️ [start.sh] MCP Router will run in mock mode"
+        mkdir -p playwright-service/mcp-router
+        cat > playwright-service/mcp-router/xiaohongshu-mcp <<'BIN'
+#!/bin/bash
+echo "MCP binary not available"
+exit 1
+BIN
+        chmod +x playwright-service/mcp-router/xiaohongshu-mcp
+    fi
 fi
 
 echo "✅ All files ready"
