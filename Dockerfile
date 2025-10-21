@@ -91,23 +91,38 @@ RUN set -e && \
     wget -v -O /tmp/xiaohongshu-mcp.tar.gz https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz && \
     echo "📦 [Dockerfile] Downloaded file size:" && \
     ls -lh /tmp/xiaohongshu-mcp.tar.gz && \
-    echo "🗜️ [Dockerfile] Extracting binary..." && \
-    tar -xzf /tmp/xiaohongshu-mcp.tar.gz -C /tmp && \
-    echo "📂 [Dockerfile] Extracted files:" && \
-    find /tmp -name "*xiaohongshu*" -type f -ls && \
-    echo "📋 [Dockerfile] Copying MCP binary..." && \
-    find /tmp -name "xiaohongshu-mcp-linux-amd64" -type f -exec cp -v {} /app/playwright-service/mcp-router/xiaohongshu-mcp \; && \
-    echo "📋 [Dockerfile] Copying Login binary..." && \
-    find /tmp -name "xiaohongshu-login-linux-amd64" -type f -exec cp -v {} /app/playwright-service/claude-agent-service/xiaohongshu-login \; && \
+    echo "🗜️ [Dockerfile] Extracting to /tmp/binaries..." && \
+    mkdir -p /tmp/binaries && \
+    tar -xzf /tmp/xiaohongshu-mcp.tar.gz -C /tmp/binaries && \
+    echo "📂 [Dockerfile] Extracted contents:" && \
+    ls -lhR /tmp/binaries && \
+    echo "📋 [Dockerfile] Copying MCP binary (direct path)..." && \
+    if [ -f /tmp/binaries/xiaohongshu-mcp-linux-amd64 ]; then \
+        cp -v /tmp/binaries/xiaohongshu-mcp-linux-amd64 /app/playwright-service/mcp-router/xiaohongshu-mcp; \
+    elif [ -f /tmp/binaries/bin/xiaohongshu-mcp-linux-amd64 ]; then \
+        cp -v /tmp/binaries/bin/xiaohongshu-mcp-linux-amd64 /app/playwright-service/mcp-router/xiaohongshu-mcp; \
+    else \
+        echo "❌ MCP binary not found in expected locations!"; \
+        find /tmp/binaries -type f -ls; \
+        exit 1; \
+    fi && \
+    echo "📋 [Dockerfile] Copying Login binary (direct path)..." && \
+    if [ -f /tmp/binaries/xiaohongshu-login-linux-amd64 ]; then \
+        cp -v /tmp/binaries/xiaohongshu-login-linux-amd64 /app/playwright-service/claude-agent-service/xiaohongshu-login; \
+    elif [ -f /tmp/binaries/bin/xiaohongshu-login-linux-amd64 ]; then \
+        cp -v /tmp/binaries/bin/xiaohongshu-login-linux-amd64 /app/playwright-service/claude-agent-service/xiaohongshu-login; \
+    else \
+        echo "⚠️ Login binary not found, skipping..."; \
+    fi && \
     echo "🔑 [Dockerfile] Setting permissions..." && \
     chmod +x /app/playwright-service/mcp-router/xiaohongshu-mcp && \
-    chmod +x /app/playwright-service/claude-agent-service/xiaohongshu-login && \
+    test -f /app/playwright-service/claude-agent-service/xiaohongshu-login && chmod +x /app/playwright-service/claude-agent-service/xiaohongshu-login || true && \
     echo "✅ [Dockerfile] Final MCP binary:" && \
     ls -lh /app/playwright-service/mcp-router/xiaohongshu-mcp && \
-    echo "✅ [Dockerfile] Final Login binary:" && \
-    ls -lh /app/playwright-service/claude-agent-service/xiaohongshu-login && \
+    echo "✅ [Dockerfile] Final Login binary (if exists):" && \
+    ls -lh /app/playwright-service/claude-agent-service/xiaohongshu-login 2>/dev/null || echo "Login binary not present" && \
     echo "🧹 [Dockerfile] Cleaning up..." && \
-    rm -rf /tmp/xiaohongshu-mcp.tar.gz /tmp/xiaohongshu-mcp*
+    rm -rf /tmp/xiaohongshu-mcp.tar.gz /tmp/binaries
 
 # Step 7: Set permissions for all necessary files (only set existing files)
 RUN chmod +x start.sh zeabur-start.js && \
