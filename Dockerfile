@@ -1,11 +1,10 @@
-# Use Node.js 18 as base image
+# Xiaohongshu AI Automation System - Docker Image
+# Base: Node.js 18 (slim for reduced image size)
 FROM node:18-slim
-LABEL "language"="nodejs"
 
-# Force rebuild of all Docker layers - fix dist files not rebuilding
-# NOTE: ARG CACHEBUST is sufficient to invalidate Docker layer cache
-# Changing the ARG value forces all subsequent layers to rebuild
-ARG CACHEBUST=v17-final-mcp-logs-20251021
+# Image metadata
+LABEL "language"="nodejs"
+LABEL "version"="v18-mcp-router-logs-enabled"
 
 # Install necessary system dependencies (including ALL Playwright browser dependencies + xvfb)
 RUN apt-get update && apt-get install -y \
