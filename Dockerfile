@@ -62,6 +62,15 @@ RUN npm install --include=dev
 # Install Playwright Chromium browser and system dependencies
 RUN npx playwright install-deps && npx playwright install chromium
 
+# 🔥 CRITICAL FIX: Create symlink for go-rod (xiaohongshu-mcp binary)
+# go-rod默认查找 /usr/bin/chromium，但Playwright安装在缓存目录
+# 动态查找Playwright的Chromium并创建软链接
+RUN CHROMIUM_PATH=$(find /root/.cache/ms-playwright -name chrome -type f | grep "chrome-linux/chrome" | head -1) && \
+    echo "📍 Found Chromium at: $CHROMIUM_PATH" && \
+    ln -sf "$CHROMIUM_PATH" /usr/bin/chromium && \
+    echo "✅ Created symlink: /usr/bin/chromium -> $CHROMIUM_PATH" && \
+    ls -lh /usr/bin/chromium
+
 # Return to root directory
 WORKDIR /app
 
