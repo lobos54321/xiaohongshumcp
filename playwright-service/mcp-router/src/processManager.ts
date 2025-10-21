@@ -84,8 +84,34 @@ export class XiaohongshuMCPProcessManager {
       console.log(`[ProcessManager] Created empty cookies.json for user ${userId}`);
     }
 
+    // 🔥 CRITICAL FIX: MCP binary expects cookies at /app/data/cookies.json
+    // Create symlink from /app/data/cookies.json to actual cookie file
+    const mcpExpectedPath = '/app/data/cookies.json';
+    const mcpDataDir = '/app/data';
+
+    try {
+      // Ensure /app/data directory exists
+      if (!fs.existsSync(mcpDataDir)) {
+        fs.mkdirSync(mcpDataDir, { recursive: true });
+        console.log(`[ProcessManager] Created /app/data directory`);
+      }
+
+      // Remove existing symlink/file if present
+      if (fs.existsSync(mcpExpectedPath)) {
+        fs.unlinkSync(mcpExpectedPath);
+      }
+
+      // Create symlink from /app/data/cookies.json to user's actual cookie file
+      fs.symlinkSync(cookiesFile, mcpExpectedPath);
+      console.log(`[ProcessManager] Created symlink: ${mcpExpectedPath} -> ${cookiesFile}`);
+    } catch (symlinkError) {
+      console.error(`[ProcessManager] Failed to create symlink: ${symlinkError instanceof Error ? symlinkError.message : String(symlinkError)}`);
+      // Continue anyway - let MCP binary report the error
+    }
+
     console.log(`[ProcessManager] Starting MCP process for user ${userId} on port ${port}`);
     console.log(`[ProcessManager] Working directory: ${workDir}`);
+    console.log(`[ProcessManager] Cookie file: ${cookiesFile}`);
 
     const childProcess = spawn(this.mcpBinary, ['-port', `:${port}`], {
       cwd: workDir,  // 设置工作目录，确保Cookie文件隔离

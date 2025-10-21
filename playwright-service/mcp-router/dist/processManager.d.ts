@@ -52,6 +52,10 @@ export declare class XiaohongshuMCPProcessManager {
         }[];
     };
     /**
+     * 清理特定用户的进程
+     */
+    cleanupUser(userId: string): Promise<void>;
+    /**
      * 清理所有进程
      */
     cleanup(): void;

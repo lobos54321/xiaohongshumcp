@@ -147,6 +147,7 @@ RUN chmod +x start.sh zeabur-start.js && \
     find playwright-service -name "*login*" -type f -exec chmod +x {} \;
 
 # Step 9: Create necessary directories
+# CRITICAL: /app/data is required for MCP binary cookie path symlinks
 RUN mkdir -p /app/data /app/playwright-service/mcp-router/cookies
 
 # Expose port

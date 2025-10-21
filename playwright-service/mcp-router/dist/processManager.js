@@ -60,8 +60,31 @@ export class XiaohongshuMCPProcessManager {
             fs.writeFileSync(cookiesFile, '[]', 'utf8');
             console.log(`[ProcessManager] Created empty cookies.json for user ${userId}`);
         }
+        // 🔥 CRITICAL FIX: MCP binary expects cookies at /app/data/cookies.json
+        // Create symlink from /app/data/cookies.json to actual cookie file
+        const mcpExpectedPath = '/app/data/cookies.json';
+        const mcpDataDir = '/app/data';
+        try {
+            // Ensure /app/data directory exists
+            if (!fs.existsSync(mcpDataDir)) {
+                fs.mkdirSync(mcpDataDir, { recursive: true });
+                console.log(`[ProcessManager] Created /app/data directory`);
+            }
+            // Remove existing symlink/file if present
+            if (fs.existsSync(mcpExpectedPath)) {
+                fs.unlinkSync(mcpExpectedPath);
+            }
+            // Create symlink from /app/data/cookies.json to user's actual cookie file
+            fs.symlinkSync(cookiesFile, mcpExpectedPath);
+            console.log(`[ProcessManager] Created symlink: ${mcpExpectedPath} -> ${cookiesFile}`);
+        }
+        catch (symlinkError) {
+            console.error(`[ProcessManager] Failed to create symlink: ${symlinkError instanceof Error ? symlinkError.message : String(symlinkError)}`);
+            // Continue anyway - let MCP binary report the error
+        }
         console.log(`[ProcessManager] Starting MCP process for user ${userId} on port ${port}`);
         console.log(`[ProcessManager] Working directory: ${workDir}`);
+        console.log(`[ProcessManager] Cookie file: ${cookiesFile}`);
         const childProcess = spawn(this.mcpBinary, ['-port', `:${port}`], {
             cwd: workDir, // 设置工作目录，确保Cookie文件隔离
             env: {
@@ -270,6 +293,43 @@ export class XiaohongshuMCPProcessManager {
                 inactive: Date.now() - p.lastUsed,
             })),
         };
+    }
+    /**
+     * 清理特定用户的进程
+     */
+    async cleanupUser(userId) {
+        console.log(`[ProcessManager] Cleaning up process for user ${userId}`);
+        const managedProcess = this.processes.get(userId);
+        if (managedProcess) {
+            // 清理定时器
+            if (managedProcess.cleanupTimer) {
+                clearTimeout(managedProcess.cleanupTimer);
+            }
+            // 终止进程
+            if (managedProcess.process && !managedProcess.process.killed) {
+                managedProcess.process.kill('SIGTERM');
+                // 等待进程优雅退出
+                await new Promise(resolve => {
+                    const timeout = setTimeout(() => {
+                        if (!managedProcess.process.killed) {
+                            console.log(`[ProcessManager] Force killing process for user ${userId}`);
+                            managedProcess.process.kill('SIGKILL');
+                        }
+                        resolve();
+                    }, 3000);
+                    managedProcess.process.once('exit', () => {
+                        clearTimeout(timeout);
+                        resolve();
+                    });
+                });
+            }
+            // 从进程映射中删除
+            this.processes.delete(userId);
+            console.log(`[ProcessManager] Successfully cleaned up process for user ${userId}`);
+        }
+        else {
+            console.log(`[ProcessManager] No active process found for user ${userId}`);
+        }
     }
     /**
      * 清理所有进程
