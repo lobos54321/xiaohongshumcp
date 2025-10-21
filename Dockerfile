@@ -2,9 +2,9 @@
 FROM node:18-slim
 LABEL "language"="nodejs"
 
-# Force rebuild of all Docker layers - support Playwright auto login
-ARG CACHEBUST=v12-fix-playwright-deps-20251016-0300
-RUN echo "CRITICAL: Installing Playwright dependencies with libcups2" > /tmp/rebuild.txt
+# Force rebuild of all Docker layers - fix MCP binary download
+ARG CACHEBUST=v13-fix-mcp-binary-download-20251021-0020
+RUN echo "CRITICAL: Fixing MCP binary download with direct paths - Build $(date)" > /tmp/rebuild.txt
 
 # Install necessary system dependencies (including ALL Playwright browser dependencies + xvfb)
 RUN apt-get update && apt-get install -y \
@@ -124,12 +124,29 @@ RUN set -e && \
     echo "🧹 [Dockerfile] Cleaning up..." && \
     rm -rf /tmp/xiaohongshu-mcp.tar.gz /tmp/binaries
 
-# Step 7: Set permissions for all necessary files (only set existing files)
+# Step 7: CRITICAL - Verify MCP binary exists and is correct size
+RUN echo "🔍 [Dockerfile] FINAL VERIFICATION - Checking MCP binary..." && \
+    if [ ! -f /app/playwright-service/mcp-router/xiaohongshu-mcp ]; then \
+        echo "❌ FATAL: MCP binary does not exist!"; \
+        ls -lah /app/playwright-service/mcp-router/; \
+        exit 1; \
+    fi && \
+    BINARY_SIZE=$(stat -c%s /app/playwright-service/mcp-router/xiaohongshu-mcp) && \
+    echo "📏 [Dockerfile] MCP binary size: $BINARY_SIZE bytes" && \
+    if [ "$BINARY_SIZE" -lt 10000000 ]; then \
+        echo "❌ FATAL: MCP binary too small ($BINARY_SIZE bytes)! Expected >10MB"; \
+        echo "📋 File content preview:"; \
+        head -10 /app/playwright-service/mcp-router/xiaohongshu-mcp; \
+        exit 1; \
+    fi && \
+    echo "✅ [Dockerfile] MCP binary verification PASSED ($BINARY_SIZE bytes)"
+
+# Step 8: Set permissions for all necessary files (only set existing files)
 RUN chmod +x start.sh zeabur-start.js && \
     find playwright-service -name "xiaohongshu*" -type f -exec chmod +x {} \; && \
     find playwright-service -name "*login*" -type f -exec chmod +x {} \;
 
-# Step 8: Create necessary directories
+# Step 9: Create necessary directories
 RUN mkdir -p /app/data /app/playwright-service/mcp-router/cookies
 
 # Expose port
