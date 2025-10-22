@@ -1166,8 +1166,30 @@ export class AutoContentManager {
 
       // 🔥 关键修复：转义字符串字面量中的真实换行符
       // Claude返回的JSON在字符串值中包含真实换行符，需要转换为\n
+
+      // 🔍 诊断：转义前尝试解析
+      console.log('🔍 [extractCompleteJSON] 转义前尝试JSON.parse...');
+      try {
+        JSON.parse(extracted);
+        console.log('✅ [extractCompleteJSON] 转义前JSON有效！无需转义');
+        return extracted;
+      } catch (preError) {
+        console.log('❌ [extractCompleteJSON] 转义前JSON无效:', (preError as Error).message);
+        console.log('📝 [extractCompleteJSON] 错误位置附近的文本:', extracted.substring(Math.max(0, parseInt((preError as any).message.match(/\d+/)?.[0] || '0') - 50), parseInt((preError as any).message.match(/\d+/)?.[0] || '0') + 50));
+      }
+
       extracted = this.escapeJSONStringLiterals(extracted);
       console.log('✅ [extractCompleteJSON] JSON转义后长度:', extracted.length, '字符');
+      console.log('✅ [extractCompleteJSON] JSON转义后前200字符:', extracted.substring(0, 200));
+
+      // 🔍 诊断：转义后验证
+      try {
+        JSON.parse(extracted);
+        console.log('✅ [extractCompleteJSON] 转义后JSON有效！');
+      } catch (postError) {
+        console.error('❌ [extractCompleteJSON] 转义后JSON仍然无效:', (postError as Error).message);
+        console.error('📝 [extractCompleteJSON] 错误位置附近的文本:', extracted.substring(Math.max(0, parseInt((postError as any).message.match(/\d+/)?.[0] || '0') - 50), parseInt((postError as any).message.match(/\d+/)?.[0] || '0') + 50));
+      }
 
       return extracted;
     }
