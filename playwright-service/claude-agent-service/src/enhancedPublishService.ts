@@ -88,7 +88,9 @@ export class EnhancedPublishService {
       }
 
       // 构建发布请求
+      // 🔥 CRITICAL FIX: 必须包含userId，MCP Router需要它来为每个用户创建独立进程
       const publishData = {
+        userId: request.userId,  // ← 添加userId字段
         title: request.title,
         content: request.content,
         images: finalImages,
