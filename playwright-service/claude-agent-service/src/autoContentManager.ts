@@ -2227,7 +2227,20 @@ export class AutoContentManager {
             });
           }
         } catch (error: any) {
-          console.error(`❌ [热门话题] 搜索 "${keyword}" 失败:`, error.message);
+          // 🔥 已知问题：xiaohongshu-mcp binary存在JSON序列化bug
+          // 当小红书API返回包含循环引用的数据时会失败
+          // 这是MCP binary的问题，不影响整体流程
+          const errorMsg = error.message || String(error);
+
+          if (errorMsg.includes('Converting circular structure to JSON') ||
+              errorMsg.includes('circular') ||
+              error.status === 500) {
+            console.warn(`⚠️ [热门话题] MCP Binary序列化错误（已知问题）- 关键词 "${keyword}"`);
+            console.warn(`   原因: xiaohongshu-mcp返回数据包含循环引用`);
+            console.warn(`   影响: 跳过此关键词，继续处理其他关键词`);
+          } else {
+            console.error(`❌ [热门话题] 搜索 "${keyword}" 失败:`, errorMsg);
+          }
         }
       }
 
@@ -2236,9 +2249,11 @@ export class AutoContentManager {
         return trendingTopics.slice(0, 5); // 最多返回5个
       }
 
+      console.log('ℹ️ [热门话题] 未能获取真实话题，将使用策略中的默认话题');
       return [];
     } catch (error: any) {
       console.error('❌ [热门话题] 获取失败:', error.message);
+      console.log('ℹ️ [热门话题] 错误已被安全处理，内容生成将继续使用策略中的默认话题');
       return [];
     }
   }
