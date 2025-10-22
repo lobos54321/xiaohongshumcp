@@ -87,12 +87,19 @@ app.post('/mcp/call', async (req, res) => {
       });
     }
 
+    // 🔥 CRITICAL FIX: xiaohongshu-mcp要求请求中包含userId字段
+    // args对象是发送给MCP binary的实际数据，必须包含userId
+    const requestData = {
+      userId,  // ← 添加userId到请求数据中
+      ...(args || {})
+    };
+
     // 调用对应的MCP进程
     const result = await processManager.callTool(
       userId,
       endpoint.path,
       endpoint.method,
-      args || {}
+      requestData
     );
 
     res.json({
