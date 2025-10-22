@@ -154,7 +154,7 @@ export class MCPAuthClient {
    */
   async publishContent(userId: string, content: {
     title: string;
-    description: string;
+    content: string;  // 🔥 修复：MCP binary期望的是 "content" 而非 "description"
     images?: string[];
     tags?: string[];
     type?: 'normal' | 'video';

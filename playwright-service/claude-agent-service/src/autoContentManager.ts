@@ -1760,7 +1760,7 @@ export class AutoContentManager {
       // MCP Router 会自动下载这些 URL 并上传到小红书
       const result = await this.mcpClient.publishContent(userId, {
         title: task.title,
-        description: task.content,
+        content: task.content,  // 🔥 修复：MCP binary期望 "content" 字段而非 "description"
         images: imageUrls,  // ✅ Supabase 公网 URL，MCP自动下载
         tags: task.hashtags,
         type: task.contentType === '视频' ? 'video' : 'normal'
