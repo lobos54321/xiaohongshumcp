@@ -1778,6 +1778,16 @@ export class AutoContentManager {
         throw new Error('MCP客户端未配置');
       }
 
+      // 🔍 调试信息：记录发布请求详情
+      console.log(`📝 [发布] 准备发布内容: ${task.title}`);
+      console.log(`📝 [发布] 原始contentType: "${task.contentType}"`);
+      console.log(`📝 [发布] 映射后type: "${this.getAPIContentType(task.contentType)}"`);
+      console.log(`📷 [发布] 使用${imageUrls.length}张图片（Supabase URL）`);
+      imageUrls.forEach((url, index) => {
+        console.log(`   图片${index + 1}: ${url}`);
+      });
+      console.log(`🏷️ [发布] 标签: ${task.hashtags.join(', ')}`);
+
       // 调用真实的小红书发布工具 - 传递 Supabase 公网 URL
       // MCP Router 会自动下载这些 URL 并上传到小红书
       const result = await this.mcpClient.publishContent(userId, {
@@ -1785,7 +1795,7 @@ export class AutoContentManager {
         content: task.content,  // 🔥 修复：MCP binary期望 "content" 字段而非 "description"
         images: imageUrls,  // ✅ Supabase 公网 URL，MCP自动下载
         tags: task.hashtags,
-        type: task.contentType === '视频' ? 'video' : 'normal'
+        type: this.getAPIContentType(task.contentType)
       });
 
       if (result.success) {
@@ -2606,6 +2616,37 @@ export class AutoContentManager {
     this.saveData(userId);
     this.addRealTimeActivity(userId, `⚙️ 策略已更新`, 'execution');
     console.log(`✅ [更新策略] 策略已更新并保存`);
+  }
+
+  /**
+   * 🔥 新增：将中文内容类型映射到API期望的英文类型
+   */
+  private getAPIContentType(contentType: string): 'normal' | 'video' {
+    // 🔍 调试信息：记录原始类型
+    console.log(`🔍 [类型映射] 原始contentType: "${contentType}"`);
+
+    const typeMapping: Record<string, 'normal' | 'video'> = {
+      // 中文类型映射
+      '视频': 'video',
+      '图文': 'normal',
+      '轮播图': 'normal',
+      '单图': 'normal',
+
+      // 英文类型（防御性编程）
+      'video': 'video',
+      'normal': 'normal',
+
+      // 其他可能的变体
+      '视频内容': 'video',
+      '图文内容': 'normal',
+      'Video': 'video',
+      'Normal': 'normal'
+    };
+
+    const mappedType = typeMapping[contentType] || 'normal';
+    console.log(`✅ [类型映射] "${contentType}" → "${mappedType}"`);
+
+    return mappedType;
   }
 }
 
