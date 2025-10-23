@@ -159,6 +159,10 @@ RUN chmod +x start.sh zeabur-start.js && \
 # CRITICAL: /app/data is required for MCP binary cookie path symlinks
 RUN mkdir -p /app/data /app/playwright-service/mcp-router/cookies
 
+# 🔥 CRITICAL: Declare /app/data as persistent volume
+# This ensures data (auto-content plans, cookies) persists across container restarts
+VOLUME ["/app/data"]
+
 # Expose port
 EXPOSE 8080
 
