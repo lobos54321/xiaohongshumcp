@@ -213,8 +213,25 @@ export class XiaohongshuMCPProcessManager {
             return response.data;
         }
         catch (error) {
-            console.error(`[ProcessManager] Tool call failed for user ${userId}:`, error.message);
-            throw error;
+            // 🔥 捕获完整的错误信息，包括response.data
+            const errorDetails = {
+                message: error.message,
+                status: error.response?.status,
+                statusText: error.response?.statusText,
+                data: error.response?.data,
+                config: {
+                    method: error.config?.method,
+                    url: error.config?.url,
+                }
+            };
+            console.error(`[ProcessManager] Tool call failed for user ${userId}:`, errorDetails);
+            // 抛出包含完整错误信息的新错误
+            const enhancedError = new Error(`MCP Process Error: ${error.message}`);
+            enhancedError.originalError = error;
+            enhancedError.response = error.response;
+            enhancedError.status = error.response?.status;
+            enhancedError.data = error.response?.data;
+            throw enhancedError;
         }
     }
     /**

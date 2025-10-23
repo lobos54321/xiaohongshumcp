@@ -107,10 +107,28 @@ app.post('/mcp/call', async (req, res) => {
       data: result,
     });
   } catch (error: any) {
-    console.error('[HTTP Server] Tool call failed:', error.message);
-    res.status(500).json({
+    // 🔥 提取完整的错误信息
+    const errorResponse = {
+      message: error.message,
+      status: error.status || error.response?.status,
+      data: error.data || error.response?.data,
+      originalError: error.originalError ? {
+        message: error.originalError.message,
+        status: error.originalError.response?.status,
+        data: error.originalError.response?.data,
+      } : undefined,
+    };
+
+    console.error('[HTTP Server] Tool call failed:', errorResponse);
+
+    const statusCode = error.status || error.response?.status || 500;
+    const errorMessage = error.data?.error || error.data?.message || error.message || 'Unknown error';
+
+    res.status(statusCode).json({
       success: false,
-      error: error.message,
+      error: errorMessage,
+      details: error.data,
+      status: statusCode,
     });
   }
 });

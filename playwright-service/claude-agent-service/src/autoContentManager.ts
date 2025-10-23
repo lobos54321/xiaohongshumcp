@@ -1800,8 +1800,31 @@ export class AutoContentManager {
         throw new Error(result.error || '发布失败');
       }
     } catch (error: any) {
-      console.error('❌ [发布] 发布失败:', error.message);
-      throw error;
+      // 🔥 保留完整的错误信息，特别是从mcpClient.publishContent返回的详细错误
+      const errorDetails = {
+        message: error.message,
+        error: error.error,
+        details: error.details,
+        status: error.status,
+        originalError: error.originalError
+      };
+
+      console.error('❌ [发布] 发布失败:', errorDetails);
+
+      // 优先使用详细的错误信息
+      const errorMessage = error.error ||           // mcpClient返回的详细错误
+                          error.details?.error ||   // 可能的嵌套错误
+                          error.message ||          // 标准错误消息
+                          '发布失败';
+
+      // 创建包含完整信息的新错误对象
+      const enhancedError = new Error(errorMessage);
+      (enhancedError as any).error = error.error;
+      (enhancedError as any).details = error.details;
+      (enhancedError as any).status = error.status;
+      (enhancedError as any).originalError = error.originalError;
+
+      throw enhancedError;
     }
   }
 

@@ -16,6 +16,9 @@ export interface MCPPublishResult {
   success: boolean;
   data?: any;
   error?: string;
+  details?: any;
+  status?: number;
+  originalError?: any;
 }
 
 export class MCPAuthClient {
@@ -181,10 +184,32 @@ export class MCPAuthClient {
         };
       }
     } catch (error: any) {
-      console.error(`[MCP Auth] Error publishing content:`, error.message);
+      // 🔥 提取完整的错误信息，包括MCP Router返回的详细错误
+      const errorDetails = {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data,
+        config: {
+          url: error.config?.url,
+          method: error.config?.method,
+        }
+      };
+
+      console.error(`[MCP Auth] Error publishing content:`, errorDetails);
+
+      // 优先使用服务器返回的详细错误信息
+      const errorMessage = error.response?.data?.error ||
+                          error.response?.data?.details?.error ||
+                          error.response?.data?.message ||
+                          error.message ||
+                          'Unknown publish error';
+
       return {
         success: false,
-        error: error.message
+        error: errorMessage,
+        details: error.response?.data?.details,
+        status: error.response?.status,
+        originalError: error.response?.data
       };
     }
   }
