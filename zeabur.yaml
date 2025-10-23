@@ -10,10 +10,10 @@ services:
       UNSPLASH_API_KEY: ${UNSPLASH_API_KEY}
     # Zeabur 会自动设置 PORT
     port: 3000
-    # 🔥 保守优化：平衡性能和资源使用
-    resources:
-      memory: 1536Mi  # 1.5GB - 平衡性能和资源
-      cpu: 750m       # 0.75核心 - 保留一定余量
+    # 🔥 移除资源限制，使用Zeabur默认配置
+    # resources: # 注释掉，让Zeabur自动分配
+    #   memory: 768Mi
+    #   cpu: 400m
     # 健康检查
     healthcheck:
       path: /health
