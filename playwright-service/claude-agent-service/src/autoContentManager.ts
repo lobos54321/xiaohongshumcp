@@ -542,7 +542,7 @@ export class AutoContentManager {
     // 🔥 使用重试机制调用Claude API
     const response = await this.callClaudeWithRetry(
       () => this.anthropic.messages.create({
-        model: process.env.CLAUDE_MODEL || 'claude-3-haiku-20240307',
+        model: process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001',
         max_tokens: 2000,
         messages: [{ role: 'user', content: prompt }]
       }),
@@ -659,7 +659,7 @@ export class AutoContentManager {
     // 🔥 使用重试机制调用Claude API
     const response = await this.callClaudeWithRetry(
       () => this.anthropic.messages.create({
-        model: process.env.CLAUDE_MODEL || 'claude-3-haiku-20240307',
+        model: process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001',
         max_tokens: 4000,
         messages: [{ role: 'user', content: prompt }]
       }),
@@ -1505,7 +1505,7 @@ export class AutoContentManager {
     // 🔥 使用重试机制调用Claude API
     const response = await this.callClaudeWithRetry(
       () => this.anthropic.messages.create({
-        model: process.env.CLAUDE_MODEL || 'claude-3-haiku-20240307',
+        model: process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001',
         max_tokens: 1500,
         messages: [{ role: 'user', content: prompt }]
       }),
@@ -2489,7 +2489,7 @@ export class AutoContentManager {
       // 🔥 使用重试机制调用Claude API
       const response = await this.callClaudeWithRetry(
         () => this.anthropic.messages.create({
-          model: process.env.CLAUDE_MODEL || 'claude-3-haiku-20240307',
+          model: process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001',
           max_tokens: 1500,
           messages: [{ role: 'user', content: prompt }]
         }),
