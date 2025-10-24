@@ -1224,10 +1224,26 @@ app.post('/agent/auto/approve/:userId', async (req, res) => {
         });
     }
     catch (error) {
-        console.error('[Auto Mode] Error approving post:', error);
-        res.status(500).json({
+        // 🔥 提取完整的错误信息，特别是从MCP服务返回的详细错误
+        const errorDetails = {
+            message: error.message,
+            details: error.details,
+            status: error.status,
+            originalError: error.originalError,
+            stack: error.stack
+        };
+        console.error('[Auto Mode] Error approving post:', errorDetails);
+        // 优先使用详细的错误信息
+        const errorMessage = error.error || // mcpAuthClient返回的error字段
+            error.details?.error || // 可能的嵌套错误
+            error.message || // 标准错误消息
+            'Failed to approve and publish content';
+        const statusCode = error.status || 500;
+        res.status(statusCode).json({
             success: false,
-            error: error.message,
+            error: errorMessage,
+            details: error.details,
+            status: statusCode,
         });
     }
 });

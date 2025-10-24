@@ -531,7 +531,7 @@ export class AutoContentManager {
 
 请分析并提供：
 1. 5个核心内容主题（针对目标客户的痛点和需求）
-2. 8种适合的内容类型（如：教程、测评、探店、生活方式等）
+2. 8种适合的内容类型（如：教程图文、测评对比、探店分享、生活方式、干货笔记、视频教程等）
 3. 最佳发布时间（3个时段，考虑目标客户的作息）
 4. 20个高热度相关话题标签
 5. 当前相关的3个热门趋势话题
@@ -1778,11 +1778,16 @@ export class AutoContentManager {
         throw new Error('MCP客户端未配置');
       }
 
+      // 🔍 自动检测内容类型（基于实际内容而非标签）
+      // 如果任务有videoUrl字段，则为视频；否则为图文
+      const actualContentType = (task as any).videoUrl ? 'video' : 'normal';
+
       // 🔍 调试信息：记录发布请求详情
       console.log(`📝 [发布] 准备发布内容: ${task.title}`);
-      console.log(`📝 [发布] 原始contentType: "${task.contentType}"`);
-      console.log(`📝 [发布] 映射后type: "${this.getAPIContentType(task.contentType)}"`);
-      console.log(`📷 [发布] 使用${imageUrls.length}张图片（Supabase URL）`);
+      console.log(`📝 [发布] Claude标注的contentType: "${task.contentType}"`);
+      console.log(`🤖 [发布] 自动检测的实际类型: "${actualContentType}"`);
+      console.log(`📷 [发布] 图片数量: ${imageUrls.length}`);
+      console.log(`🎬 [发布] 视频URL: ${(task as any).videoUrl || '无'}`);
       imageUrls.forEach((url, index) => {
         console.log(`   图片${index + 1}: ${url}`);
       });
@@ -1795,7 +1800,7 @@ export class AutoContentManager {
         content: task.content,  // 🔥 修复：MCP binary期望 "content" 字段而非 "description"
         images: imageUrls,  // ✅ Supabase 公网 URL，MCP自动下载
         tags: task.hashtags,
-        type: this.getAPIContentType(task.contentType)
+        type: actualContentType  // 🔥 使用自动检测的类型，而非Claude的标签
       });
 
       if (result.success) {
