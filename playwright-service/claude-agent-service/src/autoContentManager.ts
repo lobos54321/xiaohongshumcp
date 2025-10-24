@@ -2092,6 +2092,13 @@ export class AutoContentManager {
     console.log(`📋 [DEBUG] contentPlans 总数: ${this.contentPlans.size}`);
     console.log(`📋 [DEBUG] contentPlans 中的用户IDs:`, Array.from(this.contentPlans.keys()));
 
+    // 🔥 关键修复：如果正在重新生成，返回 null（避免显示旧策略）
+    const status = this.generationStatus.get(userId);
+    if (status === 'generating') {
+      console.log(`📋 [DEBUG] 用户 ${userId} 正在生成中，返回 null（避免显示旧策略）`);
+      return null;
+    }
+
     const plan = this.contentPlans.get(userId);
     if (plan) {
       console.log(`📋 [DEBUG] 找到用户策略:`, JSON.stringify(plan.strategy, null, 2));
@@ -2120,6 +2127,13 @@ export class AutoContentManager {
     console.log(`📅 [DEBUG] 获取用户 ${userId} 的每日任务`);
     console.log(`📅 [DEBUG] contentPlans 总数: ${this.contentPlans.size}`);
 
+    // 🔥 关键修复：如果正在重新生成，返回空数组（避免显示旧数据）
+    const status = this.generationStatus.get(userId);
+    if (status === 'generating') {
+      console.log(`📅 [DEBUG] 用户 ${userId} 正在生成中，返回空数组（避免显示旧数据）`);
+      return [];
+    }
+
     const plan = this.contentPlans.get(userId);
     if (plan && plan.dailyTasks) {
       console.log(`📅 [DEBUG] 找到 ${plan.dailyTasks.length} 个每日任务`);
@@ -2137,6 +2151,13 @@ export class AutoContentManager {
    * 获取用户的周计划
    */
   getWeeklyPlan(userId: string): WeeklyPlan | null {
+    // 🔥 关键修复：如果正在重新生成，返回 null（避免显示旧计划）
+    const status = this.generationStatus.get(userId);
+    if (status === 'generating') {
+      console.log(`📅 [DEBUG] 用户 ${userId} 正在生成中，返回 null（避免显示旧周计划）`);
+      return null;
+    }
+
     const plan = this.contentPlans.get(userId);
     return plan ? plan.weeklyPlan : null;
   }
