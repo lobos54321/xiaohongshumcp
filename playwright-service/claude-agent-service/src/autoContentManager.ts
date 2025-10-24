@@ -188,6 +188,27 @@ export class AutoContentManager {
     console.log(`🚀 [DEBUG] 为用户 ${userProfile.userId} 启动自动运营模式`);
     console.log(`🚀 [DEBUG] 用户配置:`, JSON.stringify(userProfile, null, 2));
 
+    // 🔥 清除旧数据 - 重新配置时必须清除之前的计划
+    console.log(`🧹 [DEBUG] 清除用户 ${userProfile.userId} 的旧数据...`);
+    const hadOldPlan = this.contentPlans.has(userProfile.userId);
+    this.contentPlans.delete(userProfile.userId);
+    this.realTimeActivities.delete(userProfile.userId);
+
+    // 删除磁盘上的旧数据文件
+    try {
+      const filePath = path.join(this.dataDir, `${userProfile.userId}.json`);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+        console.log(`🧹 [DEBUG] 已删除旧数据文件: ${filePath}`);
+      }
+    } catch (error: any) {
+      console.warn(`⚠️ [DEBUG] 删除旧数据文件失败:`, error.message);
+    }
+
+    if (hadOldPlan) {
+      console.log(`✅ [DEBUG] 已清除旧内容计划，准备重新生成`);
+    }
+
     // 设置生成状态
     this.generationStatus.set(userProfile.userId, 'generating');
     console.log(`🚀 [DEBUG] 已设置生成状态为 generating`);
