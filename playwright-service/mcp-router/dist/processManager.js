@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import axios from 'axios';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as net from 'net';
 export class XiaohongshuMCPProcessManager {
     constructor(mcpBinaryPath, cookieDir) {
         this.processes = new Map();
@@ -21,13 +22,45 @@ export class XiaohongshuMCPProcessManager {
         }
     }
     /**
-     * 分配端口
+     * 检查端口是否真正可用（操作系统级别）
      */
-    allocatePort() {
+    async isPortAvailable(port) {
+        return new Promise((resolve) => {
+            const server = net.createServer();
+            server.once('error', (err) => {
+                if (err.code === 'EADDRINUSE') {
+                    resolve(false); // 端口被占用
+                }
+                else {
+                    resolve(false); // 其他错误也视为不可用
+                }
+            });
+            server.once('listening', () => {
+                server.close(() => {
+                    resolve(true); // 端口可用
+                });
+            });
+            server.listen(port, '127.0.0.1');
+        });
+    }
+    /**
+     * 分配端口 - 改进版：检查操作系统级别的端口占用
+     */
+    async allocatePort() {
         const usedPorts = new Set(Array.from(this.processes.values()).map(p => p.port));
         for (let port = this.basePort; port < this.basePort + 1000; port++) {
-            if (!usedPorts.has(port)) {
+            // 跳过内存中已使用的端口
+            if (usedPorts.has(port)) {
+                continue;
+            }
+            // 🔥 关键修复：检查操作系统级别的端口占用
+            const available = await this.isPortAvailable(port);
+            if (available) {
+                console.log(`[ProcessManager] Allocated port ${port} (verified available at OS level)`);
                 return port;
+            }
+            else {
+                console.log(`[ProcessManager] Port ${port} is occupied at OS level, trying next...`);
             }
         }
         throw new Error('No available ports');
@@ -36,7 +69,7 @@ export class XiaohongshuMCPProcessManager {
      * 启动用户专属的 MCP 进程
      */
     async startProcess(userId) {
-        const port = this.allocatePort();
+        const port = await this.allocatePort();
         // 检查二进制文件是否存在
         if (!fs.existsSync(this.mcpBinary)) {
             throw new Error(`xiaohongshu-mcp binary not found at: ${this.mcpBinary}. Please ensure the Linux binary is installed.`);

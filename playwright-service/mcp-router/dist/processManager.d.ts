@@ -7,7 +7,11 @@ export declare class XiaohongshuMCPProcessManager {
     private cookieDir;
     constructor(mcpBinaryPath: string, cookieDir: string);
     /**
-     * 分配端口
+     * 检查端口是否真正可用（操作系统级别）
+     */
+    private isPortAvailable;
+    /**
+     * 分配端口 - 改进版：检查操作系统级别的端口占用
      */
     private allocatePort;
     /**
