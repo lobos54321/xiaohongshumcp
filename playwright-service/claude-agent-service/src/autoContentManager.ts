@@ -1500,7 +1500,7 @@ export class AutoContentManager {
 目标：${profile.marketingGoal}
 
 要求：
-1. 标题：吸引眼球，包含关键词，**不超过30字**（小红书限制）
+1. 标题：吸引眼球，包含关键词，**不超过20个汉字**（小红书限制60字节）
 2. 正文：${profile.brandStyle}风格，包含emoji，200-500字
 3. 配图描述：生成**4张不同角度的配图**，每张图片都要详细描述场景、人物、氛围、构图
    - 第1张：主场景全景图
@@ -1792,15 +1792,23 @@ export class AutoContentManager {
         throw new Error('MCP客户端未配置');
       }
 
-      // 🔥 验证和截断标题长度 - 小红书限制为30个字符
-      const MAX_TITLE_LENGTH = 30;
+      // 🔥 验证和截断标题长度 - 使用 UTF-8 字节数（与 MCP 一致）
+      const MAX_TITLE_BYTES = 60;  // MCP 二进制使用 UTF-8 字节数限制
       let title = task.title;
+      let titleBytes = Buffer.byteLength(title, 'utf8');
 
-      if (title.length > MAX_TITLE_LENGTH) {
-        console.warn(`⚠️ [发布] 标题过长 (${title.length}字符)，截断到${MAX_TITLE_LENGTH}字符`);
+      if (titleBytes > MAX_TITLE_BYTES) {
+        console.warn(`⚠️ [发布] 标题过长 (${titleBytes} 字节)，截断到 ${MAX_TITLE_BYTES} 字节`);
         console.warn(`⚠️ [发布] 原标题: ${title}`);
-        title = title.substring(0, MAX_TITLE_LENGTH);
-        console.log(`✂️ [发布] 截断后: ${title}`);
+
+        // 安全截断 UTF-8 字符串（避免截断到字符中间）
+        let truncated = title;
+        while (Buffer.byteLength(truncated, 'utf8') > MAX_TITLE_BYTES) {
+          truncated = truncated.slice(0, -1);
+        }
+        title = truncated;
+
+        console.log(`✂️ [发布] 截断后: ${title} (${Buffer.byteLength(title, 'utf8')} 字节)`);
       }
 
       // 🔍 自动检测内容类型（基于实际内容而非标签）
@@ -1809,7 +1817,7 @@ export class AutoContentManager {
 
       // 🔍 调试信息：记录发布请求详情
       console.log(`📝 [发布] 准备发布内容: ${title}`);
-      console.log(`📏 [发布] 标题长度: ${title.length}/${MAX_TITLE_LENGTH}字符`);
+      console.log(`📏 [发布] 标题长度: ${Buffer.byteLength(title, 'utf8')}/${MAX_TITLE_BYTES}字节 (${title.length}字符)`);
       console.log(`📝 [发布] Claude标注的contentType: "${task.contentType}"`);
       console.log(`🤖 [发布] 自动检测的实际类型: "${actualContentType}"`);
       console.log(`📷 [发布] 图片数量: ${imageUrls.length}`);
@@ -1817,15 +1825,20 @@ export class AutoContentManager {
       imageUrls.forEach((url, index) => {
         console.log(`   图片${index + 1}: ${url}`);
       });
-      console.log(`🏷️ [发布] 标签: ${task.hashtags.join(', ')}`);
+      // 🔥 验证标签：确保有标签且符合产品定位
+      if (!task.hashtags || task.hashtags.length === 0) {
+        console.error(`❌ [发布] 标签缺失，无法发布`);
+        throw new Error('标签缺失：请确保任务包含至少一个相关标签。请重新编辑任务并添加符合产品定位的标签。');
+      }
+      console.log(`🏷️ [发布] 标签 (${task.hashtags.length}个): ${task.hashtags.join(', ')}`);
 
       // 调用真实的小红书发布工具 - 传递 Supabase 公网 URL
       // MCP Router 会自动下载这些 URL 并上传到小红书
       const result = await this.mcpClient.publishContent(userId, {
-        title: title,  // 🔥 使用验证后的标题
+        title: title,  // 🔥 使用验证后的标题（UTF-8字节数验证）
         content: task.content,  // 🔥 修复：MCP binary期望 "content" 字段而非 "description"
         images: imageUrls,  // ✅ Supabase 公网 URL，MCP自动下载
-        tags: task.hashtags,
+        tags: task.hashtags,  // 🔥 使用原始标签（必须存在）
         type: actualContentType  // 🔥 使用自动检测的类型，而非Claude的标签
       });
 
@@ -2535,7 +2548,15 @@ export class AutoContentManager {
     // 更新任务内容
     if (updates.title) task.title = updates.title;
     if (updates.content) task.content = updates.content;
-    if (updates.hashtags) task.hashtags = updates.hashtags;
+
+    // 🔥 关键修复：只有当提供了非空标签数组时才更新，否则保留原有标签
+    if (updates.hashtags && updates.hashtags.length > 0) {
+      task.hashtags = updates.hashtags;
+      console.log(`✏️ [编辑任务] 已更新标签: ${updates.hashtags.join(', ')}`);
+    } else if (updates.hashtags !== undefined && updates.hashtags.length === 0) {
+      // 如果明确传入空数组，记录警告但保留原有标签
+      console.warn(`⚠️ [编辑任务] 收到空标签数组，保留原有标签: ${task.hashtags.join(', ')}`);
+    }
 
     // 注意：编辑功能暂不支持修改图片，保留现有图片
 
