@@ -149,11 +149,19 @@ export class XiaohongshuMCPProcessManager {
     console.log(`[ProcessManager] Working directory: ${workDir}`);
     console.log(`[ProcessManager] Cookie file: ${cookiesFile}`);
 
-    const childProcess = spawn(this.mcpBinary, ['-port', `:${port}`], {
+    // 🔥 设置 Rod 库的超时时间为 10 分钟（解决 publish.go:38 的 context deadline exceeded）
+    // Rod 内部默认超时约 180 秒，发布操作需要更长时间（图片上传、浏览器自动化等）
+    const childProcess = spawn(this.mcpBinary, [
+      '-port', `:${port}`,
+      '-rod', 'cdp-timeout=10m'  // 设置 Chrome DevTools Protocol 超时为 10 分钟
+    ], {
       cwd: workDir,  // 设置工作目录，确保Cookie文件隔离
       env: {
         ...process.env,
         USER_ID: userId,
+        // 🔥 通过环境变量设置 Rod 超时（双重保险）
+        // 格式: rod=option1,option2,option3
+        rod: 'cdp-timeout=10m,trace',  // CDP 超时 10 分钟 + 启用跟踪
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
