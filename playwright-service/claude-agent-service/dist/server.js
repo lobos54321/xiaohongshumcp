@@ -1427,6 +1427,30 @@ app.post('/agent/auto/resume/:userId', async (req, res) => {
         });
     }
 });
+// 🔥 清除用户数据（用于重新配置）
+app.post('/agent/auto/reset/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        console.log(`[Auto Mode] Resetting user data for ${userId}`);
+        // 调用 autoContentManager 的清除方法
+        autoContentManager.clearUserData(userId);
+        res.json({
+            success: true,
+            message: '用户数据已清除，可以重新配置',
+            data: {
+                userId,
+                clearedAt: new Date().toISOString()
+            }
+        });
+    }
+    catch (error) {
+        console.error('[Auto Mode] Error resetting user data:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+        });
+    }
+});
 // 图片生成API (单张)
 app.post('/agent/image/generate', async (req, res) => {
     try {

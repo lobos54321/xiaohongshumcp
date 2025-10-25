@@ -2121,6 +2121,32 @@ export class AutoContentManager {
   }
 
   /**
+   * 清除用户的所有数据（用于重新配置）
+   */
+  clearUserData(userId: string): void {
+    console.log(`🧹 [清除数据] 开始清除用户 ${userId} 的所有数据...`);
+
+    // 清除内存中的数据
+    this.userProfiles.delete(userId);
+    this.contentPlans.delete(userId);
+    this.realTimeActivities.delete(userId);
+    this.generationStatus.delete(userId);
+
+    // 删除磁盘上的持久化文件
+    try {
+      const filePath = path.join(this.dataDir, `${userId}.json`);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+        console.log(`🧹 [清除数据] 已删除数据文件: ${filePath}`);
+      }
+    } catch (error: any) {
+      console.warn(`⚠️ [清除数据] 删除数据文件失败:`, error.message);
+    }
+
+    console.log(`✅ [清除数据] 用户 ${userId} 的所有数据已清除`);
+  }
+
+  /**
    * 获取用户的每日任务
    */
   getDailyTasks(userId: string): DailyTask[] {

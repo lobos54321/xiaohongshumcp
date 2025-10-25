@@ -2041,13 +2041,31 @@
         }
 
         // 返回设置页面
-        function backToSetup() {
+        async function backToSetup() {
             if (confirm('确定要重新配置吗？这将停止当前的自动运营。')) {
                 autoModeEnabled = false;
 
-                // 🔥 关键修复：清除 localStorage 中的旧配置
+                // 🔥 关键修复1：清除 localStorage 中的旧配置
                 localStorage.removeItem(`userConfig_${currentUser}`);
                 console.log('🧹 已清除本地缓存的配置');
+
+                // 🔥 关键修复2：调用后端 API 清除服务器端数据
+                try {
+                    console.log('🧹 正在清除服务器端数据...');
+                    const response = await fetch(`${CLAUDE_API}/agent/auto/reset/${currentUser}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    const result = await response.json();
+
+                    if (result.success) {
+                        console.log('✅ 服务器端数据已清除');
+                    } else {
+                        console.warn('⚠️ 服务器端数据清除失败:', result.error);
+                    }
+                } catch (error) {
+                    console.error('❌ 调用清除API失败:', error);
+                }
 
                 // 🔥 重置表单字段（允许用户输入新配置）
                 document.getElementById('productName').value = '';
