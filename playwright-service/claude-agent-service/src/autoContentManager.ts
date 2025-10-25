@@ -1491,6 +1491,8 @@ export class AutoContentManager {
    */
   private async createDetailedTask(profile: UserProfile, post: any): Promise<DailyTask> {
     const prompt = `
+你必须严格按照JSON格式返回，不要添加任何解释性文字。
+
 请为以下内容创建一篇完整的小红书文案：
 
 产品：${profile.productName}
@@ -1509,19 +1511,34 @@ export class AutoContentManager {
    - 第4张：产品界面或总结画面
 4. 话题标签：5-8个相关标签
 
-请以JSON格式返回：
+**重要：你必须只返回下面这个JSON格式，不要有任何其他内容（不要有markdown代码块标记，不要有解释文字）：**
+
 {
-  "title": "标题",
-  "content": "正文内容",
+  "title": "具体的标题文字",
+  "content": "具体的正文内容",
   "imagePrompts": [
-    "第1张图片的详细生成提示词",
-    "第2张图片的详细生成提示词",
-    "第3张图片的详细生成提示词",
-    "第4张图片的详细生成提示词"
+    "第1张图片的详细英文生成提示词",
+    "第2张图片的详细英文生成提示词",
+    "第3张图片的详细英文生成提示词",
+    "第4张图片的详细英文生成提示词"
   ],
-  "hashtags": ["标签1", "标签2"]
+  "hashtags": ["#标签1", "#标签2", "#标签3", "#标签4", "#标签5"]
 }
-`;
+
+示例：
+{
+  "title": "🐵户外闯关新玩法！周末遛娃好去处",
+  "content": "周末带娃去哪玩？🤔 试试GoGoMonkey户外闯关！💪 让孩子放下手机，在大自然中尽情奔跑！🏃‍♂️ 攀爬、平衡、协调能力全方位锻炼 ✨",
+  "imagePrompts": [
+    "Wide shot of outdoor obstacle course for kids, colorful equipment, children climbing and playing, sunny day, professional photography, high quality",
+    "Close-up detail shot of child's hands gripping climbing wall holds, determination on face, vibrant colors, shallow depth of field",
+    "Action shot of multiple children running through obstacle course together, laughing and having fun, dynamic composition, motion blur",
+    "Product showcase banner image with GoGoMonkey logo and outdoor equipment overview, professional marketing style, clean layout"
+  ],
+  "hashtags": ["#户外运动", "#亲子互动", "#周末遛娃", "#儿童成长", "#运动教育"]
+}
+
+现在请为上述产品和主题生成JSON，记住：只返回JSON，不要有其他任何内容。`;
 
     // 🔥 使用重试机制调用Claude API
     const response = await this.callClaudeWithRetry(
