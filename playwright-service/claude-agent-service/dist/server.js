@@ -1182,7 +1182,8 @@ app.get('/agent/auto/plan/:userId', async (req, res) => {
                 type: task.contentType || '图文',
                 content: task.content || '',
                 image_urls: task.imageUrls || [],
-                image_prompts: task.imagePrompts || []
+                image_prompts: task.imagePrompts || [],
+                hashtags: task.hashtags || [] // 🔥 添加标签字段
             };
         });
         const plan = {

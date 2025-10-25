@@ -1513,6 +1513,14 @@
                         <div class="flex-1 min-w-0">
                             <div class="font-medium text-gray-900 mb-1 truncate">${task.title || '无标题'}</div>
                             <div class="text-xs text-gray-600 line-clamp-2 mb-2">${(task.content || '').substring(0, 80)}...</div>
+                            ${task.hashtags && task.hashtags.length > 0 ? `
+                                <div class="flex flex-wrap gap-1 mb-2">
+                                    ${task.hashtags.slice(0, 3).map(tag => `
+                                        <span class="inline-block bg-blue-50 text-blue-600 text-xs px-2 py-0.5 rounded">${tag}</span>
+                                    `).join('')}
+                                    ${task.hashtags.length > 3 ? `<span class="text-xs text-gray-400">+${task.hashtags.length - 3}</span>` : ''}
+                                </div>
+                            ` : ''}
                             <div class="flex items-center gap-2 text-xs text-gray-500">
                                 <span>⏰ ${task.scheduled_time || '待定'}</span>
                                 <span>·</span>
@@ -1711,22 +1719,32 @@
         async function saveEdit(postId) {
             const title = document.getElementById('edit-title').value;
             const content = document.getElementById('edit-content').value;
-            const hashtagsStr = document.getElementById('edit-hashtags').value;
-            const hashtags = hashtagsStr ? hashtagsStr.split(',').map(tag => tag.trim()).filter(tag => tag) : [];
+            const hashtagsStr = document.getElementById('edit-hashtags').value.trim();
 
             closeEditDialog();
             addActivityLog('✏️ 正在更新内容...');
+
+            // 🔥 关键修复：构建请求体，只包含实际修改的字段
+            const requestBody = {
+                taskId: postId,
+                title,
+                content
+            };
+
+            // 🔥 只有当用户输入了标签时，才添加 hashtags 字段
+            // 如果标签输入框为空，则不发送 hashtags，后端会保留原有标签
+            if (hashtagsStr && hashtagsStr.length > 0) {
+                const hashtags = hashtagsStr.split(',').map(tag => tag.trim()).filter(tag => tag);
+                if (hashtags.length > 0) {
+                    requestBody.hashtags = hashtags;
+                }
+            }
 
             try {
                 const response = await fetch(`${CLAUDE_API}/agent/auto/edit/${currentUser}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        taskId: postId,
-                        title,
-                        content,
-                        hashtags
-                    })
+                    body: JSON.stringify(requestBody)
                 });
 
                 const data = await response.json();
