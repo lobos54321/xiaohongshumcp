@@ -230,9 +230,15 @@ export class XiaohongshuMCPProcessManager {
     async callTool(userId, endpoint, method = 'POST', data) {
         const port = await this.getOrCreateProcess(userId);
         const url = `http://localhost:${port}${endpoint}`;
+        // 🔥 根据操作类型设置不同的超时时间
+        // 发布操作涉及浏览器自动化、图片上传等，需要更长时间
+        const isPublishOperation = endpoint.includes('/publish');
+        const timeout = isPublishOperation ? 300000 : 120000; // 发布: 5分钟, 其他: 2分钟
         console.log(`[ProcessManager] Calling ${method} ${url} for user ${userId}`);
+        console.log(`[ProcessManager] Timeout: ${timeout}ms (${timeout / 1000}s)`);
         // 🔥 DEBUG: 打印完整请求数据
         console.log(`[ProcessManager] Request data:`, JSON.stringify(data, null, 2));
+        const startTime = Date.now();
         try {
             const response = await axios({
                 method,
@@ -241,14 +247,19 @@ export class XiaohongshuMCPProcessManager {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                timeout: 120000, // 2 分钟超时
+                timeout,
             });
+            const duration = Date.now() - startTime;
+            console.log(`[ProcessManager] ✅ Request completed in ${duration}ms (${(duration / 1000).toFixed(2)}s)`);
             return response.data;
         }
         catch (error) {
+            const duration = Date.now() - startTime;
             // 🔥 捕获完整的错误信息，包括response.data
             const errorDetails = {
                 message: error.message,
+                duration: `${duration}ms (${(duration / 1000).toFixed(2)}s)`,
+                timeout: `${timeout}ms`,
                 status: error.response?.status,
                 statusText: error.response?.statusText,
                 data: error.response?.data,
@@ -257,13 +268,14 @@ export class XiaohongshuMCPProcessManager {
                     url: error.config?.url,
                 }
             };
-            console.error(`[ProcessManager] Tool call failed for user ${userId}:`, errorDetails);
+            console.error(`[ProcessManager] ❌ Tool call failed for user ${userId} after ${duration}ms:`, errorDetails);
             // 抛出包含完整错误信息的新错误
             const enhancedError = new Error(`MCP Process Error: ${error.message}`);
             enhancedError.originalError = error;
             enhancedError.response = error.response;
             enhancedError.status = error.response?.status;
             enhancedError.data = error.response?.data;
+            enhancedError.duration = duration;
             throw enhancedError;
         }
     }
