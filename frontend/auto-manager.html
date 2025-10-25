@@ -2044,6 +2044,20 @@
         function backToSetup() {
             if (confirm('确定要重新配置吗？这将停止当前的自动运营。')) {
                 autoModeEnabled = false;
+
+                // 🔥 关键修复：清除 localStorage 中的旧配置
+                localStorage.removeItem(`userConfig_${currentUser}`);
+                console.log('🧹 已清除本地缓存的配置');
+
+                // 🔥 重置表单字段（允许用户输入新配置）
+                document.getElementById('productName').value = '';
+                document.getElementById('targetAudience').value = '';
+                document.getElementById('marketingGoal').selectedIndex = 0;
+                document.getElementById('postFrequency').selectedIndex = 0;
+                document.getElementById('brandStyle').selectedIndex = 0;
+                document.getElementById('reviewMode').selectedIndex = 0;
+                console.log('🧹 已重置表单字段');
+
                 document.getElementById('autoManagerDashboard').classList.add('hidden');
                 document.getElementById('setupWizard').classList.remove('hidden');
 
