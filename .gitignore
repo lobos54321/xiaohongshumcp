@@ -49,5 +49,12 @@ cookies/
 
 # Binary (排除所有平台的二进制文件，由Dockerfile下载Linux版本)
 xiaohongshu-mcp
+xiaohongshu-mcp.*
 xiaohongshu-login
+xiaohongshu-login.*
+*-darwin-amd64
+*-darwin-arm64
+*-linux-amd64
+*-windows-amd64.exe
 *.tar.gz
+*.zip
