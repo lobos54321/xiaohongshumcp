@@ -96,8 +96,8 @@ WORKDIR /app
 
 # Step 6: Download and extract xiaohongshu-mcp binary files
 RUN set -e && \
-    echo "🔽 [Dockerfile] Downloading xiaohongshu-mcp binary..." && \
-    wget -v -O /tmp/xiaohongshu-mcp.tar.gz https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.04.1522-d84bf2e/xiaohongshu-mcp-linux-amd64.tar.gz && \
+    echo "🔽 [Dockerfile] Downloading xiaohongshu-mcp binary (v2025.10.26 - includes tags length limit & timeout fixes)..." && \
+    wget -v -O /tmp/xiaohongshu-mcp.tar.gz https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.26.1336-adbfc43/xiaohongshu-mcp-linux-amd64.tar.gz && \
     echo "📦 [Dockerfile] Downloaded file size:" && \
     ls -lh /tmp/xiaohongshu-mcp.tar.gz && \
     echo "🗜️ [Dockerfile] Extracting to /tmp/binaries..." && \

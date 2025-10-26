@@ -232,8 +232,9 @@ export class XiaohongshuMCPProcessManager {
         const url = `http://localhost:${port}${endpoint}`;
         // 🔥 根据操作类型设置不同的超时时间
         // 发布操作涉及浏览器自动化、图片上传等，需要更长时间
+        // 🔥 修复：与 mcpAuthClient 保持一致，都是 10 分钟
         const isPublishOperation = endpoint.includes('/publish');
-        const timeout = isPublishOperation ? 300000 : 120000; // 发布: 5分钟, 其他: 2分钟
+        const timeout = isPublishOperation ? 600000 : 120000; // 发布: 10分钟, 其他: 2分钟
         console.log(`[ProcessManager] Calling ${method} ${url} for user ${userId}`);
         console.log(`[ProcessManager] Timeout: ${timeout}ms (${timeout / 1000}s)`);
         // 🔥 DEBUG: 打印完整请求数据

@@ -1509,7 +1509,7 @@ export class AutoContentManager {
    - 第2张：细节特写或使用场景
    - 第3张：用户互动或效果展示
    - 第4张：产品界面或总结画面
-4. 话题标签：5-8个相关标签
+4. 话题标签：**必须提供5-8个相关标签，hashtags数组不能为空！**
 
 **重要：你必须只返回下面这个JSON格式，不要有任何其他内容（不要有markdown代码块标记，不要有解释文字）：**
 
@@ -1579,6 +1579,15 @@ export class AutoContentManager {
         hashtags: extractedData.hashtags?.length
       });
 
+      // 🔥 强制验证：标签不能为空
+      if (!extractedData.hashtags || !Array.isArray(extractedData.hashtags) || extractedData.hashtags.length === 0) {
+        console.error('❌ [任务创建] Claude未返回有效的标签！');
+        console.error('📝 [任务创建] extractedData.hashtags:', extractedData.hashtags);
+        console.error('📝 [任务创建] 完整的taskDetails:', JSON.stringify(taskDetails, null, 2));
+        throw new Error('标签生成失败：Claude必须返回至少一个有效标签。请重试或检查prompt配置。');
+      }
+      console.log(`✅ [任务创建] 标签验证通过: ${extractedData.hashtags.length}个标签`);
+
       // 生成多张图片
       const imagePrompts = Array.isArray(extractedData.imagePrompts)
         ? extractedData.imagePrompts
@@ -1638,7 +1647,7 @@ export class AutoContentManager {
         imagePrompts: imagePrompts,
         imageUrls: imageUrls,
         storageKeys: storageKeys,
-        hashtags: Array.isArray(extractedData.hashtags) ? extractedData.hashtags : ['默认标签'],
+        hashtags: extractedData.hashtags || [],
         status: 'ready'  // 图片已生成，状态改为ready
       };
     } catch (error) {
