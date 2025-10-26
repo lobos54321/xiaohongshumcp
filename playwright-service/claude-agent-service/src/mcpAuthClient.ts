@@ -39,6 +39,8 @@ export class MCPAuthClient {
         userId,
         toolName: 'xiaohongshu_check_login',
         arguments: {}
+      }, {
+        timeout: 120000  // 2 分钟超时
       });
 
       if (response.data.success) {
@@ -88,6 +90,8 @@ export class MCPAuthClient {
         userId,
         toolName: 'xiaohongshu_get_login_qrcode',
         arguments: {}
+      }, {
+        timeout: 120000  // 2 分钟超时
       });
 
       if (response.data.success) {
@@ -162,14 +166,26 @@ export class MCPAuthClient {
     tags?: string[];
     type?: 'normal' | 'video';
   }): Promise<MCPPublishResult> {
+    const startTime = Date.now();
+
     try {
       console.log(`[MCP Auth] Publishing content for user ${userId}`);
+      console.log(`[MCP Auth] Timeout: 600000ms (10 minutes) for publish operation`);
 
+      // 🔥 关键修复：增加超时时间到 10 分钟，匹配 MCP Router 的超时配置
       const response = await axios.post(`${this.mcpRouterUrl}/mcp/call`, {
         userId,
         toolName: content.type === 'video' ? 'xiaohongshu_publish_video' : 'xiaohongshu_publish_content',
         arguments: content
+      }, {
+        timeout: 600000,  // 10 分钟超时，发布操作涉及图片上传和浏览器自动化，需要较长时间
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
+
+      const duration = Date.now() - startTime;
+      console.log(`[MCP Auth] ✅ Publish completed in ${duration}ms (${(duration / 1000).toFixed(2)}s)`);
 
       if (response.data.success) {
         console.log(`[MCP Auth] Content published successfully for user ${userId}`);
@@ -184,25 +200,39 @@ export class MCPAuthClient {
         };
       }
     } catch (error: any) {
-      // 🔥 提取完整的错误信息，包括MCP Router返回的详细错误
+      const duration = Date.now() - startTime;
+
+      // 🔥 增强错误信息，特别处理超时错误
+      const isTimeout = error.code === 'ECONNABORTED' || error.message?.includes('timeout');
+
       const errorDetails = {
         message: error.message,
+        code: error.code,  // 'ECONNABORTED' 表示超时
+        timeout: error.timeout,
+        isTimeout,
+        duration: `${duration}ms`,
         status: error.response?.status,
         data: error.response?.data,
         config: {
           url: error.config?.url,
           method: error.config?.method,
+          timeout: error.config?.timeout
         }
       };
 
-      console.error(`[MCP Auth] Error publishing content:`, errorDetails);
+      console.error(`[MCP Auth] ❌ Error publishing content after ${duration}ms:`, errorDetails);
 
       // 优先使用服务器返回的详细错误信息
-      const errorMessage = error.response?.data?.error ||
-                          error.response?.data?.details?.error ||
-                          error.response?.data?.message ||
-                          error.message ||
-                          'Unknown publish error';
+      let errorMessage = error.response?.data?.error ||
+                         error.response?.data?.details?.error ||
+                         error.response?.data?.message ||
+                         error.message ||
+                         'Unknown publish error';
+
+      // 如果是超时错误，提供更明确的说明
+      if (isTimeout) {
+        errorMessage = `发布操作超时 (超过 ${error.config?.timeout || 600000}ms)。可能原因：图片下载慢、网络延迟、小红书服务器响应慢。请重试或减少图片数量。`;
+      }
 
       return {
         success: false,
@@ -225,6 +255,8 @@ export class MCPAuthClient {
         userId,
         toolName: 'xiaohongshu_search_feeds',
         arguments: { keyword, limit }
+      }, {
+        timeout: 120000  // 2 分钟超时
       });
 
       return response.data;
@@ -246,6 +278,8 @@ export class MCPAuthClient {
         userId,
         toolName: 'xiaohongshu_user_profile',
         arguments: {}
+      }, {
+        timeout: 120000  // 2 分钟超时
       });
 
       return response.data;
@@ -269,6 +303,8 @@ export class MCPAuthClient {
         userId,
         toolName,
         arguments: args
+      }, {
+        timeout: 120000  // 2 分钟超时
       });
 
       return response.data;
