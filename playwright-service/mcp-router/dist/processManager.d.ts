@@ -7,6 +7,11 @@ export declare class XiaohongshuMCPProcessManager {
     private cookieDir;
     constructor(mcpBinaryPath: string, cookieDir: string);
     /**
+     * 启动时清理全局符号链接
+     * 防止旧数据（如测试用户）的符号链接污染新启动的服务
+     */
+    private cleanupGlobalSymlink;
+    /**
      * 检查端口是否真正可用（操作系统级别）
      */
     private isPortAvailable;
@@ -34,6 +39,16 @@ export declare class XiaohongshuMCPProcessManager {
      * 获取或创建用户的 MCP 进程
      */
     getOrCreateProcess(userId: string): Promise<number>;
+    /**
+     * 创建 MCP binary 所需的 cookies 符号链接
+     * 🔥 每次调用前都需要创建，因为多个用户共享同一个符号链接路径
+     *
+     * 修复说明：
+     * - 使用 lstatSync 而不是 existsSync，因为 existsSync 无法检测失效的符号链接
+     * - 失效符号链接：指向不存在的目标文件，但符号链接本身存在
+     * - 详细日志帮助调试和追踪问题
+     */
+    private ensureCookieSymlink;
     /**
      * 调用 MCP 工具
      */

@@ -45,6 +45,23 @@ interface DailyTask {
   status: 'planned' | 'generating' | 'ready' | 'published';
 }
 
+/**
+ * 异步发布作业 - 解决 Zeabur 120秒网关超时问题
+ * 通过后台执行和轮询状态，绕过网关限制
+ */
+interface PublishJob {
+  jobId: string;           // 作业唯一标识
+  userId: string;          // 用户ID
+  taskId: string;          // 任务ID
+  taskTitle: string;       // 任务标题（用于显示）
+  status: 'pending' | 'running' | 'completed' | 'failed';  // 作业状态
+  progress: number;        // 进度 0-100
+  startTime: Date;         // 开始时间
+  endTime?: Date;          // 结束时间
+  error?: string;          // 错误信息
+  result?: any;            // 发布结果
+}
+
 export class AutoContentManager {
   private anthropic: Anthropic;
   private imageService: ImageGenerationService;
@@ -56,6 +73,10 @@ export class AutoContentManager {
   private generationStatus: Map<string, 'idle' | 'generating' | 'completed' | 'failed'> = new Map();
   private realTimeActivities: Map<string, Array<{timestamp: Date, message: string, type: string}>> = new Map();
   private allowDemoMode: boolean;
+
+  // 🚀 异步发布作业存储 - 解决 Zeabur 120秒超时
+  private publishJobs: Map<string, PublishJob> = new Map();
+  private jobCleanupInterval?: NodeJS.Timeout;
 
   constructor(config: {
     anthropicKey: string;
@@ -89,6 +110,9 @@ export class AutoContentManager {
     console.log(`📁 数据目录: ${this.dataDir}`);
     this.ensureDataDir();
     this.loadPersistedData();
+
+    // 🚀 启动作业清理任务 - 每小时清理过期作业（24小时前）
+    this.startJobCleanup();
   }
 
   private ensureDataDir(): void {
@@ -2432,81 +2456,11 @@ export class AutoContentManager {
   }
 
   /**
-   * 批准并发布内容
+   * 批准并发布内容 - 已弃用
+   * 使用新的 startPublishJob 方法（文件末尾的兼容实现）
+   * 这里保留注释作为历史记录
    */
-  public async approveAndPublish(userId: string, taskId?: string): Promise<void> {
-    console.log(`🔍 [批准发布] 开始处理，userId: ${userId}, taskId: ${taskId}`);
-
-    const plan = this.contentPlans.get(userId);
-    if (!plan || !plan.dailyTasks || plan.dailyTasks.length === 0) {
-      const error = '没有找到待发布的任务';
-      console.error(`❌ [批准发布] ${error}`);
-      throw new Error(error);
-    }
-
-    console.log(`🔍 [批准发布] 当前有 ${plan.dailyTasks.length} 个任务`);
-    plan.dailyTasks.forEach((t, i) => {
-      console.log(`  任务${i}: ${t.title}, status: ${t.status}, images: ${t.imageUrls?.length || 0}张`);
-    });
-
-    // 如果没有指定taskId，发布第一个ready状态的任务
-    const task = taskId
-      ? plan.dailyTasks.find((t, index) => index.toString() === taskId || (index + 1).toString() === taskId)
-      : plan.dailyTasks.find(t => t.status === 'ready');
-
-    if (!task) {
-      const error = taskId ? `找不到ID为 ${taskId} 的任务` : '没有找到ready状态的任务';
-      console.error(`❌ [批准发布] ${error}`);
-      throw new Error(error);
-    }
-
-    console.log(`✅ [批准发布] 找到任务: ${task.title}`);
-
-    // 如果没有图片或图片不完整，尝试生成
-    if (!task.imageUrls || task.imageUrls.length === 0) {
-      console.log(`⚠️ [批准发布] 任务缺少图片，尝试生成${task.imagePrompts.length}张...`);
-      this.addRealTimeActivity(userId, `🎨 正在生成${task.imagePrompts.length}张配图...`, 'generation');
-      task.imageUrls = [];
-      task.storageKeys = [];
-
-      for (let i = 0; i < task.imagePrompts.length; i++) {
-        try {
-          const imageResult = await this.generateImage(task.imagePrompts[i], userId);
-          task.imageUrls.push(imageResult.url);
-          if (imageResult.storageKey) {
-            task.storageKeys.push(imageResult.storageKey);
-          }
-          console.log(`✅ [批准发布] 第${i + 1}张图片生成成功: ${imageResult.url}`);
-        } catch (error: any) {
-          console.error(`❌ [批准发布] 第${i + 1}张图片生成失败: ${error.message}`);
-          // 【修复】使用data URI而非外部URL
-          const fallbackSvg = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTA4MCIgaGVpZ2h0PSIxMDgwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxMDgwIiBoZWlnaHQ9IjEwODAiIGZpbGw9IiNlZWYyZmYiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjQ4IiBmaWxsPSIjNjY3ZWVhIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+8J+OqCBJbWFnZTwvdGV4dD48L3N2Zz4=';
-          task.imageUrls.push(fallbackSvg);
-        }
-      }
-    }
-
-    console.log(`📝 [批准发布] 开始发布任务: ${task.title}`);
-    console.log(`📷 [批准发布] 图片数量: ${task.imageUrls.length}张`);
-    this.addRealTimeActivity(userId, `📝 正在发布: ${task.title}（${task.imageUrls.length}张图片）`, 'execution');
-
-    try {
-      // 调用发布函数 - 发布所有图片
-      await this.publishContent(userId, task, task.imageUrls);
-
-      // 更新任务状态
-      task.status = 'published';
-      this.saveData(userId);
-
-      this.addRealTimeActivity(userId, `✅ 发布成功: ${task.title}`, 'execution');
-      console.log(`✅ [批准发布] 发布成功: ${task.title}`);
-    } catch (error: any) {
-      const errorMsg = `发布失败: ${error.message}`;
-      console.error(`❌ [批准发布] ${errorMsg}`);
-      this.addRealTimeActivity(userId, `❌ ${errorMsg}`, 'execution');
-      throw error;
-    }
-  }
+  // OLD approveAndPublish method removed - see end of file for new async version
 
   /**
    * 更新任务发布时间
@@ -2772,6 +2726,244 @@ export class AutoContentManager {
     console.log(`✅ [类型映射] "${contentType}" → "${mappedType}"`);
 
     return mappedType;
+  }
+
+  // ==================== 🚀 异步发布作业管理 ====================
+  // 解决 Zeabur 120 秒网关超时问题
+
+  /**
+   * 启动作业清理任务
+   */
+  private startJobCleanup(): void {
+    // 每小时清理一次过期作业
+    this.jobCleanupInterval = setInterval(() => {
+      this.cleanupOldJobs();
+    }, 3600000); // 1 hour
+
+    console.log('🧹 [作业清理] 自动清理任务已启动（每小时执行一次）');
+  }
+
+  /**
+   * 清理过期作业（24小时前的作业）
+   */
+  private cleanupOldJobs(): void {
+    const now = Date.now();
+    const MAX_AGE = 24 * 3600 * 1000; // 24 小时
+    let cleanedCount = 0;
+
+    for (const [jobId, job] of this.publishJobs.entries()) {
+      const age = now - job.startTime.getTime();
+      if (age > MAX_AGE) {
+        this.publishJobs.delete(jobId);
+        cleanedCount++;
+      }
+    }
+
+    if (cleanedCount > 0) {
+      console.log(`🧹 [作业清理] 已清理 ${cleanedCount} 个过期作业（>24小时）`);
+    }
+  }
+
+  /**
+   * 生成唯一作业ID
+   */
+  private generateJobId(): string {
+    return `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  /**
+   * 启动发布作业 - 立即返回 jobId，后台执行发布
+   * 替代原来的 approveAndPublish 方法
+   */
+  public async startPublishJob(userId: string, taskId?: string): Promise<string> {
+    console.log(`🚀 [异步发布] 开始创建发布作业，userId: ${userId}, taskId: ${taskId}`);
+
+    const plan = this.contentPlans.get(userId);
+    if (!plan || !plan.dailyTasks || plan.dailyTasks.length === 0) {
+      throw new Error('没有找到待发布的任务');
+    }
+
+    // 找到要发布的任务
+    const task = taskId
+      ? plan.dailyTasks.find((t, index) => index.toString() === taskId || (index + 1).toString() === taskId)
+      : plan.dailyTasks.find(t => t.status === 'ready');
+
+    if (!task) {
+      const error = taskId ? `找不到ID为 ${taskId} 的任务` : '没有找到ready状态的任务';
+      throw new Error(error);
+    }
+
+    // 创建作业记录
+    const jobId = this.generateJobId();
+    const job: PublishJob = {
+      jobId,
+      userId,
+      taskId: taskId || '0',
+      taskTitle: task.title,
+      status: 'pending',
+      progress: 0,
+      startTime: new Date()
+    };
+
+    this.publishJobs.set(jobId, job);
+    console.log(`✅ [异步发布] 作业已创建: ${jobId}`);
+    console.log(`📝 [异步发布] 任务: ${task.title}`);
+
+    // 🚀 后台执行发布（不阻塞返回）
+    this.executePublishJob(jobId).catch(err => {
+      console.error(`❌ [异步发布] 作业执行失败: ${jobId}`, err);
+    });
+
+    return jobId;
+  }
+
+  /**
+   * 后台执行发布作业
+   */
+  private async executePublishJob(jobId: string): Promise<void> {
+    const job = this.publishJobs.get(jobId);
+    if (!job) {
+      console.error(`❌ [异步发布] 找不到作业: ${jobId}`);
+      return;
+    }
+
+    try {
+      job.status = 'running';
+      job.progress = 0;
+      console.log(`🏃 [异步发布] 开始执行作业: ${jobId} - ${job.taskTitle}`);
+
+      const plan = this.contentPlans.get(job.userId);
+      if (!plan || !plan.dailyTasks) {
+        throw new Error('找不到用户内容计划');
+      }
+
+      const task = plan.dailyTasks.find((t, index) =>
+        index.toString() === job.taskId || (index + 1).toString() === job.taskId
+      );
+
+      if (!task) {
+        throw new Error('找不到任务');
+      }
+
+      // 1. 验证图片 (10%)
+      job.progress = 10;
+      console.log(`📊 [异步发布] 进度: ${job.progress}% - 验证图片`);
+
+      // 2. 生成缺失图片 (10% -> 40%)
+      if (!task.imageUrls || task.imageUrls.length === 0) {
+        console.log(`🎨 [异步发布] 需要生成 ${task.imagePrompts.length} 张图片`);
+        this.addRealTimeActivity(job.userId, `🎨 正在生成${task.imagePrompts.length}张配图...`, 'generation');
+
+        task.imageUrls = [];
+        task.storageKeys = [];
+
+        for (let i = 0; i < task.imagePrompts.length; i++) {
+          try {
+            const imageResult = await this.generateImage(task.imagePrompts[i], job.userId);
+            task.imageUrls.push(imageResult.url);
+            if (imageResult.storageKey) {
+              task.storageKeys.push(imageResult.storageKey);
+            }
+
+            // 更新进度：10% + (30% * 当前张数 / 总张数)
+            job.progress = 10 + Math.floor((30 * (i + 1)) / task.imagePrompts.length);
+            console.log(`📊 [异步发布] 进度: ${job.progress}% - 图片 ${i + 1}/${task.imagePrompts.length} 完成`);
+          } catch (error: any) {
+            console.error(`❌ [异步发布] 图片 ${i + 1} 生成失败: ${error.message}`);
+            const fallbackSvg = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTA4MCIgaGVpZ2h0PSIxMDgwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxMDgwIiBoZWlnaHQ9IjEwODAiIGZpbGw9IiNlZWYyZmYiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjQ4IiBmaWxsPSIjNjY3ZWVhIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+8J+OqCBJbWFnZTwvdGV4dD48L3N2Zz4=';
+            task.imageUrls.push(fallbackSvg);
+          }
+        }
+      } else {
+        job.progress = 40;
+        console.log(`📊 [异步发布] 进度: ${job.progress}% - 图片已就绪`);
+      }
+
+      // 3. 开始发布 (50%)
+      job.progress = 50;
+      console.log(`📊 [异步发布] 进度: ${job.progress}% - 开始发布到小红书`);
+      this.addRealTimeActivity(job.userId, `📝 正在发布: ${task.title}（${task.imageUrls.length}张图片）`, 'execution');
+
+      // 调用发布函数（这里会花费 312 秒，但不阻塞 HTTP 响应）
+      await this.publishContent(job.userId, task, task.imageUrls);
+
+      // 4. 完成 (100%)
+      job.status = 'completed';
+      job.progress = 100;
+      job.endTime = new Date();
+
+      // 更新任务状态
+      task.status = 'published';
+      this.saveData(job.userId);
+
+      const duration = ((job.endTime.getTime() - job.startTime.getTime()) / 1000).toFixed(2);
+      console.log(`✅ [异步发布] 作业完成: ${jobId} - 耗时 ${duration} 秒`);
+      this.addRealTimeActivity(job.userId, `✅ 发布成功: ${task.title}`, 'execution');
+
+    } catch (error: any) {
+      job.status = 'failed';
+      job.error = error.message;
+      job.endTime = new Date();
+
+      console.error(`❌ [异步发布] 作业失败: ${jobId} - ${error.message}`);
+      this.addRealTimeActivity(job.userId, `❌ 发布失败: ${error.message}`, 'execution');
+    }
+  }
+
+  /**
+   * 查询发布作业状态
+   */
+  public getPublishJobStatus(jobId: string, userId: string): PublishJob | null {
+    const job = this.publishJobs.get(jobId);
+
+    if (!job) {
+      return null;
+    }
+
+    // 🔒 安全检查：防止用户 A 查询用户 B 的作业
+    if (job.userId !== userId) {
+      console.warn(`⚠️ [安全] 用户 ${userId} 尝试访问用户 ${job.userId} 的作业 ${jobId}`);
+      throw new Error('无权访问此作业');
+    }
+
+    return job;
+  }
+
+  /**
+   * 保留原有的 approveAndPublish 方法（向后兼容）
+   * 内部调用新的异步方法
+   */
+  public async approveAndPublish(userId: string, taskId?: string): Promise<void> {
+    console.log(`⚠️ [兼容性] 调用了旧的 approveAndPublish 方法，建议升级到 startPublishJob`);
+
+    // 创建作业并等待完成（同步行为）
+    const jobId = await this.startPublishJob(userId, taskId);
+
+    // 轮询等待完成（最多 10 分钟）
+    const maxWait = 600000; // 10 minutes
+    const pollInterval = 3000; // 3 seconds
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWait) {
+      const job = this.publishJobs.get(jobId);
+
+      if (!job) {
+        throw new Error('作业已丢失');
+      }
+
+      if (job.status === 'completed') {
+        return; // 成功
+      }
+
+      if (job.status === 'failed') {
+        throw new Error(job.error || '发布失败');
+      }
+
+      // 等待下次轮询
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+    }
+
+    throw new Error('发布超时（10分钟）');
   }
 }
 

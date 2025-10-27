@@ -1377,19 +1377,25 @@ app.get('/agent/auto/plan/:userId', async (req: Request, res: Response) => {
 });
 
 // 批准发布内容
+// 🚀 批准发布 - 异步版本（立即返回 jobId）
 app.post('/agent/auto/approve/:userId', async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
     const { taskId } = req.body;
 
-    console.log(`[Auto Mode] Approving post for user ${userId}, task ${taskId}`);
+    console.log(`🚀 [异步发布] 创建发布作业，user ${userId}, task ${taskId}`);
 
-    // 调用autoContentManager的批准发布方法
-    await autoContentManager.approveAndPublish(userId, taskId);
+    // 调用新的异步发布方法 - 立即返回 jobId
+    const jobId = await autoContentManager.startPublishJob(userId, taskId);
 
+    console.log(`✅ [异步发布] 作业已创建: ${jobId}`);
+
+    // 立即返回 jobId（响应时间 < 1 秒，绕过 Zeabur 120秒限制）
     res.json({
       success: true,
-      message: '内容已批准并发布'
+      jobId: jobId,
+      status: 'pending',
+      message: '发布作业已创建，后台正在执行'
     });
   } catch (error: any) {
     // 🔥 提取完整的错误信息，特别是从MCP服务返回的详细错误
@@ -1401,13 +1407,13 @@ app.post('/agent/auto/approve/:userId', async (req: Request, res: Response) => {
       stack: error.stack
     };
 
-    console.error('[Auto Mode] Error approving post:', errorDetails);
+    console.error('❌ [异步发布] 创建作业失败:', errorDetails);
 
     // 优先使用详细的错误信息
     const errorMessage = error.error ||           // mcpAuthClient返回的error字段
                         error.details?.error ||   // 可能的嵌套错误
                         error.message ||          // 标准错误消息
-                        'Failed to approve and publish content';
+                        'Failed to create publish job';
 
     const statusCode = error.status || 500;
 
@@ -1416,6 +1422,55 @@ app.post('/agent/auto/approve/:userId', async (req: Request, res: Response) => {
       error: errorMessage,
       details: error.details,
       status: statusCode,
+    });
+  }
+});
+
+// 🚀 查询发布作业状态（轮询用）
+app.get('/agent/auto/publish-status/:jobId', async (req: Request, res: Response) => {
+  try {
+    const { jobId } = req.params;
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: '缺少 userId 参数'
+      });
+    }
+
+    console.log(`📊 [状态查询] 查询作业状态: ${jobId}, user: ${userId}`);
+
+    // 查询作业状态
+    const job = autoContentManager.getPublishJobStatus(jobId, userId as string);
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: '作业不存在或已过期'
+      });
+    }
+
+    console.log(`📊 [状态查询] 作业 ${jobId}: ${job.status} (${job.progress}%)`);
+
+    // 返回作业状态
+    res.json({
+      success: true,
+      jobId: job.jobId,
+      taskTitle: job.taskTitle,
+      status: job.status,
+      progress: job.progress,
+      startTime: job.startTime,
+      endTime: job.endTime,
+      error: job.error,
+      result: job.result
+    });
+  } catch (error: any) {
+    console.error('❌ [状态查询] 查询失败:', error);
+
+    res.status(error.message.includes('无权访问') ? 403 : 500).json({
+      success: false,
+      error: error.message
     });
   }
 });
