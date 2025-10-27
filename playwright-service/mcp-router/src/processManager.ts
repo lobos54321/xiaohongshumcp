@@ -34,6 +34,39 @@ export class XiaohongshuMCPProcessManager {
     if (!fs.existsSync(this.cookieDir)) {
       fs.mkdirSync(this.cookieDir, { recursive: true });
     }
+
+    // 🧹 启动时清理全局符号链接（防止旧数据污染）
+    this.cleanupGlobalSymlink();
+  }
+
+  /**
+   * 启动时清理全局符号链接
+   * 防止旧数据（如测试用户）的符号链接污染新启动的服务
+   */
+  private cleanupGlobalSymlink(): void {
+    const mcpExpectedPath = '/app/data/cookies.json';
+
+    try {
+      const stats = fs.lstatSync(mcpExpectedPath);
+      if (stats.isSymbolicLink()) {
+        const target = fs.readlinkSync(mcpExpectedPath);
+        console.log(`[ProcessManager] 🧹 Cleaning up old symlink at startup: ${mcpExpectedPath} -> ${target}`);
+        fs.unlinkSync(mcpExpectedPath);
+        console.log(`[ProcessManager] ✅ Cleaned up old symlink successfully`);
+      } else if (stats.isFile()) {
+        console.log(`[ProcessManager] 🧹 Found regular file at ${mcpExpectedPath}, removing...`);
+        fs.unlinkSync(mcpExpectedPath);
+        console.log(`[ProcessManager] ✅ Removed old file successfully`);
+      }
+    } catch (err: any) {
+      if (err.code === 'ENOENT') {
+        // 文件不存在，无需清理（这是正常情况）
+        console.log(`[ProcessManager] No existing symlink at ${mcpExpectedPath}, clean start`);
+      } else {
+        // 其他错误，记录但不抛出（不阻止服务启动）
+        console.warn(`[ProcessManager] ⚠️ Could not clean up old symlink:`, err.message);
+      }
+    }
   }
 
   /**
@@ -261,6 +294,11 @@ export class XiaohongshuMCPProcessManager {
   /**
    * 创建 MCP binary 所需的 cookies 符号链接
    * 🔥 每次调用前都需要创建，因为多个用户共享同一个符号链接路径
+   *
+   * 修复说明：
+   * - 使用 lstatSync 而不是 existsSync，因为 existsSync 无法检测失效的符号链接
+   * - 失效符号链接：指向不存在的目标文件，但符号链接本身存在
+   * - 详细日志帮助调试和追踪问题
    */
   private ensureCookieSymlink(userId: string): void {
     const userCookieFile = path.join(this.cookieDir, userId, 'cookies.json');
@@ -268,23 +306,50 @@ export class XiaohongshuMCPProcessManager {
     const mcpDataDir = '/app/data';
 
     try {
-      // Ensure /app/data directory exists
+      // 1. 确保 /app/data 目录存在
       if (!fs.existsSync(mcpDataDir)) {
         fs.mkdirSync(mcpDataDir, { recursive: true });
         console.log(`[ProcessManager] Created /app/data directory`);
       }
 
-      // Remove existing symlink/file if present
-      if (fs.existsSync(mcpExpectedPath)) {
-        fs.unlinkSync(mcpExpectedPath);
+      // 2. 检查并清理现有文件/符号链接
+      // 🔥 FIX: 使用 lstatSync 而不是 existsSync
+      // existsSync 会跟随符号链接检查目标文件，对失效符号链接返回 false
+      // lstatSync 检查符号链接本身，不跟随链接
+      try {
+        const stats = fs.lstatSync(mcpExpectedPath);
+
+        if (stats.isSymbolicLink()) {
+          // 读取符号链接指向的目标
+          const target = fs.readlinkSync(mcpExpectedPath);
+          console.log(`[ProcessManager] Found existing symlink: ${mcpExpectedPath} -> ${target}`);
+          fs.unlinkSync(mcpExpectedPath);
+          console.log(`[ProcessManager] ✅ Removed old symlink`);
+        } else if (stats.isFile()) {
+          console.log(`[ProcessManager] Found regular file at ${mcpExpectedPath}, removing...`);
+          fs.unlinkSync(mcpExpectedPath);
+          console.log(`[ProcessManager] ✅ Removed old file`);
+        } else if (stats.isDirectory()) {
+          console.error(`[ProcessManager] ❌ ${mcpExpectedPath} is a directory! This should not happen.`);
+          throw new Error(`${mcpExpectedPath} is a directory, cannot create symlink`);
+        }
+      } catch (statError: any) {
+        if (statError.code !== 'ENOENT') {
+          // 非"文件不存在"的错误，抛出
+          throw statError;
+        }
+        // ENOENT: 文件不存在，可以继续创建（这是正常情况）
+        console.log(`[ProcessManager] No existing file at ${mcpExpectedPath}, will create new symlink`);
       }
 
-      // Create symlink from /app/data/cookies.json to user's actual cookie file
+      // 3. 创建新的符号链接
       fs.symlinkSync(userCookieFile, mcpExpectedPath);
-      console.log(`[ProcessManager] ✅ Created cookie symlink for user ${userId}: ${mcpExpectedPath} -> ${userCookieFile}`);
-    } catch (symlinkError) {
-      console.error(`[ProcessManager] ❌ Failed to create cookie symlink for user ${userId}:`, symlinkError instanceof Error ? symlinkError.message : String(symlinkError));
-      throw symlinkError; // 抛出错误，不要继续
+      console.log(`[ProcessManager] ✅ Created cookie symlink for user ${userId}`);
+      console.log(`[ProcessManager]    ${mcpExpectedPath} -> ${userCookieFile}`);
+
+    } catch (symlinkError: any) {
+      console.error(`[ProcessManager] ❌ Failed to create cookie symlink for user ${userId}:`, symlinkError.message);
+      throw symlinkError;
     }
   }
 
