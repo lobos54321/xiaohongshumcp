@@ -128,31 +128,6 @@ export class XiaohongshuMCPProcessManager {
       console.log(`[ProcessManager] Created empty cookies.json for user ${userId}`);
     }
 
-    // 🔥 CRITICAL FIX: MCP binary expects cookies at /app/data/cookies.json
-    // Create symlink from /app/data/cookies.json to actual cookie file
-    const mcpExpectedPath = '/app/data/cookies.json';
-    const mcpDataDir = '/app/data';
-
-    try {
-      // Ensure /app/data directory exists
-      if (!fs.existsSync(mcpDataDir)) {
-        fs.mkdirSync(mcpDataDir, { recursive: true });
-        console.log(`[ProcessManager] Created /app/data directory`);
-      }
-
-      // Remove existing symlink/file if present
-      if (fs.existsSync(mcpExpectedPath)) {
-        fs.unlinkSync(mcpExpectedPath);
-      }
-
-      // Create symlink from /app/data/cookies.json to user's actual cookie file
-      fs.symlinkSync(cookiesFile, mcpExpectedPath);
-      console.log(`[ProcessManager] Created symlink: ${mcpExpectedPath} -> ${cookiesFile}`);
-    } catch (symlinkError) {
-      console.error(`[ProcessManager] Failed to create symlink: ${symlinkError instanceof Error ? symlinkError.message : String(symlinkError)}`);
-      // Continue anyway - let MCP binary report the error
-    }
-
     console.log(`[ProcessManager] Starting MCP process for user ${userId} on port ${port}`);
     console.log(`[ProcessManager] Working directory: ${workDir}`);
     console.log(`[ProcessManager] Cookie file: ${cookiesFile}`);
@@ -284,10 +259,45 @@ export class XiaohongshuMCPProcessManager {
   }
 
   /**
+   * 创建 MCP binary 所需的 cookies 符号链接
+   * 🔥 每次调用前都需要创建，因为多个用户共享同一个符号链接路径
+   */
+  private ensureCookieSymlink(userId: string): void {
+    const userCookieFile = path.join(this.cookieDir, userId, 'cookies.json');
+    const mcpExpectedPath = '/app/data/cookies.json';
+    const mcpDataDir = '/app/data';
+
+    try {
+      // Ensure /app/data directory exists
+      if (!fs.existsSync(mcpDataDir)) {
+        fs.mkdirSync(mcpDataDir, { recursive: true });
+        console.log(`[ProcessManager] Created /app/data directory`);
+      }
+
+      // Remove existing symlink/file if present
+      if (fs.existsSync(mcpExpectedPath)) {
+        fs.unlinkSync(mcpExpectedPath);
+      }
+
+      // Create symlink from /app/data/cookies.json to user's actual cookie file
+      fs.symlinkSync(userCookieFile, mcpExpectedPath);
+      console.log(`[ProcessManager] ✅ Created cookie symlink for user ${userId}: ${mcpExpectedPath} -> ${userCookieFile}`);
+    } catch (symlinkError) {
+      console.error(`[ProcessManager] ❌ Failed to create cookie symlink for user ${userId}:`, symlinkError instanceof Error ? symlinkError.message : String(symlinkError));
+      throw symlinkError; // 抛出错误，不要继续
+    }
+  }
+
+  /**
    * 调用 MCP 工具
    */
   async callTool(userId: string, endpoint: string, method: string = 'POST', data?: any): Promise<any> {
     const port = await this.getOrCreateProcess(userId);
+
+    // 🔥 CRITICAL FIX: 每次调用前创建符号链接，确保指向正确用户的 cookies
+    // MCP binary 期望从 /app/data/cookies.json 读取 cookies
+    // 由于多个用户共享此路径，必须在每次调用前动态创建
+    this.ensureCookieSymlink(userId);
 
     const url = `http://localhost:${port}${endpoint}`;
 
