@@ -1626,15 +1626,20 @@
         }
 
         // 审核操作函数
+        /**
+         * 批准发布 - 异步版本（解决 Zeabur 120秒超时问题）
+         * 立即返回 jobId，然后轮询状态
+         */
         async function approvePost(postId) {
             if (!confirm('确认批准发布此内容？')) {
                 return;
             }
 
-            console.log('批准发布:', postId);
-            addActivityLog('✅ 正在发布内容到小红书...');
+            console.log('🚀 [批准发布] 开始发布:', postId);
+            addActivityLog('🚀 正在创建发布作业...');
 
             try {
+                // 1. 提交发布请求，立即返回 jobId
                 const response = await fetch(`${CLAUDE_API}/agent/auto/approve/${currentUser}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1643,18 +1648,106 @@
 
                 const data = await response.json();
 
-                if (data.success) {
-                    addActivityLog('✅ 发布成功！');
-                    // 刷新今日计划
-                    loadTodayPlan();
-                } else {
-                    addActivityLog('❌ 发布失败: ' + data.error);
+                if (!data.success) {
+                    addActivityLog('❌ 创建发布作业失败: ' + data.error);
                     alert('发布失败: ' + data.error);
+                    return;
                 }
+
+                const jobId = data.jobId;
+                console.log(`✅ [批准发布] 作业已创建: ${jobId}`);
+                addActivityLog('✅ 发布作业已创建，正在后台执行...');
+
+                // 2. 开始轮询作业状态
+                await pollPublishStatus(jobId);
+
             } catch (error) {
-                console.error('发布错误:', error);
+                console.error('❌ [批准发布] 错误:', error);
                 addActivityLog('❌ 发布失败: ' + error.message);
                 alert('发布失败，请重试');
+            }
+        }
+
+        /**
+         * 轮询发布作业状态
+         */
+        async function pollPublishStatus(jobId) {
+            const pollInterval = 3000; // 3 秒轮询一次
+            const maxDuration = 600000; // 最多等待 10 分钟
+            const startTime = Date.now();
+
+            console.log(`📊 [轮询] 开始轮询作业状态: ${jobId}`);
+
+            while (Date.now() - startTime < maxDuration) {
+                try {
+                    // 查询作业状态
+                    const response = await fetch(`${CLAUDE_API}/agent/auto/publish-status/${jobId}?userId=${currentUser}`);
+                    const data = await response.json();
+
+                    if (!data.success) {
+                        console.error('❌ [轮询] 查询失败:', data.error);
+                        addActivityLog('❌ 查询发布状态失败: ' + data.error);
+                        break;
+                    }
+
+                    const { status, progress, taskTitle, error } = data;
+                    console.log(`📊 [轮询] 作业 ${jobId}: ${status} (${progress}%)`);
+
+                    // 更新进度显示
+                    let emoji = '⏳';
+                    let message = '';
+                    if (status === 'pending') {
+                        emoji = '🔄';
+                        message = `准备发布 ${taskTitle}...`;
+                    } else if (status === 'running') {
+                        emoji = '🚀';
+                        if (progress < 10) {
+                            message = `验证图片... (${progress}%)`;
+                        } else if (progress < 40) {
+                            message = `生成配图... (${progress}%)`;
+                        } else if (progress < 50) {
+                            message = `准备发布... (${progress}%)`;
+                        } else {
+                            const remainingMin = Math.ceil((100 - progress) / 20);
+                            message = `发布中，预计还需 ${remainingMin} 分钟 (${progress}%)`;
+                        }
+                    }
+
+                    if (message) {
+                        addActivityLog(`${emoji} ${message}`);
+                    }
+
+                    // 检查作业状态
+                    if (status === 'completed') {
+                        console.log(`✅ [轮询] 发布成功！`);
+                        addActivityLog(`✅ 发布成功: ${taskTitle}`);
+                        alert('✅ 发布成功！');
+
+                        // 刷新今日计划
+                        loadTodayPlan();
+                        break;
+
+                    } else if (status === 'failed') {
+                        console.error(`❌ [轮询] 发布失败:`, error);
+                        addActivityLog(`❌ 发布失败: ${error || '未知错误'}`);
+                        alert(`发布失败: ${error || '未知错误'}`);
+                        break;
+                    }
+
+                } catch (error) {
+                    console.error('❌ [轮询] 查询错误:', error);
+                    addActivityLog('⚠️ 查询发布状态时出错，继续重试...');
+                }
+
+                // 等待下次轮询
+                await new Promise(resolve => setTimeout(resolve, pollInterval));
+            }
+
+            // 如果超过最大等待时间
+            if (Date.now() - startTime >= maxDuration) {
+                console.warn('⚠️ [轮询] 超时（10分钟），但发布可能仍在进行');
+                addActivityLog('⚠️ 查询超时，请手动刷新查看结果');
+                alert('查询超时，发布可能仍在进行中\n请稍后手动刷新查看结果');
             }
         }
 
