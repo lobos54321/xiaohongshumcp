@@ -69,6 +69,13 @@ export class XiaohongshuMCPProcessManager {
      * 启动用户专属的 MCP 进程
      */
     async startProcess(userId) {
+        // 🔥 FIX: 在创建新进程前，清除旧进程的定时器，防止定时器泄漏
+        const oldManaged = this.processes.get(userId);
+        if (oldManaged?.cleanupTimer) {
+            console.log(`[ProcessManager] Clearing old cleanup timer for user ${userId} before creating new process`);
+            clearTimeout(oldManaged.cleanupTimer);
+            oldManaged.cleanupTimer = undefined;
+        }
         const port = await this.allocatePort();
         // 检查二进制文件是否存在
         if (!fs.existsSync(this.mcpBinary)) {
