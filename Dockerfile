@@ -1,10 +1,30 @@
-# Xiaohongshu AI Automation System - Docker Image
-# Base: Node.js 18 (slim for reduced image size)
+# ============================================================
+# Stage 1: Build xiaohongshu-mcp Go Binary (15-minute timeout fix)
+# ============================================================
+FROM golang:1.24 AS mcp-builder
+
+WORKDIR /mcp-build
+ENV GOPROXY=https://goproxy.cn,direct
+ENV GOSUMDB=sum.golang.google.cn
+
+# Copy modified xiaohongshu-mcp source
+COPY xiaohongshu-mcp-build/go.mod xiaohongshu-mcp-build/go.sum ./
+RUN go mod download
+
+COPY xiaohongshu-mcp-build ./
+RUN echo "🔨 [MCP Builder] Compiling xiaohongshu-mcp with 15-minute timeout fix..." && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /mcp-build/xiaohongshu-mcp-linux-amd64 . && \
+    echo "✅ [MCP Builder] Compilation successful!" && \
+    ls -lh /mcp-build/xiaohongshu-mcp-linux-amd64
+
+# ============================================================
+# Stage 2: Main Application (Node.js + Playwright + MCP Binary)
+# ============================================================
 FROM node:18-slim
 
 # Image metadata
 LABEL "language"="nodejs"
-LABEL "version"="v18-mcp-router-logs-enabled"
+LABEL "version"="v18-mcp-timeout-fix-15min"
 
 # Install necessary system dependencies (including ALL Playwright browser dependencies + xvfb)
 RUN apt-get update && apt-get install -y \
@@ -94,44 +114,14 @@ RUN npm prune --production
 # Return to root directory
 WORKDIR /app
 
-# Step 6: Download and extract xiaohongshu-mcp binary files
-RUN set -e && \
-    echo "🔽 [Dockerfile] Downloading xiaohongshu-mcp binary (v2025.10.26 - includes tags length limit & timeout fixes)..." && \
-    wget -v -O /tmp/xiaohongshu-mcp.tar.gz https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2025.10.26.1336-adbfc43/xiaohongshu-mcp-linux-amd64.tar.gz && \
-    echo "📦 [Dockerfile] Downloaded file size:" && \
-    ls -lh /tmp/xiaohongshu-mcp.tar.gz && \
-    echo "🗜️ [Dockerfile] Extracting to /tmp/binaries..." && \
-    mkdir -p /tmp/binaries && \
-    tar -xzf /tmp/xiaohongshu-mcp.tar.gz -C /tmp/binaries && \
-    echo "📂 [Dockerfile] Extracted contents:" && \
-    ls -lhR /tmp/binaries && \
-    echo "📋 [Dockerfile] Copying MCP binary (direct path)..." && \
-    if [ -f /tmp/binaries/xiaohongshu-mcp-linux-amd64 ]; then \
-        cp -v /tmp/binaries/xiaohongshu-mcp-linux-amd64 /app/playwright-service/mcp-router/xiaohongshu-mcp; \
-    elif [ -f /tmp/binaries/bin/xiaohongshu-mcp-linux-amd64 ]; then \
-        cp -v /tmp/binaries/bin/xiaohongshu-mcp-linux-amd64 /app/playwright-service/mcp-router/xiaohongshu-mcp; \
-    else \
-        echo "❌ MCP binary not found in expected locations!"; \
-        find /tmp/binaries -type f -ls; \
-        exit 1; \
-    fi && \
-    echo "📋 [Dockerfile] Copying Login binary (direct path)..." && \
-    if [ -f /tmp/binaries/xiaohongshu-login-linux-amd64 ]; then \
-        cp -v /tmp/binaries/xiaohongshu-login-linux-amd64 /app/playwright-service/claude-agent-service/xiaohongshu-login; \
-    elif [ -f /tmp/binaries/bin/xiaohongshu-login-linux-amd64 ]; then \
-        cp -v /tmp/binaries/bin/xiaohongshu-login-linux-amd64 /app/playwright-service/claude-agent-service/xiaohongshu-login; \
-    else \
-        echo "⚠️ Login binary not found, skipping..."; \
-    fi && \
-    echo "🔑 [Dockerfile] Setting permissions..." && \
+# Step 6: Copy compiled MCP binary from builder stage
+COPY --from=mcp-builder /mcp-build/xiaohongshu-mcp-linux-amd64 /app/playwright-service/mcp-router/xiaohongshu-mcp
+
+# Set permissions for MCP binary
+RUN echo "🔑 [Dockerfile] Setting MCP binary permissions..." && \
     chmod +x /app/playwright-service/mcp-router/xiaohongshu-mcp && \
-    test -f /app/playwright-service/claude-agent-service/xiaohongshu-login && chmod +x /app/playwright-service/claude-agent-service/xiaohongshu-login || true && \
-    echo "✅ [Dockerfile] Final MCP binary:" && \
-    ls -lh /app/playwright-service/mcp-router/xiaohongshu-mcp && \
-    echo "✅ [Dockerfile] Final Login binary (if exists):" && \
-    ls -lh /app/playwright-service/claude-agent-service/xiaohongshu-login 2>/dev/null || echo "Login binary not present" && \
-    echo "🧹 [Dockerfile] Cleaning up..." && \
-    rm -rf /tmp/xiaohongshu-mcp.tar.gz /tmp/binaries
+    echo "✅ [Dockerfile] MCP binary with 15-minute timeout fix installed!" && \
+    ls -lh /app/playwright-service/mcp-router/xiaohongshu-mcp
 
 # Step 7: CRITICAL - Verify MCP binary exists and is correct size
 RUN echo "🔍 [Dockerfile] FINAL VERIFICATION - Checking MCP binary..." && \
