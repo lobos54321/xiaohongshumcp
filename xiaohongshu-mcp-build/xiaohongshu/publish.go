@@ -2,6 +2,7 @@ package xiaohongshu
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"math/rand"
 	"os"
@@ -33,10 +34,13 @@ const (
 
 func NewPublishImageAction(page *rod.Page) (*PublishAction, error) {
 
-	// 🔧 FIX: Increase timeout from 300s (5min) to 900s (15min)
-	// Reason: Publish operation can take up to 312 seconds in production
-	// This fixes "context deadline exceeded" errors during publishing
-	pp := page.Timeout(900 * time.Second)
+	// 🔧 FIX: Set timeout to 600s (10min) - optimal balance
+	// Reason:
+	// - Actual publish time: 312 seconds
+	// - Buffer: 288 seconds (sufficient for network fluctuations)
+	// - Combined with MCP timeout 900s, provides proper timeout hierarchy
+	// - Fast failure for element not found (via findElementWithRetry 30s timeout)
+	pp := page.Timeout(600 * time.Second)
 
 	pp.MustNavigate(urlOfPublic).MustWaitIdle().MustWaitDOMStable()
 	time.Sleep(1 * time.Second)
@@ -101,7 +105,22 @@ func clickEmptyPosition(page *rod.Page) {
 }
 
 func mustClickPublishTab(page *rod.Page, tabname string) error {
-	page.MustElement(`div.upload-content`).MustWaitVisible()
+	// 🔧 FIX: 使用 findElementWithRetry 替代 MustElement
+	uploadContentSelectors := []string{
+		"div.upload-content",
+		".upload-content",
+		"div.creator-upload",
+	}
+	uploadContent, err := findElementWithRetry(page, uploadContentSelectors, 15*time.Second)
+	if err != nil {
+		return errors.Wrap(err, "未找到上传内容区域")
+	}
+
+	// 等待元素可见
+	err = uploadContent.WaitVisible()
+	if err != nil {
+		return errors.Wrap(err, "上传内容区域未可见")
+	}
 
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
@@ -187,7 +206,7 @@ func isElementBlocked(elem *rod.Element) (bool, error) {
 }
 
 func uploadImages(page *rod.Page, imagesPaths []string) error {
-	pp := page.Timeout(30 * time.Second)
+	// 🔧 FIX: 使用 findElementWithRetry 替代 MustElement
 
 	// 验证文件路径有效性
 	validPaths := make([]string, 0, len(imagesPaths))
@@ -201,14 +220,25 @@ func uploadImages(page *rod.Page, imagesPaths []string) error {
 		logrus.Infof("获取有效图片：%s", path)
 	}
 
-	// 等待上传输入框出现
-	uploadInput := pp.MustElement(".upload-input")
+	// 查找上传输入框
+	slog.Info("开始查找上传输入框")
+	uploadSelectors := []string{
+		".upload-input",           // 原始选择器
+		"input[type='file']",      // 文件输入框
+		"input.upload",            // 上传输入框
+		".uploader input",         // 上传器中的输入框
+	}
+	uploadInput, err := findElementWithRetry(page, uploadSelectors, 30*time.Second)
+	if err != nil {
+		return errors.Wrap(err, "未找到上传输入框")
+	}
 
 	// 上传多个文件
+	slog.Info("开始上传图片", "count", len(validPaths))
 	uploadInput.MustSetFiles(validPaths...)
 
 	// 等待并验证上传完成
-	return waitForUploadComplete(pp, len(validPaths))
+	return waitForUploadComplete(page, len(validPaths))
 }
 
 // waitForUploadComplete 等待并验证上传完成
@@ -243,16 +273,35 @@ func waitForUploadComplete(page *rod.Page, expectedCount int) error {
 }
 
 func submitPublish(page *rod.Page, title, content string, tags []string) error {
+	// 🔧 FIX: 使用 findElementWithRetry 替代 MustElement，避免长时间阻塞
 
-	titleElem := page.MustElement("div.d-input input")
+	// 查找标题输入框
+	slog.Info("开始填写标题")
+	titleSelectors := []string{
+		"div.d-input input",           // 原始选择器
+		"input[placeholder*='标题']",   // 通过placeholder查找
+		".title-input input",          // 通过class查找
+		"input.title",                 // 备用选择器
+	}
+	titleElem, err := findElementWithRetry(page, titleSelectors, 30*time.Second)
+	if err != nil {
+		return errors.Wrap(err, "未找到标题输入框")
+	}
+
 	titleElem.MustInput(title)
+	slog.Info("标题填写完成", "title", title)
 
 	time.Sleep(1 * time.Second)
 
+	// 查找内容输入框
+	slog.Info("开始填写内容")
 	if contentElem, ok := getContentElement(page); ok {
 		contentElem.MustInput(content)
+		slog.Info("内容填写完成", "content_length", len(content))
 
+		slog.Info("开始添加标签", "tags", tags)
 		inputTags(contentElem, tags)
+		slog.Info("标签添加完成")
 
 	} else {
 		return errors.New("没有找到内容输入框")
@@ -260,8 +309,28 @@ func submitPublish(page *rod.Page, title, content string, tags []string) error {
 
 	time.Sleep(1 * time.Second)
 
-	submitButton := page.MustElement("div.submit div.d-button-content")
-	submitButton.MustClick()
+	// 🔧 CRITICAL FIX: 查找发布按钮 - 这是Line 263的阻塞点
+	// 原代码: submitButton := page.MustElement("div.submit div.d-button-content")
+	// 问题: MustElement会等待整个页面超时(900s)，但MCP服务在600s就超时了
+	// 解决: 使用findElementWithRetry，30秒独立超时，多个备用选择器
+	slog.Info("准备查找发布按钮")
+	submitSelectors := []string{
+		"div.submit div.d-button-content",  // 原始选择器
+		"button.submit-button",             // 通用提交按钮
+		".publish-btn button",              // 发布按钮容器
+		"button[type='submit']",            // HTML提交按钮
+		".submit button",                   // 提交区域按钮
+		"div.submit button",                // 备用选择器
+	}
+	submitButton, err := findElementWithRetry(page, submitSelectors, 30*time.Second)
+	if err != nil {
+		return errors.Wrap(err, "未找到发布按钮 - 可能是页面未加载完成或选择器已变化")
+	}
+
+	slog.Info("找到发布按钮，准备点击")
+	if err := submitButton.Click(proto.InputMouseButtonLeft, 1); err != nil {
+		return errors.Wrap(err, "点击发布按钮失败")
+	}
 
 	slog.Info("已点击发布按钮，等待批准发布弹窗...")
 
@@ -508,6 +577,66 @@ func findTextboxParent(elem *rod.Element) *rod.Element {
 		currentElem = parent
 	}
 	return nil
+}
+
+// findElementWithRetry 查找元素，支持多个选择器和重试逻辑
+// 🔧 FIX: 替代 MustElement，避免长时间阻塞
+// 使用30秒独立超时，快速失败，不会等待整个页面超时（900秒）
+func findElementWithRetry(page *rod.Page, selectors []string, timeout time.Duration) (*rod.Element, error) {
+	deadline := time.Now().Add(timeout)
+	attemptCount := 0
+
+	slog.Info("开始查找元素", "selectors", selectors, "timeout", timeout)
+
+	for time.Now().Before(deadline) {
+		attemptCount++
+
+		for i, selector := range selectors {
+			slog.Debug("尝试查找元素", "attempt", attemptCount, "selector_index", i, "selector", selector)
+
+			elem, err := page.Element(selector)
+			if err != nil {
+				slog.Debug("选择器未找到元素", "selector", selector, "error", err)
+				continue
+			}
+
+			if elem == nil {
+				slog.Debug("选择器返回nil元素", "selector", selector)
+				continue
+			}
+
+			// 检查元素是否可见
+			visible, err := elem.Visible()
+			if err != nil {
+				slog.Debug("无法检查元素可见性", "selector", selector, "error", err)
+				continue
+			}
+
+			if !visible {
+				slog.Debug("元素不可见", "selector", selector)
+				continue
+			}
+
+			// 检查元素是否被遮挡
+			if isElementVisible(elem) {
+				slog.Info("成功找到元素", "selector", selector, "attempts", attemptCount)
+				return elem, nil
+			}
+		}
+
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// 超时后保存截图用于调试
+	screenshotData, screenshotErr := page.Screenshot(true, nil)
+	if screenshotErr == nil {
+		filename := fmt.Sprintf("/tmp/element_not_found_%d.png", time.Now().Unix())
+		if err := os.WriteFile(filename, screenshotData, 0644); err == nil {
+			slog.Warn("元素查找失败，已保存截图", "filename", filename)
+		}
+	}
+
+	return nil, errors.Errorf("在 %v 内未找到元素，尝试了 %d 个选择器，共 %d 次尝试", timeout, len(selectors), attemptCount)
 }
 
 // isElementVisible 检查元素是否可见
