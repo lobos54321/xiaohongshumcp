@@ -1466,9 +1466,12 @@
         function updateTodayPlan(plan) {
             // 更新帖子预览（显示下一个待发布的内容）
             if (plan && plan.tasks) {
-                const nextPost = plan.tasks.find(t => t.status === 'pending' || t.status === 'in-progress' || t.status === 'ready');
-                if (nextPost && (nextPost.content || nextPost.image_url)) {
-                    updatePostPreview(nextPost);
+                const nextPostIndex = plan.tasks.findIndex(t => t.status === 'pending' || t.status === 'in-progress' || t.status === 'ready');
+                if (nextPostIndex !== -1) {
+                    const nextPost = plan.tasks[nextPostIndex];
+                    if (nextPost && (nextPost.content || nextPost.image_url)) {
+                        updatePostPreview(nextPost, nextPostIndex);
+                    }
                 }
 
                 // 更新待发布队列（显示所有ready状态的任务）
@@ -1547,8 +1550,8 @@
         }
 
         // 更新帖子预览卡片
-        function updatePostPreview(post) {
-            console.log('[Preview DEBUG] updatePostPreview called with:', post);
+        function updatePostPreview(post, postIndex) {
+            console.log('[Preview DEBUG] updatePostPreview called with:', post, 'index:', postIndex);
 
             if (!post) {
                 document.getElementById('postPreview').innerHTML = `
@@ -1610,13 +1613,13 @@
             // 添加操作按钮
             previewHTML += `
                 <div class="mt-4 flex gap-2 border-t pt-3">
-                    <button onclick="approvePost('${post.id || currentUser}')" class="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs py-2 px-3 rounded transition">
+                    <button onclick="approvePost('${post.id || postIndex}')" class="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs py-2 px-3 rounded transition">
                         ✅ 批准发布
                     </button>
-                    <button onclick="editPost('${post.id || currentUser}')" class="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs py-2 px-3 rounded transition">
+                    <button onclick="editPost('${post.id || postIndex}')" class="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs py-2 px-3 rounded transition">
                         ✏️ 修改
                     </button>
-                    <button onclick="regeneratePost('${post.id || currentUser}')" class="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-xs py-2 px-3 rounded transition">
+                    <button onclick="regeneratePost('${post.id || postIndex}')" class="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-xs py-2 px-3 rounded transition">
                         🔄 重新生成
                     </button>
                 </div>
