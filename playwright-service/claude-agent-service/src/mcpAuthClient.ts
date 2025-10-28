@@ -170,15 +170,17 @@ export class MCPAuthClient {
 
     try {
       console.log(`[MCP Auth] Publishing content for user ${userId}`);
-      console.log(`[MCP Auth] Timeout: 600000ms (10 minutes) for publish operation`);
+      console.log(`[MCP Auth] Timeout: 900000ms (15 minutes) for publish operation`);
 
-      // 🔥 关键修复：增加超时时间到 10 分钟，匹配 MCP Router 的超时配置
+      // 🔧 FIX: 增加超时时间到 15 分钟，作为最外层保护
+      // Timeout hierarchy: MCP 900s > Page 600s > Actual operation 312s
+      // This ensures MCP service doesn't timeout before page operations complete
       const response = await axios.post(`${this.mcpRouterUrl}/mcp/call`, {
         userId,
         toolName: content.type === 'video' ? 'xiaohongshu_publish_video' : 'xiaohongshu_publish_content',
         arguments: content
       }, {
-        timeout: 600000,  // 10 分钟超时，发布操作涉及图片上传和浏览器自动化，需要较长时间
+        timeout: 900000,  // 15 分钟超时（方案D：MCP 900s > Page 600s）
         headers: {
           'Content-Type': 'application/json'
         }
