@@ -2555,6 +2555,38 @@ app.post('/agent/auto-import/manual', async (req: Request, res: Response) => {
 
     console.log(`[Auto Import] Manual import triggered for userId: ${userId || 'auto'}`);
 
+    // 🔧 FIX: 检查全局退出保护状态
+    // 防止退出登录后自动导入Cookie导致重新登录
+    const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+
+    // 检查全局退出状态
+    if (globalLogoutState.isInGlobalLogoutState()) {
+      const globalInfo = globalLogoutState.getGlobalLogoutInfo();
+      console.log(`[Auto Import] 🛡️ 阻止手动导入 - 系统在全局退出保护期内，剩余 ${globalInfo.remainingSeconds} 秒`);
+      return res.status(403).json({
+        success: false,
+        error: '系统刚刚退出登录，暂时无法导入Cookie',
+        needWait: true,
+        logoutInfo: globalInfo,
+        message: `系统在全局退出保护期内，剩余 ${globalInfo.remainingSeconds} 秒，请稍后再试`
+      });
+    }
+
+    // 检查特定用户是否允许保存Cookie
+    if (userId && !globalLogoutState.canSaveCookies(userId, 'manual-import')) {
+      const userInfo = globalLogoutState.getUserLogoutInfo(userId);
+      console.log(`[Auto Import] 🛡️ 阻止手动导入 - 用户 ${userId} 在退出保护期内，剩余 ${userInfo.remainingSeconds} 秒`);
+      return res.status(403).json({
+        success: false,
+        error: `用户 ${userId} 刚刚退出登录，暂时无法导入Cookie`,
+        needWait: true,
+        userInfo: userInfo,
+        message: `用户在退出保护期内，剩余 ${userInfo.remainingSeconds} 秒，请稍后再试`
+      });
+    }
+
+    console.log(`[Auto Import] ✅ 全局退出保护检查通过，允许导入Cookie`);
+
     const result = await autoCookieImporter.manualImport(userId);
 
     if (result.success) {

@@ -380,6 +380,21 @@
             try {
                 console.log('🔍 开始检查登录状态...');
 
+                // 🔧 FIX: 首先检查全局退出保护状态
+                // 防止刚退出登录后刷新页面时自动重新登录
+                try {
+                    const logoutStatusResponse = await fetch(`${CLAUDE_API}/agent/xiaohongshu/logout-status`);
+                    const logoutStatus = await logoutStatusResponse.json();
+
+                    if (logoutStatus.success && logoutStatus.data.inGlobalLogoutState) {
+                        console.log('⏳ 检测到全局退出保护状态，显示等待界面');
+                        showLogoutProtection(logoutStatus.data.remainingSeconds);
+                        return;  // 提前返回，不继续检查登录状态和自动同步
+                    }
+                } catch (logoutCheckError) {
+                    console.warn('退出状态检查失败，继续正常登录检查:', logoutCheckError);
+                }
+
                 // 首先尝试检查现有登录状态
                 const response = await fetch(`${CLAUDE_API}/agent/xiaohongshu/login/status?userId=${currentUser}`);
                 const data = await response.json();
@@ -408,6 +423,21 @@
         // 尝试自动同步Cookie
         async function attemptAutoSync() {
             try {
+                // 🔧 FIX: 首先检查全局退出保护状态
+                // 防止退出登录后自动导入Cookie导致重新登录
+                try {
+                    const logoutStatusResponse = await fetch(`${CLAUDE_API}/agent/xiaohongshu/logout-status`);
+                    const logoutStatus = await logoutStatusResponse.json();
+
+                    if (logoutStatus.success && logoutStatus.data.inGlobalLogoutState) {
+                        console.log('⏳ 检测到全局退出保护状态，无法自动同步Cookie');
+                        showLogoutProtection(logoutStatus.data.remainingSeconds);
+                        return;  // 提前返回，不继续自动同步
+                    }
+                } catch (logoutCheckError) {
+                    console.warn('退出状态检查失败，继续正常同步:', logoutCheckError);
+                }
+
                 hideManualCookieForm(false);
                 const detectionArea = document.getElementById('detectionArea');
                 if (detectionArea) {
