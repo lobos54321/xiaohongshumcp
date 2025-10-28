@@ -17,3 +17,4 @@ playwright-service/claude-agent-service/bin/
 dist/
 */dist/
 **/dist/
+# Force rebuild - Tue Oct 28 13:34:22 AEDT 2025
