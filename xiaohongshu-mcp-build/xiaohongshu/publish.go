@@ -263,8 +263,106 @@ func submitPublish(page *rod.Page, title, content string, tags []string) error {
 	submitButton := page.MustElement("div.submit div.d-button-content")
 	submitButton.MustClick()
 
-	time.Sleep(3 * time.Second)
+	slog.Info("已点击发布按钮，等待批准发布弹窗...")
 
+	// 🔧 FIX: 等待并处理"批准发布"确认弹窗
+	if err := waitForPublishApproval(page); err != nil {
+		return errors.Wrap(err, "处理批准发布弹窗失败")
+	}
+
+	slog.Info("发布流程完成")
+
+	return nil
+}
+
+// waitForPublishApproval 等待并处理"批准发布"确认弹窗
+// 🔧 FIX: 解决发布后被卡住的问题
+// 小红书在点击"发布"按钮后可能会弹出"批准发布"确认弹窗，需要主动点击才能继续
+func waitForPublishApproval(page *rod.Page) error {
+	maxWaitTime := 30 * time.Second
+	checkInterval := 500 * time.Millisecond
+	start := time.Now()
+
+	slog.Info("开始查找批准发布弹窗")
+
+	for time.Since(start) < maxWaitTime {
+		// 尝试多种可能的选择器来查找弹窗中的按钮
+		selectors := []string{
+			"div.d-modal button",     // 弹窗中的按钮
+			"div.d-dialog button",    // 对话框中的按钮
+			"div.modal button",       // 通用模态框按钮
+			"div.dialog button",      // 通用对话框按钮
+			".modal-footer button",   // 模态框底部按钮
+			".dialog-footer button",  // 对话框底部按钮
+			"button.primary",         // 主要按钮
+			"button.confirm",         // 确认按钮
+		}
+
+		for _, selector := range selectors {
+			// 使用 Elements 查找所有匹配的按钮
+			elems, err := page.Elements(selector)
+			if err != nil || len(elems) == 0 {
+				continue
+			}
+
+			// 检查每个按钮的文本
+			for _, elem := range elems {
+				text, err := elem.Text()
+				if err != nil {
+					continue
+				}
+
+				// 检查按钮文本是否包含关键词
+				if strings.Contains(text, "批准") ||
+					strings.Contains(text, "确认") ||
+					(strings.Contains(text, "发布") && len(text) < 10) { // 避免匹配"发布中..."等状态文本
+					slog.Info("找到批准发布按钮", "text", text, "selector", selector)
+
+					// 点击按钮
+					elem.MustClick()
+
+					slog.Info("已点击批准发布按钮，等待发布完成...")
+
+					// 等待弹窗消失
+					time.Sleep(3 * time.Second)
+
+					return nil
+				}
+			}
+		}
+
+		// 检查是否已经发布成功（弹窗消失或显示成功消息）
+		// 如果没有弹窗，可能直接发布成功了
+		if time.Since(start) > 5*time.Second {
+			// 检查是否有成功提示
+			successSelectors := []string{
+				".success-message",
+				".toast-success",
+				".toast",
+				".message",
+			}
+
+			for _, selector := range successSelectors {
+				elems, err := page.Elements(selector)
+				if err != nil || len(elems) == 0 {
+					continue
+				}
+
+				for _, elem := range elems {
+					text, err := elem.Text()
+					if err == nil && (strings.Contains(text, "成功") || strings.Contains(text, "完成")) {
+						slog.Info("检测到发布成功提示，无需批准弹窗", "text", text)
+						return nil
+					}
+				}
+			}
+		}
+
+		time.Sleep(checkInterval)
+	}
+
+	// 超时后不报错，因为可能没有批准弹窗（直接发布成功）
+	slog.Warn("未找到批准发布弹窗，可能已直接发布成功或弹窗选择器需要更新")
 	return nil
 }
 
