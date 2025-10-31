@@ -732,16 +732,31 @@ app.use(express.json());
 // 配置静态文件服务 - 提供图片访问
 app.use('/images', express.static(path.join(process.cwd(), 'downloads', 'images')));
 
-// Basic CORS + preflight handler so browser fetch requests succeed in hosted envs
+// 🔥 CORS 配置 - 允许 prome.live 访问
 app.use((req: Request, res: Response, next: NextFunction) => {
-  const allowOrigin = req.headers.origin || '*';
-  res.header('Access-Control-Allow-Origin', allowOrigin);
+  const allowedOrigins = [
+    'https://www.prome.live',
+    'https://prome.live',
+    'http://localhost:5173',
+    'http://localhost:3000'
+  ];
+  
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else if (!origin) {
+    // 非浏览器请求（如 Postman）
+    res.header('Access-Control-Allow-Origin', '*');
+  }
+  
   res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+  res.header('Access-Control-Max-Age', '86400'); // 24小时缓存 preflight
 
+  // 处理 OPTIONS 预检请求
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(204);
+    return res.status(200).end();
   }
 
   next();
