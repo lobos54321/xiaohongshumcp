@@ -2,6 +2,13 @@
 
 echo "🚀 Starting Xiaohongshu AI Automation System v2.1.1 (binary-included)..."
 
+# 🔍 DEBUG: 打印所有环境变量（排查Zeabur环境变量传递问题）
+echo "🔍 DEBUG: Checking critical environment variables..."
+echo "  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:0:20}... (${#ANTHROPIC_API_KEY} chars)"
+echo "  GEMINI_API_KEY: ${GEMINI_API_KEY:0:20}... (${#GEMINI_API_KEY} chars)"
+echo "  NODE_ENV: $NODE_ENV"
+echo "  PORT: $PORT"
+
 # 🔥 强制Playwright使用headless模式（Zeabur容器没有GUI）
 export PLAYWRIGHT_HEADLESS=true
 export DISPLAY=:99
