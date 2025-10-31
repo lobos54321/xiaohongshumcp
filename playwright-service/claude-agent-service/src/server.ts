@@ -1167,16 +1167,25 @@ app.post('/agent/auto/start', async (req: Request, res: Response) => {
 
     console.log(`[Auto Mode] Starting auto mode for user ${userId} with product: ${productName}`);
 
-    // 启动自动运营
-    await autoContentManager.startAutoMode(userProfile);
+    // 🔥 FIX: 异步启动自动运营，不等待完成（避免超时）
+    // 前端通过轮询 /agent/auto/status 获取进度
+    autoContentManager.startAutoMode(userProfile)
+      .then(() => {
+        console.log(`[Auto Mode] ✅ 自动运营完成: ${userId}`);
+      })
+      .catch((error) => {
+        console.error(`[Auto Mode] ❌ 自动运营失败: ${userId}`, error);
+      });
 
+    // 立即返回响应，告知前端已开始生成
     res.json({
       success: true,
-      message: `自动运营已启动，正在为您的${productName}制定运营策略...`,
+      message: `自动运营已启动，正在后台为您的${productName}制定运营策略...`,
       data: {
         userId,
-        status: 'running',
-        startTime: new Date().toISOString()
+        status: 'generating',  // 状态：正在生成中
+        startTime: new Date().toISOString(),
+        note: '内容生成需要2-5分钟，请通过 GET /agent/auto/status/${userId} 查询进度'
       }
     });
   } catch (error: any) {
@@ -1570,6 +1579,43 @@ app.post('/agent/auto/regenerate/:userId', async (req: Request, res: Response) =
     });
   } catch (error: any) {
     console.error('[Auto Mode] Error regenerating content:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// 🔥 NEW: 获取自动运营生成状态（用于轮询）
+app.get('/agent/auto/status/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    // 获取生成状态
+    const generationStatus = autoContentManager.getGenerationStatus(userId);
+    
+    // 获取实时活动
+    const activities = autoContentManager.getRealTimeActivities(userId);
+    
+    // 获取最新活动（最近3条）
+    const recentActivities = activities.slice(0, 3);
+    
+    // 判断是否有内容计划
+    const hasPlan = autoContentManager.getDailyTasks(userId).length > 0;
+
+    res.json({
+      success: true,
+      data: {
+        userId,
+        status: generationStatus,  // 'idle' | 'generating' | 'completed' | 'failed'
+        hasPlan,
+        recentActivities,
+        totalActivities: activities.length,
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (error: any) {
+    console.error('[Auto Mode] Error getting status:', error);
     res.status(500).json({
       success: false,
       error: error.message,
