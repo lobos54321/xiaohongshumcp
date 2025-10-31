@@ -596,7 +596,19 @@ export class AutoContentManager {
     );
 
     try {
-      const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
+      let responseText = response.content[0].type === 'text' ? response.content[0].text : '';
+      
+      // 清理markdown代码块标记
+      responseText = responseText.trim();
+      if (responseText.startsWith('```json')) {
+        responseText = responseText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+      } else if (responseText.startsWith('```')) {
+        responseText = responseText.replace(/^```\s*/, '').replace(/\s*```$/, '');
+      }
+      responseText = responseText.trim();
+      
+      console.log('📋 [DEBUG] 清理后的响应文本:', responseText.substring(0, 200) + '...');
+      
       const rawStrategy = JSON.parse(responseText);
       console.log('📋 [DEBUG] Claude原始策略数据:', JSON.stringify(rawStrategy, null, 2));
 
