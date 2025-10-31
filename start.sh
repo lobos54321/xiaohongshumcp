@@ -289,4 +289,12 @@ echo "📦 Server file exists: $(test -f dist/server.js && echo 'YES' || echo 'N
 echo "🌐 MCP_ROUTER_URL: $MCP_ROUTER_URL_EFFECTIVE"
 echo "🔌 PORT: $APP_PORT"
 
-MCP_ROUTER_URL="$MCP_ROUTER_URL_EFFECTIVE" PORT="$APP_PORT" node dist/server.js 2>&1 | tee /tmp/claude-agent.log
+# 🔥 FIX: 传递所有必要的环境变量到 Claude Agent Service
+ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+GEMINI_API_KEY="$GEMINI_API_KEY" \
+UNSPLASH_ACCESS_KEY="$UNSPLASH_ACCESS_KEY" \
+VITE_SUPABASE_URL="$VITE_SUPABASE_URL" \
+VITE_SUPABASE_ANON_KEY="$VITE_SUPABASE_ANON_KEY" \
+MCP_ROUTER_URL="$MCP_ROUTER_URL_EFFECTIVE" \
+PORT="$APP_PORT" \
+node dist/server.js 2>&1 | tee /tmp/claude-agent.log
