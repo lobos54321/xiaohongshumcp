@@ -273,7 +273,7 @@ export class AutoContentManager {
 
               console.log(`📂 [DB] 已恢复用户数据: ${userId}`);
               this.initializeUserActivities(userId);
-              this.updateTrendingTopicsIfMissing(userId);
+              await this.updateTrendingTopicsIfMissing(userId);
             } catch (error) {
               console.error(`❌ [DB] 恢复用户 ${userId} 数据失败:`, error);
             }
@@ -332,7 +332,7 @@ export class AutoContentManager {
 
           console.log(`📂 [FS] 已恢复用户数据: ${userId}`);
           this.initializeUserActivities(userId);
-          this.updateTrendingTopicsIfMissing(userId);
+          await this.updateTrendingTopicsIfMissing(userId);
         } catch (error) {
           console.error(`❌ 恢复数据失败 ${file}:`, error);
         }
@@ -442,7 +442,7 @@ export class AutoContentManager {
 
       if (this.allowDemoMode && this.shouldFallbackToDemo(error)) {
         console.warn('⚠️ [DEBUG] 启动失败，使用演示模式数据以继续体验');
-        this.useDemoPlan(userProfile);
+        await this.useDemoPlan(userProfile);
         return;
       }
 
@@ -1615,7 +1615,7 @@ export class AutoContentManager {
           });
 
           // 同时持久化到文件
-          this.saveData(profile.userId);
+          await this.saveData(profile.userId);
 
           console.log(`✅ [任务生成] 任务 ${successCount} 生成成功并已保存 (总进度: ${successCount}/${successCount + failCount})`);
           this.addRealTimeActivity(
@@ -2197,7 +2197,7 @@ export class AutoContentManager {
     );
   }
 
-  private useDemoPlan(userProfile: UserProfile): void {
+  private async useDemoPlan(userProfile: UserProfile): Promise<void> {
     const strategy = this.getDefaultStrategy();
     const weeklyPlan = this.getDefaultWeeklyPlan();
 
@@ -2233,7 +2233,7 @@ export class AutoContentManager {
 
     this.generationStatus.set(userProfile.userId, 'completed');
     this.addRealTimeActivity(userProfile.userId, '⚠️ Anthropic API 不可用，已启用演示模式内容', 'analysis');
-    this.saveData(userProfile.userId);
+    await this.saveData(userProfile.userId);
   }
 
   // 默认策略和计划的辅助方法
@@ -2586,7 +2586,7 @@ export class AutoContentManager {
   /**
    * 为现有用户更新热门话题（如果缺失的话）
    */
-  private updateTrendingTopicsIfMissing(userId: string): void {
+  private async updateTrendingTopicsIfMissing(userId: string): Promise<void> {
     const plan = this.contentPlans.get(userId);
     if (plan && plan.strategy && (!plan.strategy.trendingTopics || plan.strategy.trendingTopics.length === 0)) {
       // 为科技育儿主题添加一些真实的热门话题
@@ -2600,7 +2600,7 @@ export class AutoContentManager {
       this.contentPlans.set(userId, plan);
 
       // 保存更新后的数据
-      this.saveData(userId);
+      await this.saveData(userId);
 
       console.log(`📊 为用户 ${userId} 添加了热门话题:`, trendingTopics);
     }
@@ -2640,7 +2640,7 @@ export class AutoContentManager {
     newScheduledTime.setHours(hours, minutes, 0, 0);
 
     task.scheduledTime = newScheduledTime;
-    this.saveData(userId);
+    await this.saveData(userId);
 
     this.addRealTimeActivity(userId, `⏰ 发布时间已更新为 ${newTime}`, 'execution');
     console.log(`✅ [更新时间] 时间更新成功`);
@@ -2692,7 +2692,7 @@ export class AutoContentManager {
     // 注意：编辑功能暂不支持修改图片，保留现有图片
 
     task.status = 'ready';
-    this.saveData(userId);
+    await this.saveData(userId);
     this.addRealTimeActivity(userId, `✏️ 内容已更新: ${task.title}`, 'generation');
 
     return task;
@@ -2804,7 +2804,7 @@ export class AutoContentManager {
         status: 'ready'
       };
 
-      this.saveData(userId);
+      await this.saveData(userId);
       this.addRealTimeActivity(userId, `✅ 内容已重新生成`, 'generation');
 
       return plan.dailyTasks[taskIndex];
@@ -2843,7 +2843,7 @@ export class AutoContentManager {
       plan.strategy.trendingTopics = updates.trendingTopics;
     }
 
-    this.saveData(userId);
+    await this.saveData(userId);
     this.addRealTimeActivity(userId, `⚙️ 策略已更新`, 'execution');
     console.log(`✅ [更新策略] 策略已更新并保存`);
   }
@@ -3045,7 +3045,7 @@ export class AutoContentManager {
 
       // 更新任务状态
       task.status = 'published';
-      this.saveData(job.userId);
+      await this.saveData(job.userId);
 
       const duration = ((job.endTime.getTime() - job.startTime.getTime()) / 1000).toFixed(2);
       console.log(`✅ [异步发布] 作业完成: ${jobId} - 耗时 ${duration} 秒`);
