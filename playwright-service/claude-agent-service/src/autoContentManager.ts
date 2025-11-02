@@ -280,7 +280,13 @@ export class AutoContentManager {
           }
 
           console.log(`✅ [DB] 已从数据库恢复 ${userIds.length} 个用户的数据`);
-          return; // 数据库加载成功，直接返回
+
+          // 🔥 只有在数据库有数据时才返回，否则继续尝试从文件加载
+          if (userIds.length > 0) {
+            return; // 数据库加载成功，直接返回
+          } else {
+            console.log(`⚠️ [DB] 数据库为空，尝试从文件系统加载...`);
+          }
         } catch (dbError: any) {
           console.error(`❌ [DB] 从数据库加载失败，回退到文件系统:`, dbError.message);
         }
@@ -333,6 +339,17 @@ export class AutoContentManager {
           console.log(`📂 [FS] 已恢复用户数据: ${userId}`);
           this.initializeUserActivities(userId);
           await this.updateTrendingTopicsIfMissing(userId);
+
+          // 🔥 迁移：将文件数据保存到数据库（如果数据库可用且有映射）
+          if (this.db) {
+            try {
+              console.log(`💾 [Migration] 尝试将 ${userId} 的数据迁移到数据库...`);
+              await this.saveData(userId);
+              console.log(`✅ [Migration] ${userId} 数据已迁移到数据库`);
+            } catch (migrationError) {
+              console.warn(`⚠️ [Migration] ${userId} 数据迁移失败（可能缺少映射）:`, migrationError);
+            }
+          }
         } catch (error) {
           console.error(`❌ 恢复数据失败 ${file}:`, error);
         }

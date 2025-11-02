@@ -646,15 +646,29 @@ const app = express();
 app.use(express.json());
 // 配置静态文件服务 - 提供图片访问
 app.use('/images', express.static(path.join(process.cwd(), 'downloads', 'images')));
-// Basic CORS + preflight handler so browser fetch requests succeed in hosted envs
+// 🔥 CORS 配置 - 允许 prome.live 访问
 app.use((req, res, next) => {
-    const allowOrigin = req.headers.origin || '*';
-    res.header('Access-Control-Allow-Origin', allowOrigin);
+    const allowedOrigins = [
+        'https://www.prome.live',
+        'https://prome.live',
+        'http://localhost:5173',
+        'http://localhost:3000'
+    ];
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+        res.header('Access-Control-Allow-Origin', origin);
+    }
+    else if (!origin) {
+        // 非浏览器请求（如 Postman）
+        res.header('Access-Control-Allow-Origin', '*');
+    }
     res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-    res.header('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || 'Content-Type, Authorization');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+    res.header('Access-Control-Max-Age', '86400'); // 24小时缓存 preflight
+    // 处理 OPTIONS 预检请求
     if (req.method === 'OPTIONS') {
-        return res.sendStatus(204);
+        return res.status(200).end();
     }
     next();
 });
@@ -1018,15 +1032,24 @@ app.post('/agent/auto/start', async (req, res) => {
             reviewMode: reviewMode || 'auto'
         };
         console.log(`[Auto Mode] Starting auto mode for user ${userId} with product: ${productName}`);
-        // 启动自动运营
-        await autoContentManager.startAutoMode(userProfile);
+        // 🔥 FIX: 异步启动自动运营，不等待完成（避免超时）
+        // 前端通过轮询 /agent/auto/status 获取进度
+        autoContentManager.startAutoMode(userProfile)
+            .then(() => {
+            console.log(`[Auto Mode] ✅ 自动运营完成: ${userId}`);
+        })
+            .catch((error) => {
+            console.error(`[Auto Mode] ❌ 自动运营失败: ${userId}`, error);
+        });
+        // 立即返回响应，告知前端已开始生成
         res.json({
             success: true,
-            message: `自动运营已启动，正在为您的${productName}制定运营策略...`,
+            message: `自动运营已启动，正在后台为您的${productName}制定运营策略...`,
             data: {
                 userId,
-                status: 'running',
-                startTime: new Date().toISOString()
+                status: 'generating', // 状态：正在生成中
+                startTime: new Date().toISOString(),
+                note: '内容生成需要2-5分钟，请通过 GET /agent/auto/status/${userId} 查询进度'
             }
         });
     }
@@ -1379,6 +1402,38 @@ app.post('/agent/auto/regenerate/:userId', async (req, res) => {
     }
     catch (error) {
         console.error('[Auto Mode] Error regenerating content:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+        });
+    }
+});
+// 🔥 NEW: 获取自动运营生成状态（用于轮询）
+app.get('/agent/auto/status/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        // 获取生成状态
+        const generationStatus = autoContentManager.getGenerationStatus(userId);
+        // 获取实时活动
+        const activities = autoContentManager.getRealTimeActivities(userId);
+        // 获取最新活动（最近3条）
+        const recentActivities = activities.slice(0, 3);
+        // 判断是否有内容计划
+        const hasPlan = autoContentManager.getDailyTasks(userId).length > 0;
+        res.json({
+            success: true,
+            data: {
+                userId,
+                status: generationStatus, // 'idle' | 'generating' | 'completed' | 'failed'
+                hasPlan,
+                recentActivities,
+                totalActivities: activities.length,
+                timestamp: new Date().toISOString()
+            }
+        });
+    }
+    catch (error) {
+        console.error('[Auto Mode] Error getting status:', error);
         res.status(500).json({
             success: false,
             error: error.message,
@@ -2228,6 +2283,34 @@ app.post('/agent/auto-import/manual', async (req, res) => {
     try {
         const { userId } = req.body;
         console.log(`[Auto Import] Manual import triggered for userId: ${userId || 'auto'}`);
+        // 🔧 FIX: 检查全局退出保护状态
+        // 防止退出登录后自动导入Cookie导致重新登录
+        const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+        // 检查全局退出状态
+        if (globalLogoutState.isInGlobalLogoutState()) {
+            const globalInfo = globalLogoutState.getGlobalLogoutInfo();
+            console.log(`[Auto Import] 🛡️ 阻止手动导入 - 系统在全局退出保护期内，剩余 ${globalInfo.remainingSeconds} 秒`);
+            return res.status(403).json({
+                success: false,
+                error: '系统刚刚退出登录，暂时无法导入Cookie',
+                needWait: true,
+                logoutInfo: globalInfo,
+                message: `系统在全局退出保护期内，剩余 ${globalInfo.remainingSeconds} 秒，请稍后再试`
+            });
+        }
+        // 检查特定用户是否允许保存Cookie
+        if (userId && !globalLogoutState.canSaveCookies(userId, 'manual-import')) {
+            const userInfo = globalLogoutState.getUserLogoutInfo(userId);
+            console.log(`[Auto Import] 🛡️ 阻止手动导入 - 用户 ${userId} 在退出保护期内，剩余 ${userInfo.remainingSeconds} 秒`);
+            return res.status(403).json({
+                success: false,
+                error: `用户 ${userId} 刚刚退出登录，暂时无法导入Cookie`,
+                needWait: true,
+                userInfo: userInfo,
+                message: `用户在退出保护期内，剩余 ${userInfo.remainingSeconds} 秒，请稍后再试`
+            });
+        }
+        console.log(`[Auto Import] ✅ 全局退出保护检查通过，允许导入Cookie`);
         const result = await autoCookieImporter.manualImport(userId);
         if (result.success) {
             res.json({
