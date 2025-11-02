@@ -8,6 +8,7 @@ import ImageGenerationService from './imageGenerationService.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { DatabaseService } from './databaseService.js';
 
 interface UserProfile {
   userId: string;
@@ -67,6 +68,7 @@ export class AutoContentManager {
   private imageService: ImageGenerationService;
   private mcpClient: any;
   private supabase?: SupabaseClient;
+  private db?: DatabaseService;  // 🔥 新增：数据库服务
   private userProfiles: Map<string, UserProfile> = new Map();
   private contentPlans: Map<string, ContentPlan> = new Map();
   private dataDir: string;
@@ -97,10 +99,12 @@ export class AutoContentManager {
 
     if (supabaseUrl && supabaseKey) {
       this.supabase = createClient(supabaseUrl, supabaseKey);
+      this.db = new DatabaseService(this.supabase);  // 🔥 初始化数据库服务
       console.log('✅ Supabase 客户端已初始化（自动内容管理）');
+      console.log('✅ 数据库服务已初始化');
       console.log(`📦 Supabase URL: ${supabaseUrl}`);
     } else {
-      console.warn('⚠️ Supabase 配置缺失，图片将使用本地存储');
+      console.warn('⚠️ Supabase 配置缺失，将使用文件存储');
       console.warn(`   SUPABASE_URL: ${supabaseUrl ? '已配置' : '未配置'}`);
       console.warn(`   SUPABASE_KEY: ${supabaseKey ? '已配置' : '未配置'}`);
     }
@@ -109,7 +113,11 @@ export class AutoContentManager {
     this.dataDir = process.env.DATA_DIR || (process.env.NODE_ENV === 'production' ? '/app/data/auto-content' : './data/auto-content');
     console.log(`📁 数据目录: ${this.dataDir}`);
     this.ensureDataDir();
-    this.loadPersistedData();
+
+    // 🔥 异步加载数据（不阻塞构造函数）
+    this.loadPersistedData().catch(err => {
+      console.error('❌ 初始化加载数据失败:', err);
+    });
 
     // 🚀 启动作业清理任务 - 每小时清理过期作业（24小时前）
     this.startJobCleanup();
@@ -121,11 +129,76 @@ export class AutoContentManager {
     }
   }
 
-  private saveData(userId: string): void {
+  private async saveData(userId: string): Promise<void> {
     try {
       const userProfile = this.userProfiles.get(userId);
       const contentPlan = this.contentPlans.get(userId);
 
+      // 🔥 优先使用数据库存储
+      if (this.db) {
+        try {
+          // 从 user_mapping 表获取 supabase_uuid
+          const { data: mapping } = await this.db['supabase']
+            .from('xhs_user_mapping')
+            .select('supabase_uuid')
+            .eq('xhs_user_id', userId)
+            .single();
+
+          if (mapping && mapping.supabase_uuid) {
+            const supabaseUuid = mapping.supabase_uuid;
+
+            // 保存到数据库
+            await this.db.saveAllUserData({
+              supabaseUuid,
+              xhsUserId: userId,
+              userProfile: userProfile ? {
+                product_name: userProfile.productName,
+                target_audience: userProfile.targetAudience,
+                marketing_goal: userProfile.marketingGoal,
+                post_frequency: userProfile.postFrequency,
+                brand_style: userProfile.brandStyle,
+                review_mode: userProfile.reviewMode,
+              } : undefined,
+              strategy: contentPlan?.strategy ? {
+                key_themes: contentPlan.strategy.keyThemes,
+                trending_topics: contentPlan.strategy.trendingTopics,
+                hashtags: contentPlan.strategy.hashtags,
+                optimal_times: contentPlan.strategy.optimalTimes,
+              } : undefined,
+              tasks: contentPlan?.dailyTasks?.map(task => ({
+                theme: task.contentType,
+                title: task.title,
+                content: task.content,
+                scheduled_time: task.scheduledTime.toISOString(),
+                status: task.status,
+                image_urls: task.imageUrls || [],
+                cover_image_url: task.imageUrls?.[0],
+              })),
+              weeklyPlan: contentPlan?.weeklyPlan ? {
+                week_start_date: new Date().toISOString().split('T')[0],
+                week_end_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                plan_data: contentPlan.weeklyPlan,
+              } : undefined,
+              automationStatus: {
+                is_running: this.generationStatus.get(userId) === 'generating',
+                has_config: !!userProfile,
+                hasPlan: !!contentPlan?.weeklyPlan,
+                hasStrategy: !!contentPlan?.strategy,
+                totalTasks: contentPlan?.dailyTasks?.length || 0,
+                lastGenerated: new Date().toISOString(),
+              },
+            });
+
+            console.log(`💾 [DB] 数据已保存到数据库: ${userId}`);
+          } else {
+            console.warn(`⚠️ [DB] 未找到用户映射，跳过数据库保存: ${userId}`);
+          }
+        } catch (dbError: any) {
+          console.error(`❌ [DB] 保存到数据库失败，继续使用文件存储:`, dbError.message);
+        }
+      }
+
+      // 🔥 文件系统作为备份（始终保存）
       if (userProfile || contentPlan) {
         const data = {
           userProfile,
@@ -135,15 +208,85 @@ export class AutoContentManager {
 
         const filePath = path.join(this.dataDir, `${userId}.json`);
         fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-        console.log(`💾 数据已保存: ${filePath}`);
+        console.log(`💾 [FS] 数据已备份到文件: ${filePath}`);
       }
     } catch (error: any) {
       console.error(`❌ 保存数据失败:`, error.message);
     }
   }
 
-  private loadPersistedData(): void {
+  private async loadPersistedData(): Promise<void> {
     try {
+      // 🔥 优先从数据库加载
+      if (this.db) {
+        try {
+          console.log(`📂 [DB] 从数据库加载用户数据...`);
+          const userIds = await this.db.getAllUserIds();
+          console.log(`📂 [DB] 找到 ${userIds.length} 个用户`);
+
+          for (const userId of userIds) {
+            try {
+              const data = await this.db.getAllUserData(userId);
+
+              // 恢复用户配置
+              if (data.userProfile) {
+                this.userProfiles.set(userId, {
+                  userId,
+                  productName: data.userProfile.product_name,
+                  targetAudience: data.userProfile.target_audience || '',
+                  marketingGoal: (data.userProfile.marketing_goal as any) || 'brand',
+                  postFrequency: (data.userProfile.post_frequency as any) || 'daily',
+                  brandStyle: (data.userProfile.brand_style as any) || 'warm',
+                  reviewMode: (data.userProfile.review_mode as any) || 'auto',
+                });
+              }
+
+              // 恢复内容计划
+              if (data.strategy || data.tasks.length > 0 || data.weeklyPlan) {
+                this.contentPlans.set(userId, {
+                  strategy: data.strategy ? {
+                    keyThemes: data.strategy.key_themes || [],
+                    contentTypes: [], // 从 tasks 中推断
+                    optimalTimes: data.strategy.optimal_times || [],
+                    hashtags: data.strategy.hashtags || [],
+                    trendingTopics: data.strategy.trending_topics || [],
+                  } : {
+                    keyThemes: [],
+                    contentTypes: [],
+                    optimalTimes: [],
+                    hashtags: [],
+                    trendingTopics: [],
+                  },
+                  weeklyPlan: data.weeklyPlan?.plan_data || { days: [] },
+                  dailyTasks: data.tasks.map(task => ({
+                    scheduledTime: new Date(task.scheduled_time || new Date()),
+                    contentType: task.theme,
+                    title: task.title || '',
+                    content: task.content || '',
+                    imagePrompts: [],
+                    imageUrls: task.image_urls || [],
+                    hashtags: [],
+                    status: (task.status as any) || 'planned',
+                  })),
+                });
+              }
+
+              console.log(`📂 [DB] 已恢复用户数据: ${userId}`);
+              this.initializeUserActivities(userId);
+              this.updateTrendingTopicsIfMissing(userId);
+            } catch (error) {
+              console.error(`❌ [DB] 恢复用户 ${userId} 数据失败:`, error);
+            }
+          }
+
+          console.log(`✅ [DB] 已从数据库恢复 ${userIds.length} 个用户的数据`);
+          return; // 数据库加载成功，直接返回
+        } catch (dbError: any) {
+          console.error(`❌ [DB] 从数据库加载失败，回退到文件系统:`, dbError.message);
+        }
+      }
+
+      // 🔥 回退：从文件系统加载
       if (!fs.existsSync(this.dataDir)) return;
 
       const files = fs.readdirSync(this.dataDir).filter((f: string) => f.endsWith('.json'));
@@ -187,19 +330,15 @@ export class AutoContentManager {
             this.contentPlans.set(userId, data.contentPlan);
           }
 
-          console.log(`📂 已恢复用户数据: ${userId}`);
-
-          // 为恢复的用户添加一些真实的活动日志
+          console.log(`📂 [FS] 已恢复用户数据: ${userId}`);
           this.initializeUserActivities(userId);
-
-          // 为现有用户更新热门话题（如果缺失的话）
           this.updateTrendingTopicsIfMissing(userId);
         } catch (error) {
           console.error(`❌ 恢复数据失败 ${file}:`, error);
         }
       }
 
-      console.log(`✅ 已恢复 ${files.length} 个用户的数据`);
+      console.log(`✅ [FS] 已恢复 ${files.length} 个用户的数据`);
     } catch (error: any) {
       console.error(`❌ 加载持久化数据失败:`, error.message);
     }
