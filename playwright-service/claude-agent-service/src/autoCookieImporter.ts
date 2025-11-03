@@ -45,6 +45,7 @@ export class AutoCookieImporter {
   private loggedOutUsers: Set<string> = new Set(); // 跟踪已退出的用户
   private logoutTimestamps: Map<string, number> = new Map(); // 退出时间戳
   private static readonly LOGOUT_COOLDOWN = 60000; // 退出后1分钟内不重新导入
+  private globalLogoutTime: number = 0; // 🔥 全局退出时间戳（任何用户退出都记录）
 
   // 监控的Cookie文件路径 (按优先级排列)
   private readonly WATCH_PATHS = [
@@ -104,10 +105,19 @@ export class AutoCookieImporter {
     this.loggedOutUsers.add(userId);
     this.logoutTimestamps.set(userId, Date.now());
 
+    // 🔥 记录全局退出时间，阻止所有自动导入
+    this.globalLogoutTime = Date.now();
+    console.log(`[AutoCookieImporter] 🔥 全局退出保护已激活，将阻止所有Cookie自动导入 ${AutoCookieImporter.LOGOUT_COOLDOWN}ms`);
+
     // 设置定时器，在冷却期后自动清除退出状态
     setTimeout(() => {
       this.loggedOutUsers.delete(userId);
       this.logoutTimestamps.delete(userId);
+      // 🔥 清除全局退出保护
+      if (Date.now() - this.globalLogoutTime >= AutoCookieImporter.LOGOUT_COOLDOWN) {
+        this.globalLogoutTime = 0;
+        console.log(`[AutoCookieImporter] 全局退出冷却期已结束，恢复自动导入`);
+      }
       console.log(`[AutoCookieImporter] 用户 ${userId} 的退出冷却期已结束`);
     }, AutoCookieImporter.LOGOUT_COOLDOWN);
   }
@@ -116,6 +126,16 @@ export class AutoCookieImporter {
    * 检查用户是否在退出冷却期内
    */
   private isUserInLogoutCooldown(userId: string): boolean {
+    // 🔥 优先检查全局退出保护（任何用户退出都阻止所有自动导入）
+    if (this.globalLogoutTime > 0) {
+      const timeSinceGlobalLogout = Date.now() - this.globalLogoutTime;
+      if (timeSinceGlobalLogout < AutoCookieImporter.LOGOUT_COOLDOWN) {
+        console.log(`[AutoCookieImporter] 🚫 全局退出保护激活中，阻止用户 ${userId} 的自动导入 (剩余 ${Math.ceil((AutoCookieImporter.LOGOUT_COOLDOWN - timeSinceGlobalLogout) / 1000)}秒)`);
+        return true;
+      }
+    }
+
+    // 检查特定用户的退出状态
     if (!this.loggedOutUsers.has(userId)) {
       return false;
     }
