@@ -16,7 +16,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const MCP_BINARY = process.env.MCP_BINARY_PATH || './xiaohongshu-mcp';
-const COOKIE_DIR = process.env.COOKIE_DIR || './cookies';
+// 🔥 使用持久化卷目录，防止重启丢失Cookie
+const COOKIE_DIR = process.env.COOKIE_DIR || '/app/data/cookies';
 const HTTP_PORT = parseInt(process.env.HTTP_PORT || '3000');
 
 // 创建进程管理器

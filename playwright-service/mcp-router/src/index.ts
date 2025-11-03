@@ -13,7 +13,8 @@ import cors from 'cors';
 dotenv.config();
 
 const MCP_BINARY = process.env.MCP_BINARY_PATH || './xiaohongshu-mcp';
-const COOKIE_DIR = process.env.COOKIE_DIR || './cookies';
+// 🔥 使用持久化卷目录，防止重启丢失Cookie
+const COOKIE_DIR = process.env.COOKIE_DIR || '/app/data/cookies';
 
 // 创建进程管理器
 const processManager = new XiaohongshuMCPProcessManager(MCP_BINARY, COOKIE_DIR);
