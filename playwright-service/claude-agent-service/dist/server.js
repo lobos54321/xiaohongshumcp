@@ -2013,6 +2013,121 @@ app.get('/agent/xiaohongshu/logout-status', async (req, res) => {
         });
     }
 });
+// 🔥 强制清除Cookie并准备重新登录
+app.post('/agent/xiaohongshu/force-clear-cookies', async (req, res) => {
+    try {
+        const { userId } = req.body;
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                error: 'userId is required',
+            });
+        }
+        console.log(`[Force Clear] 🧹 强制清除用户 ${userId} 的所有Cookie和状态`);
+        const cleanedItems = [];
+        // 1. 停止自动导入 (AutoCookieImporter)
+        try {
+            autoCookieImporter.notifyUserLogout(userId);
+            console.log(`[Force Clear] ✅ 已阻止 AutoCookieImporter 自动导入`);
+            cleanedItems.push('AutoCookieImporter 阻止');
+        }
+        catch (error) {
+            console.warn(`[Force Clear] ⚠️  阻止自动导入失败:`, error);
+        }
+        // 2. 激活全局退出保护 (GlobalLogoutState)
+        try {
+            const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+            globalLogoutState.notifyUserLogout(userId);
+            console.log(`[Force Clear] ✅ 已激活全局退出保护`);
+            cleanedItems.push('全局退出保护激活');
+        }
+        catch (error) {
+            console.warn(`[Force Clear] ⚠️  激活全局保护失败:`, error);
+        }
+        // 3. 清理 CookieManager 加密存储
+        try {
+            const { CookieManager } = await import('./cookieManager.js');
+            const cookieManager = new CookieManager();
+            await cookieManager.deleteCookies(userId);
+            console.log(`[Force Clear] ✅ 已清除 CookieManager 加密存储`);
+            cleanedItems.push('CookieManager 加密存储');
+        }
+        catch (error) {
+            console.warn(`[Force Clear] ⚠️  清除 CookieManager 失败:`, error);
+        }
+        // 4. 清理 Playwright 会话 (FloatingLoginService)
+        try {
+            await playwrightLoginManager.forceCleanupAllSessions();
+            console.log(`[Force Clear] ✅ 已清理 Playwright 会话`);
+            cleanedItems.push('Playwright 会话');
+        }
+        catch (error) {
+            console.warn(`[Force Clear] ⚠️  清理 Playwright 失败:`, error);
+        }
+        // 5. 调用 MCP Router 强制清理端点 (清理符号链接、持久化卷、MCP进程)
+        try {
+            const axios = await import('axios');
+            const response = await axios.default.post(`${MCP_ROUTER_URL}/api/xiaohongshu/force-cleanup`, { userId }, { timeout: 10000 });
+            console.log(`[Force Clear] ✅ MCP Router 清理完成:`, response.data);
+            cleanedItems.push('MCP Router 完整清理');
+        }
+        catch (error) {
+            console.warn(`[Force Clear] ⚠️  MCP Router 清理失败:`, error.message);
+            // 降级：尝试调用旧的 logout 端点
+            try {
+                const axios = await import('axios');
+                await axios.default.post(`${MCP_ROUTER_URL}/api/xiaohongshu/logout`, { userId }, { timeout: 5000 });
+                console.log(`[Force Clear] ✅ 已通过 logout 端点清理 MCP Router`);
+                cleanedItems.push('MCP Router logout');
+            }
+            catch (logoutError) {
+                console.warn(`[Force Clear] ⚠️  MCP Router logout 也失败:`, logoutError);
+            }
+        }
+        // 6. 清理本地文件系统中的残留Cookie
+        try {
+            const cookiePaths = [
+                path.join(process.cwd(), 'cookies', userId, 'cookies.json'),
+                path.join(process.cwd(), '..', 'mcp-router', 'cookies', userId, 'cookies.json'),
+                path.join('/app/data/cookies', userId, 'cookies.json'),
+                path.join('/app/playwright-service/claude-agent-service/cookies', userId, 'cookies.json'),
+            ];
+            let filesCleaned = 0;
+            for (const cookiePath of cookiePaths) {
+                if (fs.existsSync(cookiePath)) {
+                    fs.writeFileSync(cookiePath, '[]', 'utf8');
+                    console.log(`[Force Clear] ✅ 已清空文件: ${cookiePath}`);
+                    filesCleaned++;
+                }
+            }
+            if (filesCleaned > 0) {
+                cleanedItems.push(`${filesCleaned} 个本地Cookie文件`);
+            }
+        }
+        catch (error) {
+            console.warn(`[Force Clear] ⚠️  清空本地文件失败:`, error);
+        }
+        res.json({
+            success: true,
+            message: '✅ 所有Cookie和状态已彻底清除',
+            userId,
+            cleaned: cleanedItems,
+            nextSteps: [
+                '1. 等待 60 秒（退出保护冷却期）',
+                '2. 访问 /login 页面重新扫码登录',
+                '3. 登录成功后即可正常使用'
+            ],
+            timestamp: new Date().toISOString()
+        });
+    }
+    catch (error) {
+        console.error('[Force Clear] ❌ 清除失败:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
 // 小红书登出API
 app.post('/agent/xiaohongshu/logout', async (req, res) => {
     try {
@@ -2388,6 +2503,27 @@ app.get('*', (req, res) => {
     if (req.path === '/v1') {
         console.log(`[Server] Redirecting /v1 to root with 301`);
         return res.redirect(301, '/');
+    }
+    // 🔍 日志查看代理端点 - 转发到 MCP Router
+    if (req.path.startsWith('/api/mcp-logs')) {
+        const mcpPath = req.path.replace('/api/mcp-logs', '/api/logs');
+        const mcpUrl = `${MCP_ROUTER_URL}${mcpPath}${req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : ''}`;
+        (async () => {
+            try {
+                const { default: axios } = await import('axios');
+                const response = await axios.get(mcpUrl, { timeout: 10000 });
+                return res.json(response.data);
+            }
+            catch (error) {
+                console.error('[MCP Logs Proxy] Error:', error.message);
+                return res.status(error.response?.status || 500).json({
+                    success: false,
+                    error: error.message,
+                    message: 'Failed to fetch logs from MCP Router'
+                });
+            }
+        })();
+        return;
     }
     // 其他路径重定向到主页
     console.log(`[Server] Serving index.html for path: ${req.path}`);

@@ -144,12 +144,30 @@ export class XiaohongshuMCPProcessManager {
             },
             stdio: ['ignore', 'pipe', 'pipe'],
         });
+        // 创建临时引用，稍后更新为实际的 managed 对象
+        let managedRef = null;
+        // 保存日志的辅助函数
+        const saveLog = (message) => {
+            if (managedRef) {
+                const timestamp = new Date().toISOString();
+                const logEntry = `[${timestamp}] ${message}`;
+                managedRef.logs.push(logEntry);
+                // 限制日志数量
+                if (managedRef.logs.length > managedRef.maxLogs) {
+                    managedRef.logs = managedRef.logs.slice(-managedRef.maxLogs);
+                }
+            }
+        };
         // 捕获日志
         childProcess.stdout?.on('data', (data) => {
-            console.log(`[MCP ${userId}] ${data.toString()}`);
+            const message = `[MCP ${userId}] ${data.toString()}`;
+            console.log(message);
+            saveLog(message);
         });
         childProcess.stderr?.on('data', (data) => {
-            console.error(`[MCP ${userId}] ERROR: ${data.toString()}`);
+            const message = `[MCP ${userId}] ERROR: ${data.toString()}`;
+            console.error(message);
+            saveLog(message);
         });
         childProcess.on('exit', (code) => {
             console.log(`[ProcessManager] Process for user ${userId} exited with code ${code}`);
@@ -160,7 +178,11 @@ export class XiaohongshuMCPProcessManager {
             port,
             userId,
             lastUsed: Date.now(),
+            logs: [], // 初始化日志数组
+            maxLogs: 500, // 最多保存 500 条日志
         };
+        // 设置引用，让日志处理器能访问
+        managedRef = managed;
         this.processes.set(userId, managed);
         // 等待服务启动（最多 10 秒）
         await this.waitForReady(port, 10000);
@@ -486,6 +508,33 @@ export class XiaohongshuMCPProcessManager {
         for (const userId of this.processes.keys()) {
             this.killProcess(userId);
         }
+    }
+    /**
+     * 获取指定用户的日志
+     */
+    getLogs(userId, limit) {
+        const managedProcess = this.processes.get(userId);
+        if (!managedProcess) {
+            return [];
+        }
+        const logs = managedProcess.logs;
+        if (limit && limit > 0) {
+            return logs.slice(-limit);
+        }
+        return logs;
+    }
+    /**
+     * 获取所有用户的日志（用于全局日志查看）
+     */
+    getAllLogs(limit) {
+        const result = [];
+        for (const [userId, managedProcess] of this.processes.entries()) {
+            const logs = limit && limit > 0
+                ? managedProcess.logs.slice(-limit)
+                : managedProcess.logs;
+            result.push({ userId, logs });
+        }
+        return result;
     }
 }
 //# sourceMappingURL=processManager.js.map

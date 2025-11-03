@@ -279,7 +279,7 @@ export class XiaohongshuMCPProcessManager {
   /**
    * 杀死进程
    */
-  private killProcess(userId: string): void {
+  killProcess(userId: string): void {
     const managed = this.processes.get(userId);
     if (!managed) return;
 

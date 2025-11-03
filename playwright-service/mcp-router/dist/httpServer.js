@@ -12,7 +12,8 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const MCP_BINARY = process.env.MCP_BINARY_PATH || './xiaohongshu-mcp';
-const COOKIE_DIR = process.env.COOKIE_DIR || './cookies';
+// 🔥 使用持久化卷目录，防止重启丢失Cookie
+const COOKIE_DIR = process.env.COOKIE_DIR || '/app/data/cookies';
 const HTTP_PORT = parseInt(process.env.HTTP_PORT || '3000');
 // 创建进程管理器
 const processManager = new XiaohongshuMCPProcessManager(MCP_BINARY, COOKIE_DIR);
@@ -521,6 +522,99 @@ app.post('/api/xiaohongshu/logout', async (req, res) => {
             success: false,
             error: error.message || 'Failed to logout'
         });
+    }
+});
+// 🔥 强制清理端点 - 彻底清除所有Cookie和状态
+app.post('/api/xiaohongshu/force-cleanup', async (req, res) => {
+    try {
+        const { userId } = req.body;
+        if (!userId) {
+            return res.status(400).json({ error: 'userId is required' });
+        }
+        console.log(`[Force Cleanup] 🧹 开始彻底清理用户 ${userId} 的所有状态`);
+        const cleaned = [];
+        // 1. 杀死 MCP 进程
+        try {
+            await processManager.killProcess(userId);
+            console.log(`[Force Cleanup] ✅ 已杀死 MCP 进程`);
+            cleaned.push('MCP进程');
+        }
+        catch (processError) {
+            console.warn(`[Force Cleanup] ⚠️  杀死进程失败:`, processError);
+        }
+        // 2. 清除所有 Cookie 文件
+        const cookiePaths = [
+            // 持久化卷
+            path.join(COOKIE_DIR, userId, 'cookies.json'),
+            // 符号链接
+            '/app/data/cookies.json',
+            // 工作目录
+            path.join(process.cwd(), 'cookies', userId, 'cookies.json'),
+            // 其他可能的路径
+            path.join('/app/playwright-service/mcp-router/cookies', userId, 'cookies.json'),
+            path.join('/app/playwright-service/claude-agent-service/cookies', userId, 'cookies.json'),
+        ];
+        for (const cookiePath of cookiePaths) {
+            try {
+                if (fs.existsSync(cookiePath)) {
+                    const stats = fs.lstatSync(cookiePath);
+                    if (stats.isSymbolicLink()) {
+                        fs.unlinkSync(cookiePath);
+                        console.log(`[Force Cleanup] ✅ 已删除符号链接: ${cookiePath}`);
+                        cleaned.push(`符号链接: ${cookiePath}`);
+                    }
+                    else if (stats.isFile()) {
+                        fs.writeFileSync(cookiePath, '[]', 'utf8');
+                        console.log(`[Force Cleanup] ✅ 已清空文件: ${cookiePath}`);
+                        cleaned.push(`文件: ${cookiePath}`);
+                    }
+                }
+            }
+            catch (fileError) {
+                console.warn(`[Force Cleanup] ⚠️  处理文件失败 ${cookiePath}:`, fileError);
+            }
+        }
+        // 3. 清除用户目录
+        try {
+            const userDir = path.join(COOKIE_DIR, userId);
+            if (fs.existsSync(userDir)) {
+                fs.rmSync(userDir, { recursive: true, force: true });
+                console.log(`[Force Cleanup] ✅ 已删除用户目录: ${userDir}`);
+                cleaned.push(`用户目录: ${userDir}`);
+            }
+        }
+        catch (dirError) {
+            console.warn(`[Force Cleanup] ⚠️  删除用户目录失败:`, dirError);
+        }
+        // 4. 清理 latest.json (AutoCookieImporter 监控源)
+        const latestPaths = [
+            '/tmp/xiaohongshu_cookies.json',
+            '/app/mcp-router/cookies/latest.json',
+            path.join(process.cwd(), 'cookies', 'latest.json'),
+        ];
+        for (const latestPath of latestPaths) {
+            try {
+                if (fs.existsSync(latestPath)) {
+                    fs.unlinkSync(latestPath);
+                    console.log(`[Force Cleanup] ✅ 已删除监控源: ${latestPath}`);
+                    cleaned.push(`监控源: ${latestPath}`);
+                }
+            }
+            catch (latestError) {
+                console.warn(`[Force Cleanup] ⚠️  删除监控源失败 ${latestPath}:`, latestError);
+            }
+        }
+        res.json({
+            success: true,
+            message: '彻底清理完成',
+            userId,
+            cleaned,
+            timestamp: new Date().toISOString()
+        });
+    }
+    catch (error) {
+        console.error('[Force Cleanup] ❌ 清理失败:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 // 启动服务器

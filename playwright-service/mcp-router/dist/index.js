@@ -7,7 +7,8 @@ import express from 'express';
 import cors from 'cors';
 dotenv.config();
 const MCP_BINARY = process.env.MCP_BINARY_PATH || './xiaohongshu-mcp';
-const COOKIE_DIR = process.env.COOKIE_DIR || './cookies';
+// 🔥 使用持久化卷目录，防止重启丢失Cookie
+const COOKIE_DIR = process.env.COOKIE_DIR || '/app/data/cookies';
 // 创建进程管理器
 const processManager = new XiaohongshuMCPProcessManager(MCP_BINARY, COOKIE_DIR);
 // 创建 MCP Server
@@ -275,6 +276,8 @@ async function main() {
     const app = express();
     app.use(cors());
     app.use(express.json());
+    // 提供静态文件（日志查看器）
+    app.use(express.static('public'));
     // HTTP API 端点
     // 获取登录二维码
     app.get('/api/xiaohongshu/login/qrcode', async (req, res) => {
@@ -312,6 +315,48 @@ async function main() {
             status: 'ok',
             processes: processManager.getStats()
         });
+    });
+    // 🔍 查看所有日志
+    app.get('/api/logs', (req, res) => {
+        try {
+            const limit = req.query.limit ? parseInt(req.query.limit) : 100;
+            const allLogs = processManager.getAllLogs(limit);
+            res.json({
+                success: true,
+                timestamp: new Date().toISOString(),
+                logs: allLogs,
+                totalUsers: allLogs.length
+            });
+        }
+        catch (error) {
+            console.error('Get logs error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+    // 🔍 查看指定用户的日志
+    app.get('/api/logs/:userId', (req, res) => {
+        try {
+            const { userId } = req.params;
+            const limit = req.query.limit ? parseInt(req.query.limit) : 200;
+            const logs = processManager.getLogs(userId, limit);
+            if (logs.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: `No logs found for user ${userId}`
+                });
+            }
+            res.json({
+                success: true,
+                userId,
+                timestamp: new Date().toISOString(),
+                logs,
+                count: logs.length
+            });
+        }
+        catch (error) {
+            console.error('Get user logs error:', error);
+            res.status(500).json({ error: error.message });
+        }
     });
     // 启动 HTTP 服务器
     const httpPort = process.env.HTTP_PORT || 3000;

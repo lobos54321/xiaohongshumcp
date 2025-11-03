@@ -34,7 +34,7 @@ export declare class XiaohongshuMCPProcessManager {
     /**
      * 杀死进程
      */
-    private killProcess;
+    killProcess(userId: string): void;
     /**
      * 获取或创建用户的 MCP 进程
      */
@@ -78,5 +78,16 @@ export declare class XiaohongshuMCPProcessManager {
      * 清理所有进程
      */
     cleanup(): void;
+    /**
+     * 获取指定用户的日志
+     */
+    getLogs(userId: string, limit?: number): string[];
+    /**
+     * 获取所有用户的日志（用于全局日志查看）
+     */
+    getAllLogs(limit?: number): {
+        userId: string;
+        logs: string[];
+    }[];
 }
 //# sourceMappingURL=processManager.d.ts.map
