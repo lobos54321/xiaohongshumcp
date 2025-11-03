@@ -2728,6 +2728,28 @@ app.get('*', (req: Request, res: Response) => {
     return res.redirect(301, '/');
   }
 
+  // 🔍 日志查看代理端点 - 转发到 MCP Router
+  if (req.path.startsWith('/api/mcp-logs')) {
+    const mcpPath = req.path.replace('/api/mcp-logs', '/api/logs');
+    const mcpUrl = `${MCP_ROUTER_URL}${mcpPath}${req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : ''}`;
+
+    (async () => {
+      try {
+        const { default: axios } = await import('axios');
+        const response = await axios.get(mcpUrl, { timeout: 10000 });
+        return res.json(response.data);
+      } catch (error: any) {
+        console.error('[MCP Logs Proxy] Error:', error.message);
+        return res.status(error.response?.status || 500).json({
+          success: false,
+          error: error.message,
+          message: 'Failed to fetch logs from MCP Router'
+        });
+      }
+    })();
+    return;
+  }
+
   // 其他路径重定向到主页
   console.log(`[Server] Serving index.html for path: ${req.path}`);
   res.sendFile(path.join(frontendPath, 'index.html'));
