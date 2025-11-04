@@ -1942,8 +1942,10 @@ app.post('/agent/xiaohongshu/auto-login', async (req: Request, res: Response) =>
         { timeout: 45000 } // 45秒超时：浏览器启动(5s) + 页面加载(3s) + 二维码生成(2s) + 缓冲(35s)
       );
 
-      // 🔧 适配MCP Go响应：字段名是 img 而不是 qrcode_url
-      const qrCodeImage = qrResponse.data?.img || qrResponse.data?.qrcode_url;
+      // 🔧 适配MCP Go响应结构：
+      // MCP Go返回被包装为: { success: true, data: { img: "...", timeout: "...", is_logged_in: false }, message: "..." }
+      // 所以二维码在 qrResponse.data.data.img
+      const qrCodeImage = qrResponse.data?.data?.img || qrResponse.data?.img || qrResponse.data?.qrcode_url;
       
       if (qrResponse.data && qrCodeImage) {
         console.log(`[XHS Auto Login] QR code generated successfully from MCP Router`);
