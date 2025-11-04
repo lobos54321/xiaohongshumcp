@@ -1420,11 +1420,17 @@ app.get('/agent/auto/status/:userId', async (req, res) => {
         const recentActivities = activities.slice(0, 3);
         // 判断是否有内容计划
         const hasPlan = autoContentManager.getDailyTasks(userId).length > 0;
+        // 🔥 FIX: 添加明确的is_running状态
+        // 判断标准：有任务计划且有pending/in-progress状态的任务
+        const dailyTasks = autoContentManager.getDailyTasks(userId);
+        const hasActiveTasks = dailyTasks.some((task) => task.status === 'pending' || task.status === 'in-progress');
+        const isRunning = hasPlan && (hasActiveTasks || generationStatus === 'generating');
         res.json({
             success: true,
             data: {
                 userId,
                 status: generationStatus, // 'idle' | 'generating' | 'completed' | 'failed'
+                is_running: isRunning, // 🔥 NEW: 明确的运行状态
                 hasPlan,
                 recentActivities,
                 totalActivities: activities.length,
