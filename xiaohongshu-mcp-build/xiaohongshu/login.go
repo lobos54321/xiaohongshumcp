@@ -59,7 +59,7 @@ func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
 	
 	for _, selector := range selectors {
 		if exists, _, _ := pp.Has(selector); exists {
-			slog.Infof("✅ [Login Check] 检测到登录元素: %s", selector)
+			slog.Info("✅ [Login Check] 检测到登录元素", "selector", selector)
 			return true, nil
 		}
 	}
