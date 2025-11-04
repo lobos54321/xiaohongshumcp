@@ -59,18 +59,25 @@ func (a *LoginAction) Login(ctx context.Context) error {
 func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error) {
 	pp := a.page.Context(ctx)
 
-	// 导航到小红书首页，这会触发二维码弹窗
-	pp.MustNavigate("https://www.xiaohongshu.com/explore").MustWaitLoad()
+	// 🔥 修复：直接访问登录页，而不是首页
+	pp.MustNavigate("https://www.xiaohongshu.com/login").MustWaitLoad()
 
-	// 等待一小段时间让页面完全加载
+	// 等待页面完全加载
 	time.Sleep(2 * time.Second)
 
-	// 检查是否已经登录
-	if exists, _, _ := pp.Has(".main-container .user .link-wrapper .channel"); exists {
+	// 检查是否已经登录（检查用户相关元素）
+	if exists, _, _ := pp.Has(".user-info, .avatar, .username, .user-avatar"); exists {
 		return "", true, nil
 	}
 
+	// 🔥 修复：主动点击"扫码登录"按钮（如果存在）
+	if scanBtn, err := pp.Timeout(3 * time.Second).Element("text=/扫码登录/"); err == nil {
+		scanBtn.MustClick()
+		time.Sleep(1 * time.Second)
+	}
+
 	// 🔍 使用 Timeout 避免永久阻塞，并添加详细日志
+	// 30秒超时：配合三层降级机制，快速失败快速降级
 	qrcodeEl, err := pp.Timeout(30 * time.Second).Element(".login-container .qrcode-img")
 	if err != nil {
 		return "", false, errors.Wrap(err, "⏰ 获取二维码元素超时(30秒) - 可能是Cookie问题或网络问题")
