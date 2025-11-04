@@ -70,13 +70,19 @@ func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error
 		return "", true, nil
 	}
 
-	// 获取二维码图片
-	src, err := pp.MustElement(".login-container .qrcode-img").Attribute("src")
+	// 🔍 使用 Timeout 避免永久阻塞，并添加详细日志
+	qrcodeEl, err := pp.Timeout(30 * time.Second).Element(".login-container .qrcode-img")
 	if err != nil {
-		return "", false, errors.Wrap(err, "get qrcode src failed")
+		return "", false, errors.Wrap(err, "⏰ 获取二维码元素超时(30秒) - 可能是Cookie问题或网络问题")
+	}
+
+	// 获取二维码图片src属性
+	src, err := qrcodeEl.Attribute("src")
+	if err != nil {
+		return "", false, errors.Wrap(err, "❌ 读取二维码src属性失败")
 	}
 	if src == nil || len(*src) == 0 {
-		return "", false, errors.New("qrcode src is empty")
+		return "", false, errors.New("❌ 二维码src为空 - 页面可能未正确加载")
 	}
 
 	return *src, false, nil
