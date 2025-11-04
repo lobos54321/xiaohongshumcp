@@ -2,6 +2,7 @@ package xiaohongshu
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -60,28 +61,38 @@ func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error
 	pp := a.page.Context(ctx)
 
 	// 🔥 修复：直接访问登录页，而不是首页
+	slog.Info("🌐 [QR Login] 开始访问登录页面")
 	pp.MustNavigate("https://www.xiaohongshu.com/login").MustWaitLoad()
+	slog.Info("✅ [QR Login] 登录页面加载完成")
 
 	// 等待页面完全加载
 	time.Sleep(2 * time.Second)
 
 	// 检查是否已经登录（检查用户相关元素）
 	if exists, _, _ := pp.Has(".user-info, .avatar, .username, .user-avatar"); exists {
+		slog.Info("👤 [QR Login] 检测到已登录状态")
 		return "", true, nil
 	}
 
 	// 🔥 修复：主动点击"扫码登录"按钮（如果存在）
+	slog.Info("🔍 [QR Login] 查找扫码登录按钮")
 	if scanBtn, err := pp.Timeout(3 * time.Second).Element("text=/扫码登录/"); err == nil {
+		slog.Info("👆 [QR Login] 点击扫码登录按钮")
 		scanBtn.MustClick()
 		time.Sleep(1 * time.Second)
+	} else {
+		slog.Warn("⚠️  [QR Login] 未找到扫码登录按钮，可能已在扫码模式")
 	}
 
 	// 🔍 使用 Timeout 避免永久阻塞，并添加详细日志
 	// 30秒超时：配合三层降级机制，快速失败快速降级
+	slog.Info("⏳ [QR Login] 等待二维码元素出现（30秒超时）")
 	qrcodeEl, err := pp.Timeout(30 * time.Second).Element(".login-container .qrcode-img")
 	if err != nil {
-		return "", false, errors.Wrap(err, "⏰ 获取二维码元素超时(30秒) - 可能是Cookie问题或网络问题")
+		slog.Error("❌ [QR Login] 获取二维码元素失败", "error", err)
+		return "", false, errors.Wrap(err, "⏰ 获取二维码元素超时(30秒) - 页面可能未正确加载二维码")
 	}
+	slog.Info("✅ [QR Login] 找到二维码元素")
 
 	// 获取二维码图片src属性
 	src, err := qrcodeEl.Attribute("src")
