@@ -21,6 +21,11 @@ export class CookieDatabaseService {
       throw new Error('Supabase credentials not configured');
     }
 
+    // 记录使用的key类型（仅记录前几个字符，不泄露完整key）
+    const keyType = process.env.SUPABASE_SERVICE_ROLE_KEY ? 'SERVICE_ROLE_KEY' : 'ANON_KEY';
+    const keyPrefix = supabaseKey.substring(0, 20) + '...';
+    console.log(`[CookieDB] 初始化 Supabase 客户端: 使用 ${keyType} (${keyPrefix})`);
+
     this.supabase = createClient(supabaseUrl, supabaseKey);
   }
 
