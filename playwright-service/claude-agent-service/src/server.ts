@@ -2235,6 +2235,18 @@ app.get('/agent/xiaohongshu/login/status', async (req: Request, res: Response) =
               if (hasSessionCookie && hasA1Cookie) {
                 hasValidCookies = true;
                 console.log(`[XHS Login] Found valid cookies in ${cookieFile}`);
+                
+                // 🔥 同步Cookie到数据库
+                try {
+                  const { CookieDatabaseService } = await import('./cookieDatabaseService.js');
+                  const dbService = new CookieDatabaseService();
+                  await dbService.saveCookies(userId, cookies);
+                  console.log(`[XHS Login] ✅ Cookie已同步到数据库`);
+                } catch (dbError) {
+                  console.error(`[XHS Login] 同步Cookie到数据库失败:`, dbError);
+                  // 不影响登录状态检查，继续执行
+                }
+                
                 break;
               }
             }
@@ -2476,6 +2488,16 @@ app.post('/agent/xiaohongshu/logout', async (req: Request, res: Response) => {
         globalLogoutState.notifyUserLogout(userId);
         console.log(`[XHS Logout] ✅ 已启动全局退出保护机制，阻止所有Cookie保存机制为用户 ${userId} 重新保存`);
 
+        // 🔥 删除数据库中的Cookie
+        try {
+          const { CookieDatabaseService } = await import('./cookieDatabaseService.js');
+          const dbService = new CookieDatabaseService();
+          await dbService.deleteCookies(userId);
+          console.log(`[XHS Logout] ✅ 已删除数据库中的Cookie`);
+        } catch (dbError) {
+          console.error(`[XHS Logout] 删除数据库Cookie失败:`, dbError);
+        }
+
         // 🔥 新增：强制清理PlaywrightLoginManager所有会话
         await playwrightLoginManager.forceCleanupAllSessions();
         console.log(`[XHS Logout] ✅ 已清理PlaywrightLoginManager所有会话，防止会话复用`);
@@ -2519,6 +2541,16 @@ app.post('/agent/xiaohongshu/logout', async (req: Request, res: Response) => {
         const { globalLogoutState } = await import('./globalLogoutStateManager.js');
         globalLogoutState.notifyUserLogout(userId);
         console.log(`[XHS Logout] ✅ (本地模式) 已启动全局退出保护机制，阻止所有Cookie保存机制为用户 ${userId} 重新保存`);
+
+        // 🔥 删除数据库中的Cookie
+        try {
+          const { CookieDatabaseService } = await import('./cookieDatabaseService.js');
+          const dbService = new CookieDatabaseService();
+          await dbService.deleteCookies(userId);
+          console.log(`[XHS Logout] ✅ (本地模式) 已删除数据库中的Cookie`);
+        } catch (dbError) {
+          console.error(`[XHS Logout] (本地模式) 删除数据库Cookie失败:`, dbError);
+        }
 
         // 🔥 新增：强制清理PlaywrightLoginManager所有会话
         await playwrightLoginManager.forceCleanupAllSessions();
@@ -2896,6 +2928,40 @@ app.get('*', (req: Request, res: Response) => {
   // 其他路径重定向到主页
   console.log(`[Server] Serving index.html for path: ${req.path}`);
   res.sendFile(path.join(frontendPath, 'index.html'));
+});
+
+// ============ Cookie数据库同步API ============
+
+// 从数据库加载Cookie
+app.post('/agent/xiaohongshu/load-cookies-from-db', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required',
+      });
+    }
+
+    console.log(`[CookieDB API] 加载Cookie: userId=${userId}`);
+
+    const { CookieDatabaseService } = await import('./cookieDatabaseService.js');
+    const dbService = new CookieDatabaseService();
+    const cookies = await dbService.loadCookies(userId);
+
+    res.json({
+      success: true,
+      cookies: cookies,
+      count: cookies.length
+    });
+  } catch (error: any) {
+    console.error('[CookieDB API] 加载失败:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to load cookies from database',
+    });
+  }
 });
 
 // 启动服务器

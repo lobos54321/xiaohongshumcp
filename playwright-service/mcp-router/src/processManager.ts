@@ -156,11 +156,33 @@ export class XiaohongshuMCPProcessManager {
       fs.mkdirSync(workDir, { recursive: true });
     }
 
-    // 确保cookies.json文件存在，防止MCP进程panic
+    // 🔥 优先从数据库加载Cookie（持久化存储）
     const cookiesFile = path.join(workDir, 'cookies.json');
     if (!fs.existsSync(cookiesFile)) {
-      fs.writeFileSync(cookiesFile, '[]', 'utf8');
-      console.log(`[ProcessManager] Created empty cookies.json for user ${userId}`);
+      // Cookie文件不存在，尝试从数据库加载
+      try {
+        console.log(`[ProcessManager] Cookie文件不存在，尝试从数据库加载...`);
+        const axios = await import('axios');
+        const response = await axios.default.post(
+          `${process.env.CLAUDE_AGENT_URL || 'http://localhost:8080'}/agent/xiaohongshu/load-cookies-from-db`,
+          { userId },
+          { timeout: 5000, headers: { 'Content-Type': 'application/json' } }
+        );
+        
+        if (response.data?.success && response.data?.cookies?.length > 0) {
+          fs.writeFileSync(cookiesFile, JSON.stringify(response.data.cookies, null, 2), 'utf8');
+          console.log(`[ProcessManager] ✅ 从数据库加载了 ${response.data.cookies.length} 个Cookie`);
+        } else {
+          // 数据库也没有，创建空文件
+          fs.writeFileSync(cookiesFile, '[]', 'utf8');
+          console.log(`[ProcessManager] 数据库中没有Cookie，创建空文件`);
+        }
+      } catch (dbError) {
+        console.warn(`[ProcessManager] 从数据库加载Cookie失败，创建空文件:`, dbError instanceof Error ? dbError.message : String(dbError));
+        fs.writeFileSync(cookiesFile, '[]', 'utf8');
+      }
+    } else {
+      console.log(`[ProcessManager] Cookie文件已存在: ${cookiesFile}`);
     }
 
     console.log(`[ProcessManager] Starting MCP process for user ${userId} on port ${port}`);
