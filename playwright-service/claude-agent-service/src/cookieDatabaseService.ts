@@ -34,20 +34,32 @@ export class CookieDatabaseService {
 
       console.log(`[CookieDB] 保存Cookie: userId=${xhsUserId}, count=${cookies.length}, size=${cookieSize}`);
 
-      // 🔥 从 xhs_user_mapping 查询 supabase_uuid
-      const { data: mappingData, error: mappingError } = await this.supabase
-        .from('xhs_user_mapping')
-        .select('supabase_uuid')
-        .eq('xhs_user_id', xhsUserId)
-        .single();
+      // 🔥 从xhs_user_id解析supabase_uuid
+      // user_9dee489189a644ee8fe869097846e97d_prome -> 9dee4891-89a6-44ee-8fe8-69097846e97d
+      let supabaseUuid: string;
+      
+      if (xhsUserId.startsWith('user_') && xhsUserId.endsWith('_prome')) {
+        // 提取中间的UUID部分
+        const uuidPart = xhsUserId.replace('user_', '').replace('_prome', '');
+        // 添加连字符: 9dee489189a644ee8fe869097846e97d -> 9dee4891-89a6-44ee-8fe8-69097846e97d
+        supabaseUuid = uuidPart.replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5');
+        console.log(`[CookieDB] 从xhs_user_id解析UUID: ${supabaseUuid}`);
+      } else {
+        // 不是标准格式，尝试从映射表查询
+        const { data: mappingData, error: mappingError } = await this.supabase
+          .from('xhs_user_mapping')
+          .select('supabase_uuid')
+          .eq('xhs_user_id', xhsUserId)
+          .single();
 
-      if (mappingError || !mappingData) {
-        console.error('[CookieDB] 未找到用户映射:', mappingError);
-        throw new Error(`User mapping not found for ${xhsUserId}`);
+        if (mappingError || !mappingData) {
+          console.warn(`[CookieDB] ⚠️ 无法获取UUID，跳过数据库保存: ${xhsUserId}`);
+          return; // 静默失败，不影响登录流程
+        }
+
+        supabaseUuid = mappingData.supabase_uuid;
+        console.log(`[CookieDB] 从mapping表查到UUID: ${supabaseUuid}`);
       }
-
-      const supabaseUuid = mappingData.supabase_uuid;
-      console.log(`[CookieDB] 找到用户映射: ${supabaseUuid}`);
 
       const { error } = await this.supabase
         .from('xhs_user_cookies')
@@ -64,13 +76,13 @@ export class CookieDatabaseService {
 
       if (error) {
         console.error('[CookieDB] 保存失败:', error);
-        throw error;
+        return; // 静默失败，不影响登录流程
       }
 
       console.log(`[CookieDB] ✅ 保存成功`);
     } catch (error) {
       console.error('[CookieDB] 保存Cookie失败:', error);
-      throw error;
+      // 不抛错，不影响登录流程
     }
   }
 
