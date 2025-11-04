@@ -2561,7 +2561,7 @@ app.get('/api/xiaohongshu/login/qrcode', async (req: Request, res: Response) => 
     const axios = await import('axios');
     const response = await axios.default.get(
       `${MCP_ROUTER_URL}/api/xiaohongshu/login/qrcode?userId=${userId}`,
-      { timeout: 10000 }
+      { timeout: 45000 } // 45秒超时：与auto-login保持一致
     );
 
     res.json(response.data);
