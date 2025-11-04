@@ -76,6 +76,42 @@ if (qrResponse.data && qrCodeImage) {
 }
 ```
 
+#### 3️⃣ 第三次诊断（响应包装问题）
+**发现**：MCP Router返回的响应被包装了
+```json
+{
+  "success": true,
+  "data": {
+    "timeout": "4m0s",
+    "is_logged_in": false,
+    "img": "data:image/png;base64,..."
+  },
+  "message": "获取登录二维码成功"
+}
+```
+
+**问题**：后端访问 `qrResponse.data.img`，但实际在 `qrResponse.data.data.img`
+
+**原因**：MCP Go的 `respondSuccess` 函数包装响应
+```go
+func respondSuccess(c *gin.Context, data any, message string) {
+  response := SuccessResponse{
+    Success: true,
+    Data:    data,    // LoginQrcodeResponse {img, timeout, is_logged_in}
+    Message: message,
+  }
+  c.JSON(http.StatusOK, response)
+}
+```
+
+**修复**：`xiaohongshumcp/playwright-service/claude-agent-service/src/server.ts`
+```typescript
+// 🔧 适配MCP Go响应结构：
+// MCP Go返回被包装为: { success: true, data: { img: "...", timeout: "...", is_logged_in: false }, message: "..." }
+// 所以二维码在 qrResponse.data.data.img
+const qrCodeImage = qrResponse.data?.data?.img || qrResponse.data?.img || qrResponse.data?.qrcode_url;
+```
+
 ## 📊 完整响应链路（修复后）
 
 ### MCP Go → MCP Router
@@ -127,8 +163,8 @@ if (qrResponse.data && qrCodeImage) {
    - 适配后端响应结构 `response.data.data.qrcode_url`
 
 2. **xiaohongshumcp/playwright-service/claude-agent-service/src/server.ts**
-   - Commit: `c9d78b4`
-   - 适配MCP Go响应字段名 `img`
+   - Commit: `c9d78b4` - 适配MCP Go响应字段名 `img`
+   - Commit: `7c135f6` - 修正MCP响应路径 `data.data.img`
 
 ## 🔍 诊断日志的价值
 
