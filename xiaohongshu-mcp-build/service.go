@@ -133,14 +133,21 @@ func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeRe
 
 	if !loggedIn {
 		go func() {
+			logrus.Info("🔄 [扫码等待] goroutine已启动，开始等待用户扫码...")
 			ctxTimeout, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 			defer deferFunc()
 
+			logrus.Infof("⏰ [扫码等待] 等待超时时间: %s", timeout.String())
 			if loginAction.WaitForLogin(ctxTimeout) {
+				logrus.Info("🎉 [扫码等待] ✅ 检测到登录成功！准备保存Cookie...")
 				if er := saveCookies(page); er != nil {
-					logrus.Errorf("failed to save cookies: %v", er)
+					logrus.Errorf("❌ [扫码等待] 保存Cookie失败: %v", er)
+				} else {
+					logrus.Info("✅ [扫码等待] Cookie保存流程完成")
 				}
+			} else {
+				logrus.Warn("⏱️ [扫码等待] 等待登录超时，未检测到登录成功")
 			}
 		}()
 	}
@@ -451,18 +458,33 @@ func newBrowser() *headless_browser.Browser {
 }
 
 func saveCookies(page *rod.Page) error {
+	logrus.Info("💾 [Cookie保存] 开始保存Cookie...")
+
 	cks, err := page.Browser().GetCookies()
 	if err != nil {
+		logrus.Errorf("❌ [Cookie保存] 从浏览器获取Cookie失败: %v", err)
 		return err
 	}
+	logrus.Infof("✅ [Cookie保存] 成功从浏览器获取Cookie，数量: %d", len(cks))
 
 	data, err := json.Marshal(cks)
 	if err != nil {
+		logrus.Errorf("❌ [Cookie保存] 序列化Cookie失败: %v", err)
+		return err
+	}
+	logrus.Infof("✅ [Cookie保存] 成功序列化Cookie，大小: %d 字节", len(data))
+
+	cookiePath := cookies.GetCookiesFilePath()
+	logrus.Infof("📁 [Cookie保存] 目标文件路径: %s", cookiePath)
+
+	cookieLoader := cookies.NewLoadCookie(cookiePath)
+	if err := cookieLoader.SaveCookies(data); err != nil {
+		logrus.Errorf("❌ [Cookie保存] 写入文件失败: %v", err)
 		return err
 	}
 
-	cookieLoader := cookies.NewLoadCookie(cookies.GetCookiesFilePath())
-	return cookieLoader.SaveCookies(data)
+	logrus.Infof("🎉 [Cookie保存] ✅ 成功保存Cookie到文件!")
+	return nil
 }
 
 // withBrowserPage 执行需要浏览器页面的操作的通用函数
