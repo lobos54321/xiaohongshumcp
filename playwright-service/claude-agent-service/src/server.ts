@@ -2408,7 +2408,16 @@ app.post('/agent/xiaohongshu/force-clear-cookies', async (req: Request, res: Res
       }
     }
 
-    // 6. 清理本地文件系统中的残留Cookie
+    // 6. 清除 AutoContentManager 数据 (Strategy, Plan, Status)
+    try {
+      autoContentManager.clearUserData(userId);
+      console.log(`[Force Clear] ✅ 已清除 AutoContentManager 数据 (Strategy, Plan, Status)`);
+      cleanedItems.push('AutoContentManager 数据');
+    } catch (error) {
+      console.warn(`[Force Clear] ⚠️ 清除 AutoContentManager 数据失败:`, error);
+    }
+
+    // 7. 清理本地文件系统中的残留Cookie
     try {
       const cookiePaths = [
         path.join(process.cwd(), 'cookies', userId, 'cookies.json'),
