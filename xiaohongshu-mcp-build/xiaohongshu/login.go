@@ -19,20 +19,53 @@ func NewLogin(page *rod.Page) *LoginAction {
 
 func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
 	pp := a.page.Context(ctx)
+	
+	// 🔥 优化：先检查Cookie，更快更准确
+	cookies, err := pp.Browser().GetCookies()
+	if err != nil {
+		return false, errors.Wrap(err, "failed to get cookies")
+	}
+	
+	// 检查关键Cookie是否存在
+	hasWebSession := false
+	hasA1 := false
+	for _, cookie := range cookies {
+		if cookie.Name == "web_session" && cookie.Value != "" {
+			hasWebSession = true
+		}
+		if cookie.Name == "a1" && cookie.Value != "" {
+			hasA1 = true
+		}
+	}
+	
+	// 如果有关键Cookie，说明已登录
+	if hasWebSession && hasA1 {
+		slog.Info("✅ [Login Check] 检测到有效Cookie (web_session + a1)")
+		return true, nil
+	}
+	
+	// Cookie检查失败，尝试DOM元素检查
 	pp.MustNavigate("https://www.xiaohongshu.com/explore").MustWaitLoad()
-
 	time.Sleep(1 * time.Second)
 
-	exists, _, err := pp.Has(`.main-container .user .link-wrapper .channel`)
-	if err != nil {
-		return false, errors.Wrap(err, "check login status failed")
+	// 尝试多个可能的登录状态元素
+	selectors := []string{
+		`.main-container .user .link-wrapper .channel`,
+		`.user-info`,
+		`.avatar`,
+		`.username`,
+		`[class*="user"]`,
 	}
-
-	if !exists {
-		return false, errors.Wrap(err, "login status element not found")
+	
+	for _, selector := range selectors {
+		if exists, _, _ := pp.Has(selector); exists {
+			slog.Infof("✅ [Login Check] 检测到登录元素: %s", selector)
+			return true, nil
+		}
 	}
-
-	return true, nil
+	
+	slog.Warn("⚠️  [Login Check] 未检测到登录状态")
+	return false, nil
 }
 
 func (a *LoginAction) Login(ctx context.Context) error {
