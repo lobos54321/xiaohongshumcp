@@ -1942,8 +1942,11 @@ app.post('/agent/xiaohongshu/auto-login', async (req: Request, res: Response) =>
         { timeout: 45000 } // 45秒超时：浏览器启动(5s) + 页面加载(3s) + 二维码生成(2s) + 缓冲(35s)
       );
 
-      if (qrResponse.data && qrResponse.data.qrcode_url) {
-        console.log(`[XHS Auto Login] QR code generated successfully`);
+      // 🔧 适配MCP Go响应：字段名是 img 而不是 qrcode_url
+      const qrCodeImage = qrResponse.data?.img || qrResponse.data?.qrcode_url;
+      
+      if (qrResponse.data && qrCodeImage) {
+        console.log(`[XHS Auto Login] QR code generated successfully from MCP Router`);
 
         // 返回QR码给前端，前端弹窗显示
         return res.json({
@@ -1952,12 +1955,14 @@ app.post('/agent/xiaohongshu/auto-login', async (req: Request, res: Response) =>
           status: 'qr_code_generated',
           data: {
             userId,
-            qrcode_url: qrResponse.data.qrcode_url,
+            qrcode_url: qrCodeImage,
             instructions: '请使用小红书App扫描二维码完成登录',
             polling_endpoint: `/agent/xiaohongshu/login/status?userId=${userId}`
           }
         });
       }
+      
+      console.warn(`[XHS Auto Login] MCP Router returned invalid response:`, qrResponse.data);
     } catch (qrError: any) {
       console.warn(`[XHS Auto Login] QR code generation failed:`, qrError.message);
 
