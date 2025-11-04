@@ -2199,8 +2199,8 @@ app.get('/agent/xiaohongshu/login/status', async (req: Request, res: Response) =
     // 🔥 关键修复：先检查退出保护状态
     try {
       const { globalLogoutState } = await import('./globalLogoutStateManager.js');
-      if (globalLogoutState.isUserInLogoutProtection(userId)) {
-        const logoutInfo = globalLogoutState.getGlobalLogoutInfo();
+      if (globalLogoutState.isUserInLogoutCooldown(userId)) {
+        const userInfo = globalLogoutState.getUserLogoutInfo(userId);
         console.log(`[XHS Login] ⚠️ 用户 ${userId} 在退出保护期内，强制返回未登录状态`);
         return res.json({
           success: true,
@@ -2210,8 +2210,8 @@ app.get('/agent/xiaohongshu/login/status', async (req: Request, res: Response) =
             user_id: userId,
             source: 'logout_protection',
             inProtection: true,
-            remainingSeconds: logoutInfo.remainingSeconds,
-            logoutTime: logoutInfo.logoutTime
+            remainingSeconds: userInfo.remainingSeconds,
+            logoutTime: userInfo.logoutTime
           }
         });
       }
