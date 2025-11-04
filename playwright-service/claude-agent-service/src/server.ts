@@ -2465,6 +2465,17 @@ app.post('/agent/xiaohongshu/force-clear-cookies', async (req: Request, res: Res
       console.warn(`[Force Clear] ⚠️  清空本地文件失败:`, error);
     }
 
+    // 8. 🔥 关键修复：清除 Supabase Cookie 数据库
+    try {
+      const { CookieDatabaseService } = await import('./cookieDatabaseService.js');
+      const dbService = new CookieDatabaseService();
+      await dbService.deleteCookies(userId);
+      console.log(`[Force Clear] ✅ 已清除 Supabase Cookie 数据库`);
+      cleanedItems.push('Supabase Cookie 数据库');
+    } catch (error) {
+      console.warn(`[Force Clear] ⚠️  清除 Cookie 数据库失败:`, error);
+    }
+
     res.json({
       success: true,
       message: '✅ 所有Cookie和状态已彻底清除',
