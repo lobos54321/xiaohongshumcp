@@ -440,15 +440,23 @@ export class XiaohongshuMCPProcessManager {
     const startTime = Date.now();
 
     try {
-      const response = await axios({
+      // 🔥 FIX: GET 请求使用 params (query string)，POST 请求使用 data (request body)
+      const axiosConfig: any = {
         method,
         url,
-        data,
         headers: {
           'Content-Type': 'application/json',
         },
         timeout,
-      });
+      };
+
+      if (method.toUpperCase() === 'GET') {
+        axiosConfig.params = data; // GET: 参数作为 query string
+      } else {
+        axiosConfig.data = data; // POST/PUT/etc: 参数作为 request body
+      }
+
+      const response = await axios(axiosConfig);
 
       const duration = Date.now() - startTime;
       console.log(`[ProcessManager] ✅ Request completed in ${duration}ms (${(duration / 1000).toFixed(2)}s)`);
