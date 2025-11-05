@@ -3137,7 +3137,7 @@ app.post('/agent/xiaohongshu/search', async (req: Request, res: Response) => {
 
     const result = await mcpAuthClient.callMCPTool(userId, 'xiaohongshu_search_feeds', {
       keyword,
-      sort: sort || 'general'
+      filters: { sort: sort || 'general' }
     });
 
     res.json({ success: true, data: result });
@@ -3173,18 +3173,25 @@ app.post('/agent/xiaohongshu/list-feeds', async (req: Request, res: Response) =>
 // 获取用户资料
 app.post('/agent/xiaohongshu/user-profile', async (req: Request, res: Response) => {
   try {
-    const { userId } = req.body;
+    const { userId, targetUserId, xsecToken } = req.body;
 
     if (!userId) {
       return res.status(400).json({ success: false, error: 'userId is required' });
     }
 
+    if (!targetUserId || !xsecToken) {
+      return res.status(400).json({ success: false, error: 'targetUserId and xsecToken are required' });
+    }
+
     // 速率限制检查
     checkRateLimit(userId, 'user-profile');
 
-    console.log(`[XHS User Profile] userId: ${userId}`);
+    console.log(`[XHS User Profile] userId: ${userId}, targetUserId: ${targetUserId}`);
 
-    const result = await mcpAuthClient.callMCPTool(userId, 'xiaohongshu_user_profile', {});
+    const result = await mcpAuthClient.callMCPTool(userId, 'xiaohongshu_user_profile', {
+      user_id: targetUserId,
+      xsec_token: xsecToken
+    });
 
     res.json({ success: true, data: result });
   } catch (error: any) {
@@ -3196,10 +3203,14 @@ app.post('/agent/xiaohongshu/user-profile', async (req: Request, res: Response) 
 // 获取内容详情
 app.post('/agent/xiaohongshu/feed-detail', async (req: Request, res: Response) => {
   try {
-    const { userId, feedId } = req.body;
+    const { userId, feedId, xsecToken } = req.body;
 
     if (!userId || !feedId) {
       return res.status(400).json({ success: false, error: 'userId and feedId are required' });
+    }
+
+    if (!xsecToken) {
+      return res.status(400).json({ success: false, error: 'xsecToken is required' });
     }
 
     // 速率限制检查
@@ -3208,7 +3219,8 @@ app.post('/agent/xiaohongshu/feed-detail', async (req: Request, res: Response) =
     console.log(`[XHS Feed Detail] userId: ${userId}, feedId: ${feedId}`);
 
     const result = await mcpAuthClient.callMCPTool(userId, 'xiaohongshu_get_feed_detail', {
-      feed_id: feedId
+      feed_id: feedId,
+      xsec_token: xsecToken
     });
 
     res.json({ success: true, data: result });
@@ -3221,10 +3233,14 @@ app.post('/agent/xiaohongshu/feed-detail', async (req: Request, res: Response) =
 // 点赞
 app.post('/agent/xiaohongshu/like', async (req: Request, res: Response) => {
   try {
-    const { userId, feedId } = req.body;
+    const { userId, feedId, xsecToken } = req.body;
 
     if (!userId || !feedId) {
       return res.status(400).json({ success: false, error: 'userId and feedId are required' });
+    }
+
+    if (!xsecToken) {
+      return res.status(400).json({ success: false, error: 'xsecToken is required' });
     }
 
     // 速率限制检查
@@ -3233,7 +3249,8 @@ app.post('/agent/xiaohongshu/like', async (req: Request, res: Response) => {
     console.log(`[XHS Like] userId: ${userId}, feedId: ${feedId}`);
 
     const result = await mcpAuthClient.callMCPTool(userId, 'xiaohongshu_like_feed', {
-      feed_id: feedId
+      feed_id: feedId,
+      xsec_token: xsecToken
     });
 
     res.json({ success: true, data: result });
@@ -3246,10 +3263,14 @@ app.post('/agent/xiaohongshu/like', async (req: Request, res: Response) => {
 // 收藏
 app.post('/agent/xiaohongshu/favorite', async (req: Request, res: Response) => {
   try {
-    const { userId, feedId } = req.body;
+    const { userId, feedId, xsecToken } = req.body;
 
     if (!userId || !feedId) {
       return res.status(400).json({ success: false, error: 'userId and feedId are required' });
+    }
+
+    if (!xsecToken) {
+      return res.status(400).json({ success: false, error: 'xsecToken is required' });
     }
 
     // 速率限制检查
@@ -3258,7 +3279,8 @@ app.post('/agent/xiaohongshu/favorite', async (req: Request, res: Response) => {
     console.log(`[XHS Favorite] userId: ${userId}, feedId: ${feedId}`);
 
     const result = await mcpAuthClient.callMCPTool(userId, 'xiaohongshu_favorite_feed', {
-      feed_id: feedId
+      feed_id: feedId,
+      xsec_token: xsecToken
     });
 
     res.json({ success: true, data: result });
@@ -3271,10 +3293,14 @@ app.post('/agent/xiaohongshu/favorite', async (req: Request, res: Response) => {
 // 发表评论
 app.post('/agent/xiaohongshu/comment', async (req: Request, res: Response) => {
   try {
-    const { userId, feedId, content } = req.body;
+    const { userId, feedId, xsecToken, content } = req.body;
 
     if (!userId || !feedId || !content) {
       return res.status(400).json({ success: false, error: 'userId, feedId and content are required' });
+    }
+
+    if (!xsecToken) {
+      return res.status(400).json({ success: false, error: 'xsecToken is required' });
     }
 
     // 速率限制检查
@@ -3284,6 +3310,7 @@ app.post('/agent/xiaohongshu/comment', async (req: Request, res: Response) => {
 
     const result = await mcpAuthClient.callMCPTool(userId, 'xiaohongshu_post_comment', {
       feed_id: feedId,
+      xsec_token: xsecToken,
       content
     });
 
