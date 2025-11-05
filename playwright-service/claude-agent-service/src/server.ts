@@ -1304,9 +1304,10 @@ app.get('/agent/auto/week-plan/:userId', async (req: Request, res: Response) => 
             id: `${dateStr}-${index}`,
             theme: post.theme,
             type: post.type,
+            // 🔥 FIX: 返回完整ISO日期时间
             scheduledTime: post.scheduledTime instanceof Date
-              ? post.scheduledTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-              : '09:00'
+              ? post.scheduledTime.toISOString()
+              : new Date().toISOString()
           }))
         };
       })
@@ -1340,19 +1341,19 @@ app.get('/agent/auto/plan/:userId', async (req: Request, res: Response) => {
       });
     }
 
-    // 返回所有今天的任务，不过滤日期（因为日期处理可能有问题）
+    // 返回所有任务，保留完整日期时间（ISO格式）
     const today = new Date().toISOString().split('T')[0];
     const todayTasks = dailyTasks.map((task, index) => {
-      // 安全的时间处理
-      let scheduledTimeStr = '09:00';
+      // 🔥 FIX: 返回完整ISO日期时间而非只有时间
+      let scheduledTimeStr = new Date().toISOString(); // 默认值
       try {
-        if (task.scheduledTime && typeof task.scheduledTime === 'object' && task.scheduledTime.toLocaleTimeString) {
-          scheduledTimeStr = task.scheduledTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        if (task.scheduledTime && typeof task.scheduledTime === 'object' && task.scheduledTime.toISOString) {
+          scheduledTimeStr = task.scheduledTime.toISOString();
         } else if (task.scheduledTime && typeof task.scheduledTime === 'string') {
           // 如果是字符串，尝试转换为Date
           const dateObj = new Date(task.scheduledTime);
           if (!isNaN(dateObj.getTime())) {
-            scheduledTimeStr = dateObj.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+            scheduledTimeStr = dateObj.toISOString();
           }
         }
       } catch (error) {
