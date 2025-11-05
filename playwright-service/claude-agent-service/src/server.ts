@@ -3135,7 +3135,7 @@ app.post('/agent/xiaohongshu/search', async (req: Request, res: Response) => {
 
     console.log(`[XHS Search] userId: ${userId}, keyword: ${keyword}, sort: ${sort || 'general'}`);
 
-    const result = await mcpAuthClient.callTool(userId, 'xiaohongshu_search_feeds', {
+    const result = await mcpAuthClient.callMCPTool(userId, 'xiaohongshu_search_feeds', {
       keyword,
       sort: sort || 'general'
     });
@@ -3161,7 +3161,7 @@ app.post('/agent/xiaohongshu/list-feeds', async (req: Request, res: Response) =>
 
     console.log(`[XHS List Feeds] userId: ${userId}`);
 
-    const result = await mcpAuthClient.callTool(userId, 'xiaohongshu_list_feeds', {});
+    const result = await mcpAuthClient.callMCPTool(userId, 'xiaohongshu_list_feeds', {});
 
     res.json({ success: true, data: result });
   } catch (error: any) {
@@ -3184,7 +3184,7 @@ app.post('/agent/xiaohongshu/user-profile', async (req: Request, res: Response) 
 
     console.log(`[XHS User Profile] userId: ${userId}`);
 
-    const result = await mcpAuthClient.callTool(userId, 'xiaohongshu_user_profile', {});
+    const result = await mcpAuthClient.callMCPTool(userId, 'xiaohongshu_user_profile', {});
 
     res.json({ success: true, data: result });
   } catch (error: any) {
@@ -3207,7 +3207,7 @@ app.post('/agent/xiaohongshu/feed-detail', async (req: Request, res: Response) =
 
     console.log(`[XHS Feed Detail] userId: ${userId}, feedId: ${feedId}`);
 
-    const result = await mcpAuthClient.callTool(userId, 'xiaohongshu_get_feed_detail', {
+    const result = await mcpAuthClient.callMCPTool(userId, 'xiaohongshu_get_feed_detail', {
       feed_id: feedId
     });
 
@@ -3232,7 +3232,7 @@ app.post('/agent/xiaohongshu/like', async (req: Request, res: Response) => {
 
     console.log(`[XHS Like] userId: ${userId}, feedId: ${feedId}`);
 
-    const result = await mcpAuthClient.callTool(userId, 'xiaohongshu_like_feed', {
+    const result = await mcpAuthClient.callMCPTool(userId, 'xiaohongshu_like_feed', {
       feed_id: feedId
     });
 
@@ -3257,7 +3257,7 @@ app.post('/agent/xiaohongshu/favorite', async (req: Request, res: Response) => {
 
     console.log(`[XHS Favorite] userId: ${userId}, feedId: ${feedId}`);
 
-    const result = await mcpAuthClient.callTool(userId, 'xiaohongshu_favorite_feed', {
+    const result = await mcpAuthClient.callMCPTool(userId, 'xiaohongshu_favorite_feed', {
       feed_id: feedId
     });
 
@@ -3282,7 +3282,7 @@ app.post('/agent/xiaohongshu/comment', async (req: Request, res: Response) => {
 
     console.log(`[XHS Comment] userId: ${userId}, feedId: ${feedId}, content: ${content}`);
 
-    const result = await mcpAuthClient.callTool(userId, 'xiaohongshu_post_comment', {
+    const result = await mcpAuthClient.callMCPTool(userId, 'xiaohongshu_post_comment', {
       feed_id: feedId,
       content
     });
@@ -3308,7 +3308,7 @@ app.post('/agent/xiaohongshu/publish-video', async (req: Request, res: Response)
 
     console.log(`[XHS Publish Video] userId: ${userId}, title: ${title}`);
 
-    const result = await mcpAuthClient.callTool(userId, 'xiaohongshu_publish_video', {
+    const result = await mcpAuthClient.callMCPTool(userId, 'xiaohongshu_publish_video', {
       title,
       content,
       video_path: videoPath,
