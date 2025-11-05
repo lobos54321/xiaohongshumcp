@@ -161,12 +161,22 @@ export class XiaohongshuMCPProcessManager {
     if (!fs.existsSync(cookiesFile)) {
       // Cookie文件不存在，尝试从数据库加载
       try {
-        console.log(`[ProcessManager] Cookie文件不存在，尝试从数据库加载...`);
+        console.log(`[MCP-Router] Cookie文件不存在，尝试从数据库加载...`);
         const axios = await import('axios');
+
+        // 🔥 FIX: 根据运行环境自动选择后端服务URL
+        // 生产环境：使用公网域名
+        // 开发环境：使用 localhost
+        const backendUrl = process.env.CLAUDE_AGENT_URL
+          || process.env.BACKEND_URL
+          || 'https://xiaohongshu-automation-ai.zeabur.app';
+
+        console.log(`[MCP-Router] 使用后端服务: ${backendUrl}`);
+
         const response = await axios.default.post(
-          `${process.env.CLAUDE_AGENT_URL || 'http://localhost:8080'}/agent/xiaohongshu/load-cookies-from-db`,
+          `${backendUrl}/agent/xiaohongshu/load-cookies-from-db`,
           { userId },
-          { timeout: 5000, headers: { 'Content-Type': 'application/json' } }
+          { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
         );
         
         if (response.data?.success && response.data?.cookies?.length > 0) {
