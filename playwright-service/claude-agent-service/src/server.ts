@@ -3090,3 +3090,234 @@ async function persistUserCookies(userId: string, cookies: StandardCookie[], sou
 
   return { mcpSynced, writtenPaths };
 }
+
+// ============================================
+// MCP 工具测试端点（带速率限制）
+// ============================================
+
+// 速率限制器：每个用户每个操作最少间隔2秒
+const rateLimiter = new Map<string, number>();
+
+function checkRateLimit(userId: string, operation: string): void {
+  const key = `${userId}:${operation}`;
+  const now = Date.now();
+  const lastCall = rateLimiter.get(key) || 0;
+
+  if (now - lastCall < 2000) { // 2秒限制
+    const remaining = Math.ceil((2000 - (now - lastCall)) / 1000);
+    throw new Error(`速率限制：请等待 ${remaining} 秒后重试`);
+  }
+
+  rateLimiter.set(key, now);
+}
+
+// 清理过期的限制记录（每5分钟）
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, timestamp] of rateLimiter.entries()) {
+    if (now - timestamp > 300000) { // 5分钟
+      rateLimiter.delete(key);
+    }
+  }
+}, 300000);
+
+// 搜索内容
+app.post('/agent/xiaohongshu/search', async (req: Request, res: Response) => {
+  try {
+    const { userId, keyword, sort } = req.body;
+
+    if (!userId || !keyword) {
+      return res.status(400).json({ success: false, error: 'userId and keyword are required' });
+    }
+
+    // 速率限制检查
+    checkRateLimit(userId, 'search');
+
+    console.log(`[XHS Search] userId: ${userId}, keyword: ${keyword}, sort: ${sort || 'general'}`);
+
+    const result = await mcpAuthClient.callTool(userId, 'xiaohongshu_search_feeds', {
+      keyword,
+      sort: sort || 'general'
+    });
+
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    console.error('[XHS Search] Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 列出首页动态
+app.post('/agent/xiaohongshu/list-feeds', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+
+    // 速率限制检查
+    checkRateLimit(userId, 'list-feeds');
+
+    console.log(`[XHS List Feeds] userId: ${userId}`);
+
+    const result = await mcpAuthClient.callTool(userId, 'xiaohongshu_list_feeds', {});
+
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    console.error('[XHS List Feeds] Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 获取用户资料
+app.post('/agent/xiaohongshu/user-profile', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+
+    // 速率限制检查
+    checkRateLimit(userId, 'user-profile');
+
+    console.log(`[XHS User Profile] userId: ${userId}`);
+
+    const result = await mcpAuthClient.callTool(userId, 'xiaohongshu_user_profile', {});
+
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    console.error('[XHS User Profile] Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 获取内容详情
+app.post('/agent/xiaohongshu/feed-detail', async (req: Request, res: Response) => {
+  try {
+    const { userId, feedId } = req.body;
+
+    if (!userId || !feedId) {
+      return res.status(400).json({ success: false, error: 'userId and feedId are required' });
+    }
+
+    // 速率限制检查
+    checkRateLimit(userId, 'feed-detail');
+
+    console.log(`[XHS Feed Detail] userId: ${userId}, feedId: ${feedId}`);
+
+    const result = await mcpAuthClient.callTool(userId, 'xiaohongshu_get_feed_detail', {
+      feed_id: feedId
+    });
+
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    console.error('[XHS Feed Detail] Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 点赞
+app.post('/agent/xiaohongshu/like', async (req: Request, res: Response) => {
+  try {
+    const { userId, feedId } = req.body;
+
+    if (!userId || !feedId) {
+      return res.status(400).json({ success: false, error: 'userId and feedId are required' });
+    }
+
+    // 速率限制检查
+    checkRateLimit(userId, 'like');
+
+    console.log(`[XHS Like] userId: ${userId}, feedId: ${feedId}`);
+
+    const result = await mcpAuthClient.callTool(userId, 'xiaohongshu_like_feed', {
+      feed_id: feedId
+    });
+
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    console.error('[XHS Like] Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 收藏
+app.post('/agent/xiaohongshu/favorite', async (req: Request, res: Response) => {
+  try {
+    const { userId, feedId } = req.body;
+
+    if (!userId || !feedId) {
+      return res.status(400).json({ success: false, error: 'userId and feedId are required' });
+    }
+
+    // 速率限制检查
+    checkRateLimit(userId, 'favorite');
+
+    console.log(`[XHS Favorite] userId: ${userId}, feedId: ${feedId}`);
+
+    const result = await mcpAuthClient.callTool(userId, 'xiaohongshu_favorite_feed', {
+      feed_id: feedId
+    });
+
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    console.error('[XHS Favorite] Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 发表评论
+app.post('/agent/xiaohongshu/comment', async (req: Request, res: Response) => {
+  try {
+    const { userId, feedId, content } = req.body;
+
+    if (!userId || !feedId || !content) {
+      return res.status(400).json({ success: false, error: 'userId, feedId and content are required' });
+    }
+
+    // 速率限制检查
+    checkRateLimit(userId, 'comment');
+
+    console.log(`[XHS Comment] userId: ${userId}, feedId: ${feedId}, content: ${content}`);
+
+    const result = await mcpAuthClient.callTool(userId, 'xiaohongshu_post_comment', {
+      feed_id: feedId,
+      content
+    });
+
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    console.error('[XHS Comment] Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 发布视频
+app.post('/agent/xiaohongshu/publish-video', async (req: Request, res: Response) => {
+  try {
+    const { userId, title, content, videoPath, coverPath } = req.body;
+
+    if (!userId || !title || !videoPath) {
+      return res.status(400).json({ success: false, error: 'userId, title and videoPath are required' });
+    }
+
+    // 速率限制检查
+    checkRateLimit(userId, 'publish-video');
+
+    console.log(`[XHS Publish Video] userId: ${userId}, title: ${title}`);
+
+    const result = await mcpAuthClient.callTool(userId, 'xiaohongshu_publish_video', {
+      title,
+      content,
+      video_path: videoPath,
+      cover_path: coverPath
+    });
+
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    console.error('[XHS Publish Video] Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
