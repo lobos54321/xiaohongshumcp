@@ -149,8 +149,30 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 		case <-ctx.Done():
 			return false
 		case <-ticker.C:
+			// 🔥 优先检查Cookie（更可靠）
+			cookies, err := pp.Browser().GetCookies()
+			if err == nil {
+				hasWebSession := false
+				hasA1 := false
+				for _, cookie := range cookies {
+					if cookie.Name == "web_session" && cookie.Value != "" && cookie.Value != "Guest" {
+						hasWebSession = true
+					}
+					if cookie.Name == "a1" && cookie.Value != "" {
+						hasA1 = true
+					}
+				}
+				// 有关键Cookie就认为登录成功
+				if hasWebSession && hasA1 {
+					slog.Info("🎉 [WaitForLogin] 检测到登录成功（Cookie验证）")
+					return true
+				}
+			}
+			
+			// 降级：检查DOM元素（兼容性）
 			el, err := pp.Element(".main-container .user .link-wrapper .channel")
 			if err == nil && el != nil {
+				slog.Info("🎉 [WaitForLogin] 检测到登录成功（DOM验证）")
 				return true
 			}
 		}
