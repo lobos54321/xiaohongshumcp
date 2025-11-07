@@ -3200,6 +3200,43 @@ app.post('/agent/xiaohongshu/user-profile', async (req: Request, res: Response) 
   }
 });
 
+// 获取当前登录用户的个人资料（用于显示账号绑定信息）
+app.get('/agent/xiaohongshu/profile', async (req: Request, res: Response) => {
+  try {
+    const userId = req.query.userId as string;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+
+    console.log(`[XHS My Profile] Getting profile for user: ${userId}`);
+
+    // 调用MCP Router的GetMyProfile接口
+    const axios = await import('axios');
+    const response = await axios.default.post(
+      `${MCP_ROUTER_URL}/mcp/call`,
+      {
+        userId: userId,
+        toolName: 'xiaohongshu_get_my_profile',
+        arguments: {}
+      },
+      { timeout: 30000 }
+    );
+
+    if (response.data?.success && response.data?.data) {
+      res.json({ success: true, data: response.data.data });
+    } else {
+      res.status(500).json({ 
+        success: false, 
+        error: response.data?.error || 'Failed to get profile' 
+      });
+    }
+  } catch (error: any) {
+    console.error('[XHS My Profile] Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // 获取内容详情
 app.post('/agent/xiaohongshu/feed-detail', async (req: Request, res: Response) => {
   try {
