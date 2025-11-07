@@ -141,6 +141,16 @@ func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeRe
 			logrus.Infof("⏰ [扫码等待] 等待超时时间: %s", timeout.String())
 			if loginAction.WaitForLogin(ctxTimeout) {
 				logrus.Info("🎉 [扫码等待] ✅ 检测到登录成功！准备保存Cookie...")
+				
+				// 🔥 FIX: 导航到首页确保浏览器完成登录流程，避免后续发布时页面状态异常
+				logrus.Info("🔄 [扫码等待] 导航到首页完成登录流程...")
+				if navErr := page.Navigate("https://www.xiaohongshu.com/explore"); navErr != nil {
+					logrus.Warnf("⚠️ [扫码等待] 导航到首页失败: %v，继续保存Cookie", navErr)
+				} else {
+					page.MustWaitLoad()
+					logrus.Info("✅ [扫码等待] 首页加载完成，浏览器已进入正常登录状态")
+				}
+				
 				if er := saveCookies(page); er != nil {
 					logrus.Errorf("❌ [扫码等待] 保存Cookie失败: %v", er)
 				} else {
