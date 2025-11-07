@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/sirupsen/logrus"
 	"github.com/xpzouying/xiaohongshu-mcp/configs"
@@ -25,6 +27,19 @@ func main() {
 
 	configs.InitHeadless(headless)
 	configs.SetBinPath(binPath)
+
+	// 🔥 初始化浏览器池（容量2）
+	InitBrowserPool(2)
+	
+	// 注册优雅关闭
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		logrus.Info("正在关闭服务器...")
+		GetBrowserPool().Close()
+		os.Exit(0)
+	}()
 
 	// 初始化服务
 	xiaohongshuService := NewXiaohongshuService()

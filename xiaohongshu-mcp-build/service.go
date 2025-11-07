@@ -219,10 +219,21 @@ func (s *XiaohongshuService) processImages(images []string) ([]string, error) {
 	return processor.ProcessImages(images)
 }
 
-// publishContent 执行内容发布
+// publishContent 执行内容发布（使用浏览器池）
 func (s *XiaohongshuService) publishContent(ctx context.Context, content xiaohongshu.PublishImageContent) error {
-	b := newBrowser()
-	defer b.Close()
+	logrus.Infof("📝 [发布] 准备发布内容: %s", content.Title)
+	logrus.Infof("📷 [发布] 图片数量: %d", len(content.ImagePaths))
+	
+	// 从浏览器池获取实例（带超时）
+	pool := GetBrowserPool()
+	b, err := pool.AcquireBrowser(ctx)
+	if err != nil {
+		logrus.Errorf("❌ [发布] 获取浏览器失败: %v", err)
+		return fmt.Errorf("获取浏览器失败: %w", err)
+	}
+	defer pool.ReleaseBrowser(b)
+	
+	logrus.Info("✅ [发布] 浏览器实例获取成功")
 
 	page := b.NewPage()
 	defer page.Close()
