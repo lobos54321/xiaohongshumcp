@@ -199,11 +199,15 @@ export class XiaohongshuMCPProcessManager {
     console.log(`[ProcessManager] Working directory: ${workDir}`);
     console.log(`[ProcessManager] Cookie file: ${cookiesFile}`);
 
+    // Ensure Go binary reads global symlink path rather than legacy /tmp
+    process.env.COOKIES_PATH = '/app/data/cookies.json';
+
     const childProcess = spawn(this.mcpBinary, ['-port', `:${port}`], {
       cwd: workDir,  // 设置工作目录，确保Cookie文件隔离
       env: {
         ...process.env,
         USER_ID: userId,
+        COOKIES_PATH: '/app/data/cookies.json',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
