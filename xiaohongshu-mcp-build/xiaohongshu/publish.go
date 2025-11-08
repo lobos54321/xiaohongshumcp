@@ -33,6 +33,7 @@ const (
 )
 
 func NewPublishImageAction(page *rod.Page) (*PublishAction, error) {
+	logrus.Info("🚀 [NewPublishImageAction] 开始初始化发布Action")
 
 	// 🔧 FIX: Set timeout to 600s (10min) - optimal balance
 	// Reason:
@@ -42,16 +43,45 @@ func NewPublishImageAction(page *rod.Page) (*PublishAction, error) {
 	// - Fast failure for element not found (via findElementWithRetry 30s timeout)
 	pp := page.Timeout(600 * time.Second)
 
-	pp.MustNavigate(urlOfPublic).MustWaitIdle().MustWaitDOMStable()
-	time.Sleep(1 * time.Second)
+	// 🔥 关键修复：使用goroutine+channel+超时保护导航，防止MustNavigate永久hang住
+	// 证据：日志显示"准备初始化PublishAction"后10分钟无任何输出，hang在MustNavigate
+	logrus.Info("🌐 [NewPublishImageAction] 开始导航到发布页面...")
+	navChan := make(chan error, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				navChan <- fmt.Errorf("导航panic: %v", r)
+			}
+		}()
+		pp.MustNavigate(urlOfPublic).MustWaitIdle().MustWaitDOMStable()
+		navChan <- nil
+	}()
 
-	if err := mustClickPublishTab(page, "上传图文"); err != nil {
-		logrus.Errorf("点击上传图文 TAB 失败: %v", err)
-		return nil, err
+	// 60秒超时等待导航完成
+	select {
+	case err := <-navChan:
+		if err != nil {
+			logrus.Errorf("❌ [NewPublishImageAction] 导航失败: %v", err)
+			return nil, err
+		}
+		logrus.Info("✅ [NewPublishImageAction] 导航成功，页面加载完成")
+	case <-time.After(60 * time.Second):
+		logrus.Error("⏱️ [NewPublishImageAction] 导航超时（60秒），页面无响应")
+		return nil, fmt.Errorf("导航到发布页面超时")
 	}
 
 	time.Sleep(1 * time.Second)
 
+	logrus.Info("📍 [NewPublishImageAction] 准备点击'上传图文'TAB...")
+	if err := mustClickPublishTab(page, "上传图文"); err != nil {
+		logrus.Errorf("❌ [NewPublishImageAction] 点击上传图文TAB失败: %v", err)
+		return nil, err
+	}
+	logrus.Info("✅ [NewPublishImageAction] TAB点击成功")
+
+	time.Sleep(1 * time.Second)
+
+	logrus.Info("✅ [NewPublishImageAction] PublishAction初始化完成")
 	return &PublishAction{
 		page: pp,
 	}, nil
