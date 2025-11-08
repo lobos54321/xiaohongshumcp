@@ -234,9 +234,22 @@ class PlaywrightLoginManager {
   private async launchSession(userId: string): Promise<LoginSession> {
     await ensurePlaywrightChromiumInstalled();
 
-    // 🔥 简化方案：使用用户引导式退出登录，不需要复杂的隔离
+    // 🔥 FIX 1: 启动前清理所有旧的Playwright临时目录
+    // 问题：退出登录后，旧的临时目录中的Cookie还在，导致弹出二维码时自动登录
+    const tempDirPattern = `/tmp/playwright-${userId}-*`;
+    console.log(`[PlaywrightLogin] 🧹 清理旧的临时目录: ${tempDirPattern}`);
+
+    try {
+      const { execSync } = require('child_process');
+      execSync(`rm -rf ${tempDirPattern}`, { stdio: 'ignore' });
+      console.log(`[PlaywrightLogin] ✅ 旧临时目录已清理`);
+    } catch (error) {
+      console.warn(`[PlaywrightLogin] 清理旧目录失败:`, error);
+    }
+
+    // 创建新的临时目录
     const tempUserDataDir = `/tmp/playwright-${userId}-${Date.now()}`;
-    console.log(`[PlaywrightLogin] 创建用户数据目录: ${tempUserDataDir}`);
+    console.log(`[PlaywrightLogin] 创建新的用户数据目录: ${tempUserDataDir}`);
 
     const context = await chromium.launchPersistentContext(tempUserDataDir, {
       headless: false, // 🔥 改为非无头模式，让用户可以看到和操作
@@ -2547,6 +2560,18 @@ app.post('/agent/xiaohongshu/logout', async (req: Request, res: Response) => {
         await playwrightLoginManager.forceCleanupAllSessions();
         console.log(`[XHS Logout] ✅ 已清理PlaywrightLoginManager所有会话，防止会话复用`);
 
+        // 🔥 FIX 3: 清理Playwright临时目录
+        // 问题：退出登录后，Playwright临时目录中的Cookie还在，导致弹出二维码时自动登录
+        const tempDirPattern = `/tmp/playwright-${userId}-*`;
+        console.log(`[XHS Logout] 🧹 清理Playwright临时目录: ${tempDirPattern}`);
+        try {
+          const { execSync } = require('child_process');
+          execSync(`rm -rf ${tempDirPattern}`, { stdio: 'ignore' });
+          console.log(`[XHS Logout] ✅ Playwright临时目录已清理`);
+        } catch (cleanupError) {
+          console.warn(`[XHS Logout] 清理Playwright临时目录失败:`, cleanupError);
+        }
+
         // 同时通知AutoCookieImporter（双重保护）
         autoCookieImporter.notifyUserLogout(userId);
         console.log(`[XHS Logout] ✅ 已通知AutoCookieImporter阻止用户 ${userId} 的自动重新导入`);
@@ -2600,6 +2625,17 @@ app.post('/agent/xiaohongshu/logout', async (req: Request, res: Response) => {
         // 🔥 新增：强制清理PlaywrightLoginManager所有会话
         await playwrightLoginManager.forceCleanupAllSessions();
         console.log(`[XHS Logout] ✅ (本地模式) 已清理PlaywrightLoginManager所有会话，防止会话复用`);
+
+        // 🔥 FIX 3: 清理Playwright临时目录（本地模式）
+        const tempDirPattern = `/tmp/playwright-${userId}-*`;
+        console.log(`[XHS Logout] 🧹 (本地模式) 清理Playwright临时目录: ${tempDirPattern}`);
+        try {
+          const { execSync } = require('child_process');
+          execSync(`rm -rf ${tempDirPattern}`, { stdio: 'ignore' });
+          console.log(`[XHS Logout] ✅ (本地模式) Playwright临时目录已清理`);
+        } catch (cleanupError) {
+          console.warn(`[XHS Logout] (本地模式) 清理Playwright临时目录失败:`, cleanupError);
+        }
 
         // 同时通知AutoCookieImporter（双重保护）
         autoCookieImporter.notifyUserLogout(userId);
