@@ -219,52 +219,21 @@ func (s *XiaohongshuService) processImages(images []string) ([]string, error) {
 	return processor.ProcessImages(images)
 }
 
-// publishContent 执行内容发布（使用浏览器池）
+// publishContent 执行内容发布
 func (s *XiaohongshuService) publishContent(ctx context.Context, content xiaohongshu.PublishImageContent) error {
 	logrus.Infof("📝 [发布] 准备发布内容: %s", content.Title)
 	logrus.Infof("📷 [发布] 图片数量: %d", len(content.ImagePaths))
 	
-	// 从浏览器池获取实例（带超时）
-	pool := GetBrowserPool()
-	b, err := pool.AcquireBrowser(ctx)
-	if err != nil {
-		logrus.Errorf("❌ [发布] 获取浏览器失败: %v", err)
-		return fmt.Errorf("获取浏览器失败: %w", err)
-	}
-	defer pool.ReleaseBrowser(b)
+	// 🔥 临时禁用浏览器池，回归上游一次性浏览器模式
+	// 原因：浏览器复用 + Cookie软链切换导致上下文污染
+	logrus.Info("🌐 [发布] 创建一次性浏览器实例（已禁用池复用）")
+	b := newBrowser()
+	defer b.Close()
 	
-	logrus.Info("✅ [发布] 浏览器实例获取成功，准备创建新页面...")
-	
-	// 🔥 关键修复：使用带超时的channel来创建页面，防止NewPage hang住
-	pageChan := make(chan *rod.Page, 1)
-	errChan := make(chan error, 1)
-	
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				errChan <- fmt.Errorf("NewPage panic: %v", r)
-			}
-		}()
-		page := b.NewPage()
-		pageChan <- page
-	}()
-	
-	// 30秒超时等待页面创建
-	var page *rod.Page
-	select {
-	case page = <-pageChan:
-		logrus.Info("✅ [发布] 页面创建成功")
-	case err := <-errChan:
-		logrus.Errorf("❌ [发布] 页面创建失败: %v", err)
-		return err
-	case <-time.After(30 * time.Second):
-		logrus.Error("⏱️ [发布] 页面创建超时（30秒）")
-		return fmt.Errorf("页面创建超时")
-	case <-ctx.Done():
-		logrus.Error("⏱️ [发布] 上下文已取消")
-		return ctx.Err()
-	}
+	logrus.Info("📄 [发布] 创建新页面...")
+	page := b.NewPage()
 	defer page.Close()
+	logrus.Info("✅ [发布] 页面创建成功")
 
 	logrus.Info("📍 [发布] 准备初始化PublishAction...")
 	action, err := xiaohongshu.NewPublishImageAction(page)
