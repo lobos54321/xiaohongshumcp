@@ -233,15 +233,17 @@ func (s *XiaohongshuService) publishContent(ctx context.Context, content xiaohon
 	}
 	defer pool.ReleaseBrowser(b)
 	
-	logrus.Info("✅ [发布] 浏览器实例获取成功")
-
+	logrus.Info("✅ [发布] 浏览器实例获取成功，准备创建新页面...")
 	page := b.NewPage()
 	defer page.Close()
+	logrus.Info("✅ [发布] 页面创建成功，准备初始化发布Action...")
 
 	action, err := xiaohongshu.NewPublishImageAction(page)
 	if err != nil {
+		logrus.Errorf("❌ [发布] 创建PublishAction失败: %v", err)
 		return err
 	}
+	logrus.Info("✅ [发布] PublishAction创建成功，开始执行发布...")
 
 	// 执行发布
 	return action.Publish(ctx, content)
