@@ -65,12 +65,19 @@ func (s *AppServer) getLoginQrcodeHandler(c *gin.Context) {
 
 // publishHandler 发布内容
 func (s *AppServer) publishHandler(c *gin.Context) {
+	logrus.Info("🔔 [PublishHandler] 收到发布请求")
+	logrus.Infof("📍 [PublishHandler] Method: %s, Path: %s", c.Request.Method, c.Request.URL.Path)
+	logrus.Infof("📊 [PublishHandler] Content-Length: %d", c.Request.ContentLength)
+	
 	var req PublishRequest
+	logrus.Info("📖 [PublishHandler] 开始解析请求体...")
 	if err := c.ShouldBindJSON(&req); err != nil {
+		logrus.Errorf("❌ [PublishHandler] 请求参数解析失败: %v", err)
 		respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
 			"请求参数错误", err.Error())
 		return
 	}
+	logrus.Info("✅ [PublishHandler] 请求体解析成功")
 
 	// 执行发布
 	result, err := s.xiaohongshuService.PublishContent(c.Request.Context(), &req)
