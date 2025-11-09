@@ -22,9 +22,29 @@
     <div class="container mx-auto px-4 py-8 max-w-4xl">
 
         <!-- Header -->
-        <div class="text-center text-white mb-8">
+        <div class="text-center text-white mb-6">
             <h1 class="text-4xl font-bold mb-2">🤖 小红书全自动运营系统</h1>
             <p class="text-lg opacity-90">一次设置，终身自动 - 让Claude为你打理一切</p>
+        </div>
+
+        <!-- 🔥 顶部工具栏 - 始终可见 -->
+        <div class="card rounded-xl p-4 shadow-lg mb-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div id="topLoginStatus" class="flex items-center">
+                        <span id="topLoginDot" class="w-2 h-2 rounded-full bg-gray-400 mr-2"></span>
+                        <span id="topLoginText" class="text-sm text-gray-600">检查中...</span>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button id="topReconfigBtn" onclick="backToSetup()" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                        ⚙️ 重新配置
+                    </button>
+                    <button id="topLogoutBtn" onclick="clearXHSCookies()" class="text-xs bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                        🚪 退出登录
+                    </button>
+                </div>
+            </div>
         </div>
 
         <!-- Setup Wizard -->
@@ -1009,6 +1029,12 @@
                         '<span class="text-green-600 text-xl">✅ 登录成功！</span>';
                     document.getElementById('loginSuccess').classList.remove('hidden');
 
+                    // 🔥 更新顶部工具栏状态 - 已登录
+                    document.getElementById('topLoginDot').className = 'w-2 h-2 rounded-full bg-green-400 mr-2';
+                    document.getElementById('topLoginText').className = 'text-sm text-green-600 font-medium';
+                    document.getElementById('topLoginText').textContent = '已登录';
+                    document.getElementById('topLogoutBtn').disabled = false;
+
                     // 检查是否有保存的配置
                     const savedConfig = localStorage.getItem(`userConfig_${currentUser}`);
                     if (savedConfig) {
@@ -1018,6 +1044,9 @@
                         // 直接跳转到运营页面
                         document.getElementById('setupWizard').classList.add('hidden');
                         document.getElementById('autoManagerDashboard').classList.remove('hidden');
+
+                        // 🔥 运营页面 - 启用"重新配置"按钮
+                        document.getElementById('topReconfigBtn').disabled = false;
 
                         autoModeEnabled = true;
                         startAutoMode(config);
@@ -1035,6 +1064,13 @@
                     document.getElementById('loginStatus').innerHTML =
                         '<span class="text-red-600 text-xl">❌ 未检测到真实登录状态</span>';
                     document.getElementById('loginError').classList.remove('hidden');
+
+                    // 🔥 更新顶部工具栏状态 - 未登录
+                    document.getElementById('topLoginDot').className = 'w-2 h-2 rounded-full bg-red-400 mr-2 animate-pulse';
+                    document.getElementById('topLoginText').className = 'text-sm text-red-600';
+                    document.getElementById('topLoginText').textContent = '未登录';
+                    document.getElementById('topLogoutBtn').disabled = true;
+                    document.getElementById('topReconfigBtn').disabled = true;
                 }
             } catch (error) {
                 console.error('检查登录状态失败:', error);
@@ -1089,6 +1125,9 @@
             console.log('🚀 立即跳转到自动运营界面');
             document.getElementById('setupWizard').classList.add('hidden');
             document.getElementById('autoManagerDashboard').classList.remove('hidden');
+
+            // 🔥 启用顶部"重新配置"按钮
+            document.getElementById('topReconfigBtn').disabled = false;
 
             autoModeEnabled = true;
             startAutoMode(config);
@@ -2222,6 +2261,9 @@
 
                 document.getElementById('autoManagerDashboard').classList.add('hidden');
                 document.getElementById('setupWizard').classList.remove('hidden');
+
+                // 🔥 返回配置页面 - 禁用"重新配置"按钮
+                document.getElementById('topReconfigBtn').disabled = true;
 
                 // 重置状态
                 document.getElementById('loginStatus').innerHTML =
