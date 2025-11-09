@@ -2563,10 +2563,12 @@ app.post('/agent/xiaohongshu/logout', async (req: Request, res: Response) => {
         // 🔥 FIX 3: 清理Playwright临时目录
         // 问题：退出登录后，Playwright临时目录中的Cookie还在，导致弹出二维码时自动登录
         const tempDirPattern = `/tmp/playwright-${userId}-*`;
-        console.log(`[XHS Logout] 🧹 清理Playwright临时目录: ${tempDirPattern}`);
+        const loginTempPattern = `/tmp/playwright-login-${userId}-*`;
+        console.log(`[XHS Logout] 🧹 清理Playwright临时目录: ${tempDirPattern} 和 ${loginTempPattern}`);
         try {
           const { execSync } = require('child_process');
           execSync(`rm -rf ${tempDirPattern}`, { stdio: 'ignore' });
+          execSync(`rm -rf ${loginTempPattern}`, { stdio: 'ignore' });
           console.log(`[XHS Logout] ✅ Playwright临时目录已清理`);
         } catch (cleanupError) {
           console.warn(`[XHS Logout] 清理Playwright临时目录失败:`, cleanupError);
