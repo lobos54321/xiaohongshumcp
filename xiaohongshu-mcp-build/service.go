@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -149,6 +150,27 @@ func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeRe
 				} else {
 					page.MustWaitLoad()
 					logrus.Info("✅ [扫码等待] 首页加载完成，浏览器已进入正常登录状态")
+				}
+
+				// 🔥 FIX: 导航到creator域名建立会话，确保Cookie在creator子域名也有效
+				// 问题：登录在www.xiaohongshu.com，但发布在creator.xiaohongshu.com
+				// 解决：登录后访问creator域名，让浏览器在creator域名也建立有效会话
+				logrus.Info("🔄 [Cookie跨域] 导航到creator域名建立会话...")
+				if navErr := page.Navigate("https://creator.xiaohongshu.com"); navErr != nil {
+					logrus.Warnf("⚠️ [Cookie跨域] 导航到creator域名失败: %v，可能影响后续发布", navErr)
+				} else {
+					page.MustWaitLoad()
+					// 等待2秒确保页面完全加载并建立会话
+					time.Sleep(2 * time.Second)
+					finalURL := page.MustInfo().URL
+					logrus.Infof("✅ [Cookie跨域] Creator域名访问成功，当前URL: %s", finalURL)
+
+					// 检查是否被重定向到登录页（说明Cookie跨域失败）
+					if strings.Contains(finalURL, "/login") {
+						logrus.Warnf("⚠️ [Cookie跨域] 访问creator域名被重定向到登录页，Cookie可能无法跨域使用")
+					} else {
+						logrus.Info("✅ [Cookie跨域] Creator域名会话建立成功，Cookie已在两个域名生效")
+					}
 				}
 				
 				if er := saveCookies(page); er != nil {
