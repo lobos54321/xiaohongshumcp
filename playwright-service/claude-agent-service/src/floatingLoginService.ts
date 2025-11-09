@@ -25,6 +25,7 @@ export class FloatingLoginService {
   private page: Page | null = null;
   private isLoggedIn = false;
   private cookiesSaved = false;
+  private tempUserDataDir: string | null = null;  // 🔥 保存临时userDataDir路径
 
   constructor() {
     // 确保cookies目录存在
@@ -43,12 +44,25 @@ export class FloatingLoginService {
     try {
       console.log(`[FloatingLogin] Starting floating login for user ${userId}`);
 
+      // 🔥 FIX: 创建唯一的临时userDataDir，确保每次登录都是全新环境
+      // 问题：不指定userDataDir时，Playwright会复用浏览器缓存，导致退出登录后仍自动登录
+      const timestamp = Date.now();
+      this.tempUserDataDir = path.join('/tmp', `playwright-login-${userId}-${timestamp}`);
+      console.log(`[FloatingLogin] 🧹 使用全新userDataDir: ${this.tempUserDataDir}`);
+
+      // 确保临时目录不存在（避免复用）
+      if (fs.existsSync(this.tempUserDataDir)) {
+        console.log(`[FloatingLogin] ⚠️ 临时目录已存在，先清理: ${this.tempUserDataDir}`);
+        fs.rmSync(this.tempUserDataDir, { recursive: true, force: true });
+      }
+
       // 启动Chromium浏览器 - 使用绝对路径确保找到已下载的Chromium
       const browser = await chromium.launch({
         headless: false,
         args: [
           `--window-size=${width},${height}`,
           `--window-position=${x},${y}`,
+          `--user-data-dir=${this.tempUserDataDir}`,  // 🔥 指定临时userDataDir
           '--disable-web-security',
           '--disable-features=VizDisplayCompositor',
           '--no-first-run',
@@ -262,6 +276,17 @@ export class FloatingLoginService {
       }
       if (this.context) {
         await this.context.close();
+      }
+
+      // 🔥 清理临时userDataDir
+      if (this.tempUserDataDir && fs.existsSync(this.tempUserDataDir)) {
+        console.log(`[FloatingLogin] 🧹 清理临时userDataDir: ${this.tempUserDataDir}`);
+        try {
+          fs.rmSync(this.tempUserDataDir, { recursive: true, force: true });
+          console.log(`[FloatingLogin] ✅ 临时userDataDir已清理`);
+        } catch (cleanupError) {
+          console.error(`[FloatingLogin] ⚠️ 清理临时userDataDir失败:`, cleanupError);
+        }
       }
     } catch (error) {
       console.error(`[FloatingLogin] Error during cleanup:`, error);
