@@ -2295,7 +2295,30 @@ app.get('/agent/xiaohongshu/login/status', async (req: Request, res: Response) =
       }
 
       if (hasValidCookies) {
-        // 有有效Cookie，返回登录状态
+        // 🔥 双重检查：即使找到Cookie文件，也要再次确认退出保护状态
+        try {
+          const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+          if (globalLogoutState.isUserInLogoutCooldown(userId)) {
+            const userInfo = globalLogoutState.getUserLogoutInfo(userId);
+            console.log(`[XHS Login] ⚠️ 双重检查：用户 ${userId} 在退出保护期内，忽略本地Cookie文件`);
+            return res.json({
+              success: true,
+              data: {
+                logged_in: false,
+                message: '用户已退出登录，处于保护期（双重检查）',
+                user_id: userId,
+                source: 'logout_protection',
+                inProtection: true,
+                remainingSeconds: userInfo.remainingSeconds,
+                logoutTime: userInfo.logoutTime
+              }
+            });
+          }
+        } catch (doubleCheckError) {
+          console.warn(`[XHS Login] 双重检查退出保护状态失败:`, doubleCheckError);
+        }
+
+        // 有有效Cookie，且不在退出保护期，返回登录状态
         res.json({
           success: true,
           data: {
