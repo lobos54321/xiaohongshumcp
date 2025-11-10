@@ -183,17 +183,36 @@ func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeRe
 						if allCookies != nil && len(allCookies) > 0 {
 							logrus.Info("🍪 [Cookie跨域] 开始在creator域名手动设置Cookie...")
 
+							// 准备要设置的Cookie列表
+							var cookiesToSet []*proto.NetworkCookieParam
+
 							// 为每个Cookie修改Domain属性为creator域名兼容的值
 							for _, cookie := range allCookies {
 								// 只处理xiaohongshu.com相关的Cookie
 								if strings.Contains(cookie.Domain, "xiaohongshu.com") {
+									// 转换 NetworkCookie 到 NetworkCookieParam
 									// 修改Domain为 .xiaohongshu.com 以支持所有子域名
-									cookie.Domain = ".xiaohongshu.com"
-
-									// 尝试设置Cookie到creator域名
-									if setErr := page.SetCookies([]*proto.NetworkCookieParam{cookie}); setErr != nil {
-										logrus.Warnf("⚠️ [Cookie跨域] 设置Cookie失败 (%s): %v", cookie.Name, setErr)
+									cookieParam := &proto.NetworkCookieParam{
+										Name:     cookie.Name,
+										Value:    cookie.Value,
+										Domain:   ".xiaohongshu.com", // 支持所有子域名
+										Path:     cookie.Path,
+										Secure:   cookie.Secure,
+										HTTPOnly: cookie.HTTPOnly,
+										SameSite: cookie.SameSite,
+										Expires:  cookie.Expires,
 									}
+									cookiesToSet = append(cookiesToSet, cookieParam)
+								}
+							}
+
+							// 批量设置Cookie
+							if len(cookiesToSet) > 0 {
+								logrus.Infof("🍪 [Cookie跨域] 准备设置 %d 个Cookie", len(cookiesToSet))
+								if setErr := page.SetCookies(cookiesToSet); setErr != nil {
+									logrus.Errorf("❌ [Cookie跨域] 批量设置Cookie失败: %v", setErr)
+								} else {
+									logrus.Info("✅ [Cookie跨域] Cookie批量设置成功")
 								}
 							}
 
