@@ -227,6 +227,7 @@ const toolToEndpoint = {
     xiaohongshu_get_feed_detail: { path: '/api/v1/feeds/detail', method: 'POST' },
     xiaohongshu_post_comment: { path: '/api/v1/feeds/comment', method: 'POST' },
     xiaohongshu_user_profile: { path: '/api/v1/user/profile', method: 'POST' },
+    xiaohongshu_get_my_profile: { path: '/api/v1/user/me', method: 'GET' },
 };
 // 列出工具
 server.setRequestHandler(ListToolsRequestSchema, async () => {

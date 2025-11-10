@@ -65,6 +65,7 @@ app.post('/mcp/call', async (req, res) => {
             xiaohongshu_get_feed_detail: { path: '/api/v1/feeds/detail', method: 'POST' },
             xiaohongshu_post_comment: { path: '/api/v1/feeds/comment', method: 'POST' },
             xiaohongshu_user_profile: { path: '/api/v1/user/profile', method: 'POST' },
+            xiaohongshu_get_my_profile: { path: '/api/v1/user/me', method: 'GET' },
         };
         const endpoint = toolToEndpoint[toolName];
         if (!endpoint) {
@@ -315,6 +316,8 @@ app.post('/api/xiaohongshu/logout', async (req, res) => {
         }
         // 2. 定义所有可能的Cookie路径（解决路径不匹配问题）
         const allPossibleCookiePaths = [
+            // 🔥 Go后端xiaohongshu-mcp-build的Cookie路径（最关键！）
+            '/app/data', // Go后端默认使用的路径
             // MCP Router 自己的路径
             '/app/playwright-service/mcp-router',
             '/app/mcp-router',

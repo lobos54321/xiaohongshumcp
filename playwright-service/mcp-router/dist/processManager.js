@@ -127,20 +127,50 @@ export class XiaohongshuMCPProcessManager {
         if (!fs.existsSync(workDir)) {
             fs.mkdirSync(workDir, { recursive: true });
         }
-        // 确保cookies.json文件存在，防止MCP进程panic
+        // 🔥 优先从数据库加载Cookie（持久化存储）
         const cookiesFile = path.join(workDir, 'cookies.json');
         if (!fs.existsSync(cookiesFile)) {
-            fs.writeFileSync(cookiesFile, '[]', 'utf8');
-            console.log(`[ProcessManager] Created empty cookies.json for user ${userId}`);
+            // Cookie文件不存在，尝试从数据库加载
+            try {
+                console.log(`[MCP-Router] Cookie文件不存在，尝试从数据库加载...`);
+                const axios = await import('axios');
+                // 🔥 FIX: 根据运行环境自动选择后端服务URL
+                // 生产环境：使用公网域名
+                // 开发环境：使用 localhost
+                const backendUrl = process.env.CLAUDE_AGENT_URL
+                    || process.env.BACKEND_URL
+                    || 'https://xiaohongshu-automation-ai.zeabur.app';
+                console.log(`[MCP-Router] 使用后端服务: ${backendUrl}`);
+                const response = await axios.default.post(`${backendUrl}/agent/xiaohongshu/load-cookies-from-db`, { userId }, { timeout: 10000, headers: { 'Content-Type': 'application/json' } });
+                if (response.data?.success && response.data?.cookies?.length > 0) {
+                    fs.writeFileSync(cookiesFile, JSON.stringify(response.data.cookies, null, 2), 'utf8');
+                    console.log(`[ProcessManager] ✅ 从数据库加载了 ${response.data.cookies.length} 个Cookie`);
+                }
+                else {
+                    // 数据库也没有，创建空文件
+                    fs.writeFileSync(cookiesFile, '[]', 'utf8');
+                    console.log(`[ProcessManager] 数据库中没有Cookie，创建空文件`);
+                }
+            }
+            catch (dbError) {
+                console.warn(`[ProcessManager] 从数据库加载Cookie失败，创建空文件:`, dbError instanceof Error ? dbError.message : String(dbError));
+                fs.writeFileSync(cookiesFile, '[]', 'utf8');
+            }
+        }
+        else {
+            console.log(`[ProcessManager] Cookie文件已存在: ${cookiesFile}`);
         }
         console.log(`[ProcessManager] Starting MCP process for user ${userId} on port ${port}`);
         console.log(`[ProcessManager] Working directory: ${workDir}`);
         console.log(`[ProcessManager] Cookie file: ${cookiesFile}`);
+        // Ensure Go binary reads global symlink path rather than legacy /tmp
+        process.env.COOKIES_PATH = '/app/data/cookies.json';
         const childProcess = spawn(this.mcpBinary, ['-port', `:${port}`], {
             cwd: workDir, // 设置工作目录，确保Cookie文件隔离
             env: {
                 ...process.env,
                 USER_ID: userId,
+                COOKIES_PATH: '/app/data/cookies.json',
             },
             stdio: ['ignore', 'pipe', 'pipe'],
         });
@@ -345,15 +375,22 @@ export class XiaohongshuMCPProcessManager {
         console.log(`[ProcessManager] Request data:`, JSON.stringify(data, null, 2));
         const startTime = Date.now();
         try {
-            const response = await axios({
+            // 🔥 FIX: GET 请求使用 params (query string)，POST 请求使用 data (request body)
+            const axiosConfig = {
                 method,
                 url,
-                data,
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 timeout,
-            });
+            };
+            if (method.toUpperCase() === 'GET') {
+                axiosConfig.params = data; // GET: 参数作为 query string
+            }
+            else {
+                axiosConfig.data = data; // POST/PUT/etc: 参数作为 request body
+            }
+            const response = await axios(axiosConfig);
             const duration = Date.now() - startTime;
             console.log(`[ProcessManager] ✅ Request completed in ${duration}ms (${(duration / 1000).toFixed(2)}s)`);
             return response.data;
