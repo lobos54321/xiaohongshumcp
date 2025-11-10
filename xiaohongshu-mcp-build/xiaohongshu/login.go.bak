@@ -200,16 +200,23 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 					"webSessionLen", len(webSessionValue),
 					"a1Len", len(a1Value))
 
-				// 🔥 小红书扫码后页面不会自动跳转，直接信任Cookie
-				// 记录当前URL供调试
-				currentURL, _ := pp.Eval(`() => window.location.href`)
-				if currentURL != nil {
+				// 🔥 等待2秒确保页面完成跳转
+				time.Sleep(2 * time.Second)
+
+				// 检查当前URL，确认是否完成登录跳转
+				currentURL, err := pp.Eval(`() => window.location.href`)
+				if err == nil && currentURL != nil {
 					urlStr := currentURL.Value.String()
-					slog.Info("✅ [WaitForLogin] 登录成功！", "url", urlStr)
-				} else {
-					slog.Info("✅ [WaitForLogin] 登录成功！")
+					slog.Info("✅ [WaitForLogin] 当前页面URL", "url", urlStr)
+
+					// 如果还在登录页，说明Cookie无效
+					if strings.Contains(urlStr, "/login") {
+						slog.Warn("⚠️ [WaitForLogin] 仍在登录页，Cookie可能无效")
+						continue
+					}
 				}
 
+				slog.Info("🎉 [WaitForLogin] 登录成功确认！")
 				return true
 			}
 		}
