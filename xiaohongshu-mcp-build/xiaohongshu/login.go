@@ -154,21 +154,44 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 			if err == nil {
 				hasWebSession := false
 				hasA1 := false
+				webSessionValue := ""
 				for _, cookie := range cookies {
 					if cookie.Name == "web_session" && cookie.Value != "" && cookie.Value != "Guest" {
 						hasWebSession = true
+						webSessionValue = cookie.Value
 					}
 					if cookie.Name == "a1" && cookie.Value != "" {
 						hasA1 = true
 					}
 				}
-				// 有关键Cookie就认为登录成功
-				if hasWebSession && hasA1 {
-					slog.Info("🎉 [WaitForLogin] 检测到登录成功（Cookie验证）")
-					return true
+				// 🔥 修复：不能仅凭Cookie存在就判断登录
+				// 必须验证Cookie长度（登录Cookie通常很长）
+				if hasWebSession && hasA1 && len(webSessionValue) > 100 {
+					// 🔥 双重验证：尝试访问需要登录的页面
+					currentURL, _ := pp.Eval(`() => window.location.href`)
+					slog.Info("🔍 [WaitForLogin] 检测到Cookie，验证登录状态...", "currentURL", currentURL)
+
+					// 尝试访问用户主页（需要登录）
+					err := pp.Navigate("https://www.xiaohongshu.com/user/profile/me")
+					if err == nil {
+						time.Sleep(1 * time.Second)
+						finalURL, _ := pp.Eval(`() => window.location.href`)
+						finalURLStr, _ := finalURL.Value.String()
+
+						// 如果没有被重定向到登录页，说明确实登录了
+						if finalURLStr != "" && finalURLStr != "https://www.xiaohongshu.com/user/profile/me" {
+							// 被重定向了，不是真正的登录
+							slog.Warn("⚠️ [WaitForLogin] Cookie验证失败：被重定向", "finalURL", finalURLStr)
+							continue
+						}
+
+						// 没有重定向，确认登录成功
+						slog.Info("🎉 [WaitForLogin] 检测到登录成功（Cookie+URL验证）")
+						return true
+					}
 				}
 			}
-			
+
 			// 降级：检查DOM元素（兼容性）
 			el, err := pp.Element(".main-container .user .link-wrapper .channel")
 			if err == nil && el != nil {
