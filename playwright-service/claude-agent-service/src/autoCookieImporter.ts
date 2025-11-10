@@ -44,7 +44,7 @@ export class AutoCookieImporter {
   private lastImportTime: number = 0;
   private loggedOutUsers: Set<string> = new Set(); // 跟踪已退出的用户
   private logoutTimestamps: Map<string, number> = new Map(); // 退出时间戳
-  private static readonly LOGOUT_COOLDOWN = 60000; // 退出后1分钟内不重新导入
+  private static readonly LOGOUT_COOLDOWN = 180000; // 退出后3分钟内不重新导入，确保完全清理
   private globalLogoutTime: number = 0; // 🔥 全局退出时间戳（任何用户退出都记录）
 
   // 监控的Cookie文件路径 (按优先级排列)

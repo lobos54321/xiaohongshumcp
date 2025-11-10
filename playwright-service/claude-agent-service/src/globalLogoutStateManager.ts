@@ -10,8 +10,8 @@ export class GlobalLogoutStateManager {
   private logoutTimestamps: Map<string, number> = new Map();
   private globalLogoutState: boolean = false; // 全局退出状态
   private globalLogoutTimestamp: number = 0;
-  private static readonly LOGOUT_COOLDOWN = 120000; // 2分钟冷却期，比AutoCookieImporter更长
-  private static readonly GLOBAL_LOGOUT_COOLDOWN = 60000; // 全局退出保护1分钟 - 足够完成清理但不会太长
+  private static readonly LOGOUT_COOLDOWN = 180000; // 3分钟冷却期，确保Cookie文件完全删除
+  private static readonly GLOBAL_LOGOUT_COOLDOWN = 120000; // 全局退出保护2分钟 - 给足够时间清理所有Cookie文件
 
   private constructor() {}
 
