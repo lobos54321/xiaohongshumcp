@@ -573,7 +573,38 @@ app.post('/api/xiaohongshu/logout', async (req, res) => {
 
     console.log(`[Logout] ✅ Logout completed for user ${userId}. Deleted ${filesToDelete.length} files/directories.`);
 
-    // 5. 验证清理结果
+    // 5. 🔥 清理rod浏览器的UserDataDir（关键！防止浏览器缓存残留Cookie）
+    try {
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
+
+      // rod浏览器默认UserDataDir在 /tmp/rod/user-data-{random}
+      // 清理所有可能的rod临时目录
+      const cleanupCommands = [
+        // 清理rod浏览器缓存
+        'rm -rf /tmp/rod/user-data-* 2>/dev/null || true',
+        // 清理chromium临时目录
+        'rm -rf /tmp/.com.google.Chrome.* 2>/dev/null || true',
+        'rm -rf /tmp/chromium-* 2>/dev/null || true',
+      ];
+
+      console.log(`[Logout] 🧹 开始清理浏览器UserDataDir缓存...`);
+      for (const cmd of cleanupCommands) {
+        try {
+          await execAsync(cmd);
+          console.log(`[Logout] ✅ 执行清理命令: ${cmd}`);
+        } catch (cmdError) {
+          // 命令失败不影响流程（可能目录不存在）
+          console.log(`[Logout] ⚠️ 清理命令跳过: ${cmd}`);
+        }
+      }
+      console.log(`[Logout] ✅ 浏览器UserDataDir缓存清理完成`);
+    } catch (userDataError) {
+      console.warn(`[Logout] UserDataDir清理失败: ${userDataError instanceof Error ? userDataError.message : String(userDataError)}`);
+    }
+
+    // 6. 验证清理结果
     const remainingFiles: string[] = [];
     for (const basePath of allPossibleCookiePaths) {
       try {
