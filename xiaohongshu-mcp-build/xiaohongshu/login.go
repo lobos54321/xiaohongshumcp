@@ -3,6 +3,7 @@ package xiaohongshu
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -144,61 +145,78 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
+	loginCheckCount := 0
+
 	for {
 		select {
 		case <-ctx.Done():
+			slog.Warn("⏰ [WaitForLogin] 超时退出")
 			return false
 		case <-ticker.C:
+			loginCheckCount++
+
+			// 每10次检查输出一次日志，避免日志过多
+			if loginCheckCount%10 == 1 {
+				slog.Info("🔍 [WaitForLogin] 正在检查登录状态...", "count", loginCheckCount)
+			}
+
 			// 🔥 优先检查Cookie（更可靠）
 			cookies, err := pp.Browser().GetCookies()
-			if err == nil {
-				hasWebSession := false
-				hasA1 := false
-				webSessionValue := ""
-				for _, cookie := range cookies {
-					if cookie.Name == "web_session" && cookie.Value != "" && cookie.Value != "Guest" {
-						hasWebSession = true
-						webSessionValue = cookie.Value
-					}
-					if cookie.Name == "a1" && cookie.Value != "" {
-						hasA1 = true
-					}
+			if err != nil {
+				slog.Error("❌ [WaitForLogin] 获取Cookie失败", "error", err)
+				continue
+			}
+
+			hasWebSession := false
+			hasA1 := false
+			webSessionValue := ""
+			a1Value := ""
+
+			for _, cookie := range cookies {
+				if cookie.Name == "web_session" && cookie.Value != "" && cookie.Value != "Guest" {
+					hasWebSession = true
+					webSessionValue = cookie.Value
 				}
-				// 🔥 修复：不能仅凭Cookie存在就判断登录
-				// 必须验证Cookie长度（登录Cookie通常很长）
-				if hasWebSession && hasA1 && len(webSessionValue) > 100 {
-					// 🔥 双重验证：尝试访问需要登录的页面
-					currentURL, _ := pp.Eval(`() => window.location.href`)
-					slog.Info("🔍 [WaitForLogin] 检测到Cookie，验证登录状态...", "currentURL", currentURL)
-
-					// 尝试访问用户主页（需要登录）
-					err := pp.Navigate("https://www.xiaohongshu.com/user/profile/me")
-					if err == nil {
-						time.Sleep(1 * time.Second)
-						finalURL, _ := pp.Eval(`() => window.location.href`)
-						if finalURL == nil {
-							continue
-						}
-						finalURLStr := finalURL.Value.String()
-
-						// 如果没有被重定向到登录页，说明确实登录了
-						if finalURLStr != "" && finalURLStr != "https://www.xiaohongshu.com/user/profile/me" {
-							// 被重定向了，不是真正的登录
-							slog.Warn("⚠️ [WaitForLogin] Cookie验证失败：被重定向", "finalURL", finalURLStr)
-							continue
-						}
-
-						// 没有重定向，确认登录成功
-						slog.Info("🎉 [WaitForLogin] 检测到登录成功（Cookie+URL验证）")
-						return true
-					}
+				if cookie.Name == "a1" && cookie.Value != "" {
+					hasA1 = true
+					a1Value = cookie.Value
 				}
 			}
 
-			// 降级：检查DOM元素（兼容性）
-			el, err := pp.Element(".main-container .user .link-wrapper .channel")
-			if err == nil && el != nil {
-				slog.Info("🎉 [WaitForLogin] 检测到登录成功（DOM验证）")
+			// 每10次检查输出Cookie状态
+			if loginCheckCount%10 == 1 {
+				slog.Info("🍪 [WaitForLogin] Cookie状态",
+					"hasWebSession", hasWebSession,
+					"webSessionLen", len(webSessionValue),
+					"hasA1", hasA1,
+					"a1Len", len(a1Value))
+			}
+
+			// 🔥 新策略：使用Cookie长度判断是否为真实登录Cookie
+			// Tracking cookie: web_session="Guest" 或 短字符串(<20)
+			// Login cookie: web_session和a1都是长字符串(>20)
+			if hasWebSession && hasA1 && len(webSessionValue) > 20 && len(a1Value) > 20 {
+				slog.Info("🎉 [WaitForLogin] 检测到有效登录Cookie！",
+					"webSessionLen", len(webSessionValue),
+					"a1Len", len(a1Value))
+
+				// 🔥 等待2秒确保页面完成跳转
+				time.Sleep(2 * time.Second)
+
+				// 检查当前URL，确认是否完成登录跳转
+				currentURL, err := pp.Eval(`() => window.location.href`)
+				if err == nil && currentURL != nil {
+					urlStr := currentURL.Value.String()
+					slog.Info("✅ [WaitForLogin] 当前页面URL", "url", urlStr)
+
+					// 如果还在登录页，说明Cookie无效
+					if strings.Contains(urlStr, "/login") {
+						slog.Warn("⚠️ [WaitForLogin] 仍在登录页，Cookie可能无效")
+						continue
+					}
+				}
+
+				slog.Info("🎉 [WaitForLogin] 登录成功确认！")
 				return true
 			}
 		}
