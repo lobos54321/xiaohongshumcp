@@ -2210,29 +2210,10 @@ app.get('/agent/xiaohongshu/login/status', async (req: Request, res: Response) =
 
     console.log(`[XHS Login] Checking login status for user ${userId}`);
 
-    // 🔥 关键修复：先检查退出保护状态
-    try {
-      const { globalLogoutState } = await import('./globalLogoutStateManager.js');
-      if (globalLogoutState.isUserInLogoutCooldown(userId)) {
-        const userInfo = globalLogoutState.getUserLogoutInfo(userId);
-        console.log(`[XHS Login] ⚠️ 用户 ${userId} 在退出保护期内，强制返回未登录状态`);
-        return res.json({
-          success: true,
-          data: {
-            logged_in: false,
-            message: '用户已退出登录，处于保护期',
-            user_id: userId,
-            source: 'logout_protection',
-            inProtection: true,
-            remainingSeconds: userInfo.remainingSeconds,
-            logoutTime: userInfo.logoutTime
-          }
-        });
-      }
-    } catch (protectionError) {
-      console.warn(`[XHS Login] 检查退出保护状态失败:`, protectionError);
-      // 继续执行，不影响正常流程
-    }
+    // 🔥 修复：不再检查退出保护状态
+    // 登录状态检查应该只基于 Cookie 文件是否存在
+    // 如果 Cookie 被正确删除，自然会返回 logged_in: false
+    // 退出保护期只用于阻止"自动Cookie导入"，不应该阻止"登录状态检查"
 
     try {
       // 先检查本地是否有Cookie文件（表示已经登录过）
@@ -2295,30 +2276,11 @@ app.get('/agent/xiaohongshu/login/status', async (req: Request, res: Response) =
       }
 
       if (hasValidCookies) {
-        // 🔥 双重检查：即使找到Cookie文件，也要再次确认退出保护状态
-        try {
-          const { globalLogoutState } = await import('./globalLogoutStateManager.js');
-          if (globalLogoutState.isUserInLogoutCooldown(userId)) {
-            const userInfo = globalLogoutState.getUserLogoutInfo(userId);
-            console.log(`[XHS Login] ⚠️ 双重检查：用户 ${userId} 在退出保护期内，忽略本地Cookie文件`);
-            return res.json({
-              success: true,
-              data: {
-                logged_in: false,
-                message: '用户已退出登录，处于保护期（双重检查）',
-                user_id: userId,
-                source: 'logout_protection',
-                inProtection: true,
-                remainingSeconds: userInfo.remainingSeconds,
-                logoutTime: userInfo.logoutTime
-              }
-            });
-          }
-        } catch (doubleCheckError) {
-          console.warn(`[XHS Login] 双重检查退出保护状态失败:`, doubleCheckError);
-        }
+        // 🔥 修复：不再检查退出保护状态
+        // 如果找到了有效的Cookie文件，说明用户已登录
+        // 如果Cookie被正确删除，这里就不会找到文件
+        // 退出保护期只用于阻止"自动Cookie导入"，不应该影响这里的逻辑
 
-        // 有有效Cookie，且不在退出保护期，返回登录状态
         res.json({
           success: true,
           data: {
