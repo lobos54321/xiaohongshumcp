@@ -176,7 +176,10 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 					if err == nil {
 						time.Sleep(1 * time.Second)
 						finalURL, _ := pp.Eval(`() => window.location.href`)
-						finalURLStr, _ := finalURL.Value.String()
+						if finalURL == nil {
+							continue
+						}
+						finalURLStr := finalURL.Value.String()
 
 						// 如果没有被重定向到登录页，说明确实登录了
 						if finalURLStr != "" && finalURLStr != "https://www.xiaohongshu.com/user/profile/me" {
