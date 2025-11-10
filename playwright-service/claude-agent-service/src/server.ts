@@ -2574,6 +2574,36 @@ app.post('/agent/xiaohongshu/logout', async (req: Request, res: Response) => {
           console.warn(`[XHS Logout] 清理Playwright临时目录失败:`, cleanupError);
         }
 
+        // 🔥 FIX 4: 删除floatingLoginService保存的cookie文件
+        // 问题：floatingLoginService在登录时保存cookie到cookies/${userId}.json
+        // AutoCookieImporter每15秒检测到这个文件就会自动导入，导致自动重新登录
+        try {
+          const path = await import('path');
+          const fs = await import('fs');
+          const cookiesDir = path.join(process.cwd(), 'cookies');
+
+          // 删除特定用户的cookie文件
+          const userCookieFile = path.join(cookiesDir, `${userId}.json`);
+          if (fs.existsSync(userCookieFile)) {
+            fs.unlinkSync(userCookieFile);
+            console.log(`[XHS Logout] ✅ 已删除cookie文件: ${userCookieFile}`);
+          }
+
+          // 清理所有可能的cookie文件（包括auto_*开头的）
+          if (fs.existsSync(cookiesDir)) {
+            const files = fs.readdirSync(cookiesDir);
+            for (const file of files) {
+              if (file.endsWith('.json') && (file.startsWith(userId) || file.startsWith('auto_'))) {
+                const filePath = path.join(cookiesDir, file);
+                fs.unlinkSync(filePath);
+                console.log(`[XHS Logout] ✅ 已删除cookie文件: ${filePath}`);
+              }
+            }
+          }
+        } catch (cookieFileError) {
+          console.warn(`[XHS Logout] 清理cookie文件失败:`, cookieFileError);
+        }
+
         // 同时通知AutoCookieImporter（双重保护）
         autoCookieImporter.notifyUserLogout(userId);
         console.log(`[XHS Logout] ✅ 已通知AutoCookieImporter阻止用户 ${userId} 的自动重新导入`);
@@ -2630,13 +2660,41 @@ app.post('/agent/xiaohongshu/logout', async (req: Request, res: Response) => {
 
         // 🔥 FIX 3: 清理Playwright临时目录（本地模式）
         const tempDirPattern = `/tmp/playwright-${userId}-*`;
-        console.log(`[XHS Logout] 🧹 (本地模式) 清理Playwright临时目录: ${tempDirPattern}`);
+        const loginTempPattern = `/tmp/playwright-login-${userId}-*`;
+        console.log(`[XHS Logout] 🧹 (本地模式) 清理Playwright临时目录: ${tempDirPattern} 和 ${loginTempPattern}`);
         try {
           const { execSync } = require('child_process');
           execSync(`rm -rf ${tempDirPattern}`, { stdio: 'ignore' });
+          execSync(`rm -rf ${loginTempPattern}`, { stdio: 'ignore' });
           console.log(`[XHS Logout] ✅ (本地模式) Playwright临时目录已清理`);
         } catch (cleanupError) {
           console.warn(`[XHS Logout] (本地模式) 清理Playwright临时目录失败:`, cleanupError);
+        }
+
+        // 🔥 FIX 4: 删除cookie文件（本地模式）
+        try {
+          const path = await import('path');
+          const fs = await import('fs');
+          const cookiesDir = path.join(process.cwd(), 'cookies');
+
+          const userCookieFile = path.join(cookiesDir, `${userId}.json`);
+          if (fs.existsSync(userCookieFile)) {
+            fs.unlinkSync(userCookieFile);
+            console.log(`[XHS Logout] ✅ (本地模式) 已删除cookie文件: ${userCookieFile}`);
+          }
+
+          if (fs.existsSync(cookiesDir)) {
+            const files = fs.readdirSync(cookiesDir);
+            for (const file of files) {
+              if (file.endsWith('.json') && (file.startsWith(userId) || file.startsWith('auto_'))) {
+                const filePath = path.join(cookiesDir, file);
+                fs.unlinkSync(filePath);
+                console.log(`[XHS Logout] ✅ (本地模式) 已删除cookie文件: ${filePath}`);
+              }
+            }
+          }
+        } catch (cookieFileError) {
+          console.warn(`[XHS Logout] (本地模式) 清理cookie文件失败:`, cookieFileError);
         }
 
         // 同时通知AutoCookieImporter（双重保护）
