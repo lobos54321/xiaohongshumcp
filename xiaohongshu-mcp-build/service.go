@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/proto"
 	"github.com/mattn/go-runewidth"
 	"github.com/sirupsen/logrus"
 	"github.com/xpzouying/headless_browser"
@@ -156,6 +157,15 @@ func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeRe
 				// 问题：登录在www.xiaohongshu.com，但发布在creator.xiaohongshu.com
 				// 解决：登录后访问creator域名，让浏览器在creator域名也建立有效会话
 				logrus.Info("🔄 [Cookie跨域] 导航到creator域名建立会话...")
+
+				// 先获取当前所有Cookie，准备跨域设置
+				allCookies, cookieErr := page.Browser().GetCookies()
+				if cookieErr != nil {
+					logrus.Errorf("❌ [Cookie跨域] 无法获取Cookie: %v", cookieErr)
+				} else {
+					logrus.Infof("📦 [Cookie跨域] 已获取 %d 个Cookie，准备跨域复制", len(allCookies))
+				}
+
 				if navErr := page.Navigate("https://creator.xiaohongshu.com"); navErr != nil {
 					logrus.Warnf("⚠️ [Cookie跨域] 导航到creator域名失败: %v，可能影响后续发布", navErr)
 				} else {
@@ -167,7 +177,43 @@ func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeRe
 
 					// 检查是否被重定向到登录页（说明Cookie跨域失败）
 					if strings.Contains(finalURL, "/login") {
-						logrus.Warnf("⚠️ [Cookie跨域] 访问creator域名被重定向到登录页，Cookie可能无法跨域使用")
+						logrus.Warnf("⚠️ [Cookie跨域] 访问creator域名被重定向到登录页，尝试手动设置Cookie...")
+
+						// 🔥 手动在creator域名设置Cookie
+						if allCookies != nil && len(allCookies) > 0 {
+							logrus.Info("🍪 [Cookie跨域] 开始在creator域名手动设置Cookie...")
+
+							// 为每个Cookie修改Domain属性为creator域名兼容的值
+							for _, cookie := range allCookies {
+								// 只处理xiaohongshu.com相关的Cookie
+								if strings.Contains(cookie.Domain, "xiaohongshu.com") {
+									// 修改Domain为 .xiaohongshu.com 以支持所有子域名
+									cookie.Domain = ".xiaohongshu.com"
+
+									// 尝试设置Cookie到creator域名
+									if setErr := page.SetCookies([]*proto.NetworkCookieParam{cookie}); setErr != nil {
+										logrus.Warnf("⚠️ [Cookie跨域] 设置Cookie失败 (%s): %v", cookie.Name, setErr)
+									}
+								}
+							}
+
+							logrus.Info("✅ [Cookie跨域] Cookie手动设置完成，重新检查登录状态...")
+
+							// 重新加载页面验证Cookie是否生效
+							if reloadErr := page.Navigate("https://creator.xiaohongshu.com"); reloadErr != nil {
+								logrus.Warnf("⚠️ [Cookie跨域] 重新加载失败: %v", reloadErr)
+							} else {
+								page.MustWaitLoad()
+								time.Sleep(2 * time.Second)
+								finalURL = page.MustInfo().URL
+
+								if strings.Contains(finalURL, "/login") {
+									logrus.Errorf("❌ [Cookie跨域] 手动设置Cookie后仍然失败，可能需要单独登录creator平台")
+								} else {
+									logrus.Info("🎉 [Cookie跨域] 手动设置Cookie成功！Creator域名已可访问")
+								}
+							}
+						}
 					} else {
 						logrus.Info("✅ [Cookie跨域] Creator域名会话建立成功，Cookie已在两个域名生效")
 					}
@@ -509,6 +555,14 @@ func saveCookies(page *rod.Page) error {
 		return err
 	}
 	logrus.Infof("✅ [Cookie保存] 成功从浏览器获取Cookie，数量: %d", len(cks))
+
+	// 🔍 调试：打印Cookie的Domain属性
+	logrus.Info("🔍 [Cookie调试] Cookie Domain详情:")
+	for i, ck := range cks {
+		if ck != nil {
+			logrus.Infof("  [%d] Name=%s, Domain=%s, Path=%s", i, ck.Name, ck.Domain, ck.Path)
+		}
+	}
 
 	data, err := json.Marshal(cks)
 	if err != nil {
