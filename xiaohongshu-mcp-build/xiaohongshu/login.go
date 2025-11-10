@@ -3,7 +3,6 @@ package xiaohongshu
 import (
 	"context"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/go-rod/rod"
