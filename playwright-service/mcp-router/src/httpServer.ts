@@ -405,6 +405,9 @@ app.post('/api/xiaohongshu/logout', async (req, res) => {
 
     // 2. 定义所有可能的Cookie路径（解决路径不匹配问题）
     const allPossibleCookiePaths = [
+      // 🔥 Go后端xiaohongshu-mcp-build的Cookie路径（最关键！）
+      '/app/data',  // Go后端默认使用的路径
+
       // MCP Router 自己的路径
       '/app/playwright-service/mcp-router',
       '/app/mcp-router',
