@@ -2604,6 +2604,23 @@ app.post('/agent/xiaohongshu/logout', async (req: Request, res: Response) => {
           console.warn(`[XHS Logout] 清理cookie文件失败:`, cookieFileError);
         }
 
+        // 🔥 FIX 5: 关键修复 - 直接删除Go后端的cookie文件
+        // 问题：即使MCP Router的logout API执行，也可能有遗漏
+        // 解决：直接删除 /app/data/cookies.json，确保Go后端不会加载旧cookie
+        try {
+          const fs = await import('fs');
+          const goCookiePath = '/app/data/cookies.json';
+
+          if (fs.existsSync(goCookiePath)) {
+            fs.unlinkSync(goCookiePath);
+            console.log(`[XHS Logout] ✅ 已删除Go后端cookie文件: ${goCookiePath}`);
+          } else {
+            console.log(`[XHS Logout] ℹ️ Go后端cookie文件不存在: ${goCookiePath}`);
+          }
+        } catch (goCookieError) {
+          console.error(`[XHS Logout] ❌ 删除Go后端cookie文件失败:`, goCookieError);
+        }
+
         // 同时通知AutoCookieImporter（双重保护）
         autoCookieImporter.notifyUserLogout(userId);
         console.log(`[XHS Logout] ✅ 已通知AutoCookieImporter阻止用户 ${userId} 的自动重新导入`);
@@ -2695,6 +2712,23 @@ app.post('/agent/xiaohongshu/logout', async (req: Request, res: Response) => {
           }
         } catch (cookieFileError) {
           console.warn(`[XHS Logout] (本地模式) 清理cookie文件失败:`, cookieFileError);
+        }
+
+        // 🔥 FIX 5: 关键修复 - 直接删除Go后端的cookie文件（本地模式）
+        // 问题：即使MCP Router的logout API执行，也可能有遗漏
+        // 解决：直接删除 /app/data/cookies.json，确保Go后端不会加载旧cookie
+        try {
+          const fs = await import('fs');
+          const goCookiePath = '/app/data/cookies.json';
+
+          if (fs.existsSync(goCookiePath)) {
+            fs.unlinkSync(goCookiePath);
+            console.log(`[XHS Logout] ✅ (本地模式) 已删除Go后端cookie文件: ${goCookiePath}`);
+          } else {
+            console.log(`[XHS Logout] ℹ️ (本地模式) Go后端cookie文件不存在: ${goCookiePath}`);
+          }
+        } catch (goCookieError) {
+          console.error(`[XHS Logout] ❌ (本地模式) 删除Go后端cookie文件失败:`, goCookieError);
         }
 
         // 同时通知AutoCookieImporter（双重保护）
