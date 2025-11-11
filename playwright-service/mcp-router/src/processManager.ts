@@ -158,30 +158,86 @@ export class XiaohongshuMCPProcessManager {
 
     // 🔥 优先从数据库加载Cookie（持久化存储）
     const cookiesFile = path.join(workDir, 'cookies.json');
-    if (!fs.existsSync(cookiesFile)) {
-      // Cookie文件不存在，尝试从数据库加载
+
+    // 🔥 关键改进：验证现有Cookie文件是否有效
+    let needLoadFromDb = false;
+
+    if (fs.existsSync(cookiesFile)) {
       try {
-        console.log(`[MCP-Router] Cookie文件不存在，尝试从数据库加载...`);
+        const fileContent = fs.readFileSync(cookiesFile, 'utf8');
+        const cookies = JSON.parse(fileContent);
+
+        // 验证Cookie内容
+        if (!Array.isArray(cookies) || cookies.length === 0) {
+          console.log(`[ProcessManager] Cookie文件为空或无效，需要从数据库加载`);
+          needLoadFromDb = true;
+        } else {
+          // 检查Cookie是否过期（如果有expiry字段）
+          const now = Date.now() / 1000; // Unix timestamp in seconds
+          const validCookies = cookies.filter((cookie: any) => {
+            // 如果没有expiry字段，认为是有效的
+            if (!cookie.expiry && !cookie.expires) return true;
+
+            // 检查expiry字段（Unix timestamp）
+            const expiry = cookie.expiry || cookie.expires;
+            return expiry > now;
+          });
+
+          if (validCookies.length === 0) {
+            console.log(`[ProcessManager] 所有Cookie都已过期，需要从数据库加载`);
+            needLoadFromDb = true;
+          } else if (validCookies.length < cookies.length) {
+            console.log(`[ProcessManager] 部分Cookie已过期 (${cookies.length - validCookies.length}/${cookies.length})，但仍有有效Cookie`);
+            // 保存过滤后的有效Cookie
+            fs.writeFileSync(cookiesFile, JSON.stringify(validCookies, null, 2), 'utf8');
+          } else {
+            console.log(`[ProcessManager] Cookie文件有效: ${cookiesFile} (${validCookies.length} cookies)`);
+          }
+        }
+      } catch (parseError) {
+        console.warn(`[ProcessManager] Cookie文件解析失败，需要从数据库加载:`, parseError instanceof Error ? parseError.message : String(parseError));
+        needLoadFromDb = true;
+      }
+    } else {
+      console.log(`[ProcessManager] Cookie文件不存在，需要从数据库加载`);
+      needLoadFromDb = true;
+    }
+
+    // 从数据库加载Cookie（如果需要）
+    if (needLoadFromDb) {
+      try {
+        console.log(`[ProcessManager] 尝试从数据库加载Cookie...`);
         const axios = await import('axios');
 
         // 🔥 FIX: 根据运行环境自动选择后端服务URL
-        // 生产环境：使用公网域名
-        // 开发环境：使用 localhost
         const backendUrl = process.env.CLAUDE_AGENT_URL
           || process.env.BACKEND_URL
           || 'https://xiaohongshu-automation-ai.zeabur.app';
 
-        console.log(`[MCP-Router] 使用后端服务: ${backendUrl}`);
+        console.log(`[ProcessManager] 使用后端服务: ${backendUrl}`);
 
         const response = await axios.default.post(
           `${backendUrl}/agent/xiaohongshu/load-cookies-from-db`,
           { userId },
           { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
         );
-        
+
         if (response.data?.success && response.data?.cookies?.length > 0) {
-          fs.writeFileSync(cookiesFile, JSON.stringify(response.data.cookies, null, 2), 'utf8');
-          console.log(`[ProcessManager] ✅ 从数据库加载了 ${response.data.cookies.length} 个Cookie`);
+          // 🔥 验证从数据库加载的Cookie是否有效
+          const now = Date.now() / 1000;
+          const validDbCookies = response.data.cookies.filter((cookie: any) => {
+            if (!cookie.expiry && !cookie.expires) return true;
+            const expiry = cookie.expiry || cookie.expires;
+            return expiry > now;
+          });
+
+          if (validDbCookies.length > 0) {
+            fs.writeFileSync(cookiesFile, JSON.stringify(validDbCookies, null, 2), 'utf8');
+            console.log(`[ProcessManager] ✅ 从数据库加载了 ${validDbCookies.length} 个有效Cookie (总共 ${response.data.cookies.length} 个)`);
+          } else {
+            fs.writeFileSync(cookiesFile, '[]', 'utf8');
+            console.log(`[ProcessManager] ⚠️  数据库中的Cookie都已过期，创建空文件`);
+          }
         } else {
           // 数据库也没有，创建空文件
           fs.writeFileSync(cookiesFile, '[]', 'utf8');
@@ -191,8 +247,6 @@ export class XiaohongshuMCPProcessManager {
         console.warn(`[ProcessManager] 从数据库加载Cookie失败，创建空文件:`, dbError instanceof Error ? dbError.message : String(dbError));
         fs.writeFileSync(cookiesFile, '[]', 'utf8');
       }
-    } else {
-      console.log(`[ProcessManager] Cookie文件已存在: ${cookiesFile}`);
     }
 
     console.log(`[ProcessManager] Starting MCP process for user ${userId} on port ${port}`);
