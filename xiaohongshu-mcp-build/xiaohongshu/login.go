@@ -226,6 +226,29 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 					"webSessionLen", len(webSessionValue),
 					"a1Len", len(a1Value))
 
+				// 🔥 重要：如果检测到验证码页面，即使有Cookie也不能认为登录成功
+				// 验证码页面也会设置长度>20的Cookie（web_session=38, a1=52）
+				if captchaDetected {
+					slog.Warn("⚠️  [WaitForLogin] 检测到Cookie但验证码未完成，继续等待...")
+					// 继续检查验证码是否已消失（用户完成验证）
+					captchaStillExists := false
+					for _, selector := range []string{".verify-box", ".captcha", "[class*='verify']", "[class*='captcha']"} {
+						if exists, _, _ := pp.Has(selector); exists {
+							captchaStillExists = true
+							break
+						}
+					}
+
+					if !captchaStillExists {
+						slog.Info("✅ [WaitForLogin] 验证码已完成，确认登录成功！")
+						captchaDetected = false // 重置标志
+						return true
+					}
+
+					// 验证码还存在，继续等待
+					continue
+				}
+
 				// 🔥 小红书扫码后页面不会自动跳转，直接信任Cookie
 				// 记录当前URL供调试
 				currentURL, _ := pp.Eval(`() => window.location.href`)
