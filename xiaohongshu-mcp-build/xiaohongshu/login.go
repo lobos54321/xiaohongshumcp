@@ -19,52 +19,59 @@ func NewLogin(page *rod.Page) *LoginAction {
 
 func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
 	pp := a.page.Context(ctx)
-	
-	// 🔥 优化：先检查Cookie，更快更准确
+
+	// 🔥 快速检查：只检查Cookie和当前页面状态，不导航
+	// CheckLoginStatus应该是轻量级操作，避免每次都Navigate浪费2秒+
+
+	// 1. 检查Cookie
 	cookies, err := pp.Browser().GetCookies()
 	if err != nil {
 		return false, errors.Wrap(err, "failed to get cookies")
 	}
-	
-	// 检查关键Cookie是否存在
+
 	hasWebSession := false
 	hasA1 := false
+	webSessionValue := ""
+	a1Value := ""
+
 	for _, cookie := range cookies {
-		if cookie.Name == "web_session" && cookie.Value != "" {
+		if cookie.Name == "web_session" && cookie.Value != "" && cookie.Value != "Guest" {
 			hasWebSession = true
+			webSessionValue = cookie.Value
 		}
 		if cookie.Name == "a1" && cookie.Value != "" {
 			hasA1 = true
+			a1Value = cookie.Value
 		}
 	}
-	
-	// 如果有关键Cookie，说明已登录
-	if hasWebSession && hasA1 {
-		slog.Info("✅ [Login Check] 检测到有效Cookie (web_session + a1)")
+
+	// 如果有长Cookie，很可能已登录
+	if hasWebSession && hasA1 && len(webSessionValue) > 20 && len(a1Value) > 20 {
+		slog.Info("✅ [Login Check] 检测到有效Cookie",
+			"webSessionLen", len(webSessionValue),
+			"a1Len", len(a1Value))
 		return true, nil
 	}
-	
-	// Cookie检查失败，尝试DOM元素检查
-	pp.MustNavigate("https://www.xiaohongshu.com/explore").MustWaitLoad()
-	time.Sleep(1 * time.Second)
 
-	// 尝试多个可能的登录状态元素
-	selectors := []string{
+	// 2. 快速检查当前页面的DOM元素（不导航）
+	// 如果当前页面有登录元素，也认为已登录
+	loginSelectors := []string{
 		`.main-container .user .link-wrapper .channel`,
 		`.user-info`,
 		`.avatar`,
 		`.username`,
 		`[class*="user"]`,
 	}
-	
-	for _, selector := range selectors {
+
+	for _, selector := range loginSelectors {
 		if exists, _, _ := pp.Has(selector); exists {
-			slog.Info("✅ [Login Check] 检测到登录元素", "selector", selector)
+			slog.Info("✅ [Login Check] 当前页面检测到登录元素", "selector", selector)
 			return true, nil
 		}
 	}
-	
-	slog.Warn("⚠️  [Login Check] 未检测到登录状态")
+
+	// 没有Cookie也没有登录元素 → 未登录
+	slog.Info("⚠️  [Login Check] 未检测到登录状态（无Cookie或登录元素）")
 	return false, nil
 }
 
