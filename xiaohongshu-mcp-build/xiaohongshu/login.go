@@ -145,6 +145,7 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 	defer ticker.Stop()
 
 	loginCheckCount := 0
+	captchaDetected := false
 
 	for {
 		select {
@@ -154,9 +155,35 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 		case <-ticker.C:
 			loginCheckCount++
 
+			// 🔥 检测验证码页面（小红书新增的安全验证）
+			if !captchaDetected {
+				// 检测常见的验证码元素
+				captchaSelectors := []string{
+					".verify-box",           // 通用验证框
+					".captcha",              // 验证码容器
+					"[class*='verify']",     // 包含verify的class
+					"[class*='captcha']",    // 包含captcha的class
+					".slider-verify",        // 滑块验证
+					"input[placeholder*='验证码']", // 验证码输入框
+				}
+
+				for _, selector := range captchaSelectors {
+					if exists, _, _ := pp.Has(selector); exists {
+						slog.Warn("🔐 [WaitForLogin] 检测到验证码页面，请在浏览器中完成验证！")
+						slog.Info("💡 [WaitForLogin] 提示：完成验证后系统会自动继续...")
+						captchaDetected = true
+						break
+					}
+				}
+			}
+
 			// 每10次检查输出一次日志，避免日志过多
 			if loginCheckCount%10 == 1 {
-				slog.Info("🔍 [WaitForLogin] 正在检查登录状态...", "count", loginCheckCount)
+				if captchaDetected {
+					slog.Info("⏳ [WaitForLogin] 等待验证码完成...", "count", loginCheckCount)
+				} else {
+					slog.Info("🔍 [WaitForLogin] 正在检查登录状态...", "count", loginCheckCount)
+				}
 			}
 
 			// 🔥 优先检查Cookie（更可靠）
