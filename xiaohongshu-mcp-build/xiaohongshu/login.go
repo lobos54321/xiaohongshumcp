@@ -218,48 +218,32 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 					"a1Len", len(a1Value))
 			}
 
-			// 🔥 新策略：使用Cookie长度判断是否为真实登录Cookie
-			// Tracking cookie: web_session="Guest" 或 短字符串(<20)
-			// Login cookie: web_session和a1都是长字符串(>20)
+			// 🔥 优先策略：检查DOM元素（最可靠）
+			// 只有真正登录后才会出现用户相关元素
+			loginSelectors := []string{
+				".main-container .user .link-wrapper .channel",
+				".user-info",
+				".avatar",
+				".username",
+				"[class*='user']",
+			}
+
+			for _, selector := range loginSelectors {
+				if exists, _, _ := pp.Has(selector); exists {
+					slog.Info("🎉 [WaitForLogin] 检测到登录元素，确认登录成功！", "selector", selector)
+					return true
+				}
+			}
+
+			// 🔥 辅助策略：Cookie检测（仅在有长Cookie但无DOM元素时记录）
 			if hasWebSession && hasA1 && len(webSessionValue) > 20 && len(a1Value) > 20 {
-				slog.Info("🎉 [WaitForLogin] 检测到有效登录Cookie！",
-					"webSessionLen", len(webSessionValue),
-					"a1Len", len(a1Value))
-
-				// 🔥 重要：如果检测到验证码页面，即使有Cookie也不能认为登录成功
-				// 验证码页面也会设置长度>20的Cookie（web_session=38, a1=52）
-				if captchaDetected {
-					slog.Warn("⚠️  [WaitForLogin] 检测到Cookie但验证码未完成，继续等待...")
-					// 继续检查验证码是否已消失（用户完成验证）
-					captchaStillExists := false
-					for _, selector := range []string{".verify-box", ".captcha", "[class*='verify']", "[class*='captcha']"} {
-						if exists, _, _ := pp.Has(selector); exists {
-							captchaStillExists = true
-							break
-						}
-					}
-
-					if !captchaStillExists {
-						slog.Info("✅ [WaitForLogin] 验证码已完成，确认登录成功！")
-						captchaDetected = false // 重置标志
-						return true
-					}
-
-					// 验证码还存在，继续等待
-					continue
+				// 有Cookie但无登录元素，可能是验证码页面
+				if loginCheckCount%10 == 1 {
+					slog.Info("🍪 [WaitForLogin] 检测到Cookie但无登录元素",
+						"webSessionLen", len(webSessionValue),
+						"a1Len", len(a1Value),
+						"hint", "可能在验证码页面或页面加载中")
 				}
-
-				// 🔥 小红书扫码后页面不会自动跳转，直接信任Cookie
-				// 记录当前URL供调试
-				currentURL, _ := pp.Eval(`() => window.location.href`)
-				if currentURL != nil {
-					urlStr := currentURL.Value.String()
-					slog.Info("✅ [WaitForLogin] 登录成功！", "url", urlStr)
-				} else {
-					slog.Info("✅ [WaitForLogin] 登录成功！")
-				}
-
-				return true
 			}
 		}
 	}
