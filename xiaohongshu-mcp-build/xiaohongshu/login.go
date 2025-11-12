@@ -46,7 +46,8 @@ func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
 	}
 
 	// 如果有长Cookie，很可能已登录
-	if hasWebSession && hasA1 && len(webSessionValue) > 20 && len(a1Value) > 20 {
+	// 提高阈值：tracking cookie约38/52字节，真实登录cookie通常>100字节
+	if hasWebSession && hasA1 && len(webSessionValue) > 100 && len(a1Value) > 50 {
 		slog.Info("✅ [Login Check] 检测到有效Cookie",
 			"webSessionLen", len(webSessionValue),
 			"a1Len", len(a1Value))
@@ -54,13 +55,12 @@ func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
 	}
 
 	// 2. 快速检查当前页面的DOM元素（不导航）
-	// 如果当前页面有登录元素，也认为已登录
+	// 使用更精确的选择器，避免误判验证码页面
 	loginSelectors := []string{
-		`.main-container .user .link-wrapper .channel`,
-		`.user-info`,
-		`.avatar`,
-		`.username`,
-		`[class*="user"]`,
+		`.main-container .user .link-wrapper .channel`, // 主页用户菜单（具体）
+		`.reds-header-user`,                            // 新版header用户区域（具体）
+		`a[href='/user/profile/me']`,                   // 个人主页链接（具体）
+		// 🔥 已移除 [class*="user"] - 太宽泛，会匹配验证码页面元素
 	}
 
 	for _, selector := range loginSelectors {
@@ -236,14 +236,21 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 					"a1Len", len(a1Value))
 			}
 
-			// 🔥 优先策略：检查DOM元素（最可靠）
+			// 🔥 关键修复：先排除验证码页面，避免误判
+			// 问题：验证码页面也可能包含 [class*='user'] 等元素，导致误判为已登录
+			// 解决：如果检测到验证码相关元素，跳过本次登录检查
+			if captchaDetected {
+				// 已在验证码页面，继续等待用户完成验证
+				continue
+			}
+
+			// 🔥 优先策略：检查DOM元素（使用更精确的选择器）
 			// 只有真正登录后才会出现用户相关元素
 			loginSelectors := []string{
-				".main-container .user .link-wrapper .channel",
-				".user-info",
-				".avatar",
-				".username",
-				"[class*='user']",
+				".main-container .user .link-wrapper .channel", // 主页用户菜单（具体）
+				".reds-header-user",                            // 新版header用户区域（具体）
+				"a[href='/user/profile/me']",                   // 个人主页链接（具体）
+				// 🔥 已移除 "[class*='user']" - 太宽泛，会匹配验证码页面元素
 			}
 
 			for _, selector := range loginSelectors {
@@ -254,13 +261,14 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 			}
 
 			// 🔥 辅助策略：Cookie检测（仅在有长Cookie但无DOM元素时记录）
-			if hasWebSession && hasA1 && len(webSessionValue) > 20 && len(a1Value) > 20 {
-				// 有Cookie但无登录元素，可能是验证码页面
+			// 提高阈值：tracking cookie约38/52字节，真实登录cookie通常>100字节
+			if hasWebSession && hasA1 && len(webSessionValue) > 100 && len(a1Value) > 50 {
+				// 有真实登录Cookie但无登录元素，可能是页面加载中
 				if loginCheckCount%10 == 1 {
-					slog.Info("🍪 [WaitForLogin] 检测到Cookie但无登录元素",
+					slog.Info("🍪 [WaitForLogin] 检测到长Cookie但无登录元素",
 						"webSessionLen", len(webSessionValue),
 						"a1Len", len(a1Value),
-						"hint", "可能在验证码页面或页面加载中")
+						"hint", "可能在页面加载中，继续等待...")
 				}
 			}
 		}
