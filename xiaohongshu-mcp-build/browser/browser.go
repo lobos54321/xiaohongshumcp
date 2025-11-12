@@ -1,6 +1,9 @@
 package browser
 
 import (
+	"encoding/json"
+	"os"
+
 	"github.com/sirupsen/logrus"
 	"github.com/xpzouying/headless_browser"
 	"github.com/xpzouying/xiaohongshu-mcp/cookies"
@@ -35,12 +38,50 @@ func NewBrowser(headless bool, options ...Option) *headless_browser.Browser {
 	cookiePath := cookies.GetCookiesFilePath()
 	cookieLoader := cookies.NewLoadCookie(cookiePath)
 
-	if data, err := cookieLoader.LoadCookies(); err == nil {
-		opts = append(opts, headless_browser.WithCookies(string(data)))
-		logrus.Debugf("loaded cookies from file successfully")
+	// 检查Cookie文件是否存在
+	if _, err := os.Stat(cookiePath); os.IsNotExist(err) {
+		logrus.Warnf("🍪 [Browser] Cookie文件不存在: %s", cookiePath)
 	} else {
-		logrus.Warnf("failed to load cookies: %v", err)
+		logrus.Infof("🍪 [Browser] Cookie文件路径: %s", cookiePath)
 	}
 
-	return headless_browser.New(opts...)
+	if data, err := cookieLoader.LoadCookies(); err == nil {
+		// 解析Cookie数量和内容
+		var cookieList []map[string]interface{}
+		if jsonErr := json.Unmarshal(data, &cookieList); jsonErr == nil {
+			logrus.Infof("🍪 [Browser] 成功加载 %d 个Cookie，数据大小: %d 字节", len(cookieList), len(data))
+
+			// 记录关键Cookie
+			keyCount := 0
+			for _, c := range cookieList {
+				name, _ := c["name"].(string)
+				domain, _ := c["domain"].(string)
+				if name == "web_session" || name == "a1" || name == "xsecappid" || name == "websectiga" {
+					logrus.Infof("🍪 [Browser] 关键Cookie: name=%s, domain=%s", name, domain)
+					keyCount++
+				}
+			}
+			logrus.Infof("🍪 [Browser] 关键Cookie数量: %d/4", keyCount)
+		}
+
+		opts = append(opts, headless_browser.WithCookies(string(data)))
+		logrus.Infof("✅ [Browser] Cookie已传递给Rod浏览器")
+	} else {
+		logrus.Errorf("❌ [Browser] 加载Cookie失败: %v", err)
+	}
+
+	browser := headless_browser.New(opts...)
+
+	// 验证浏览器中的Cookie
+	if browser != nil && browser.Browser != nil {
+		cks, err := browser.Browser.GetCookies()
+		if err == nil {
+			logrus.Infof("🔍 [Browser] Rod浏览器中实际Cookie数量: %d", len(cks))
+			if len(cks) == 0 {
+				logrus.Errorf("⚠️ [Browser] 警告：浏览器中没有Cookie，可能导致登录失败！")
+			}
+		}
+	}
+
+	return browser
 }

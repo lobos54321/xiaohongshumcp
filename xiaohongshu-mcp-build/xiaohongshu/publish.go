@@ -14,6 +14,7 @@ import (
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/xpzouying/xiaohongshu-mcp/cookies"
 )
 
 // PublishImageContent 发布图文内容
@@ -36,7 +37,50 @@ func NewPublishImageAction(page *rod.Page) (*PublishAction, error) {
 
 	pp := page.Timeout(300 * time.Second)
 
+	// 🔧 修复Cookie时序问题：导航前等待Cookie文件就绪
+	cookiePath := cookies.GetCookiesFilePath()
+	logrus.Infof("🔍 [Publish] 检查Cookie文件: %s", cookiePath)
+
+	// 等待Cookie文件就绪（最多5秒）
+	cookieReady := false
+	for i := 0; i < 10; i++ {
+		if _, err := os.Stat(cookiePath); err == nil {
+			// 文件存在，检查大小
+			if fileInfo, _ := os.Stat(cookiePath); fileInfo != nil && fileInfo.Size() > 100 {
+				cookieReady = true
+				logrus.Infof("✅ [Publish] Cookie文件已就绪，大小: %d 字节", fileInfo.Size())
+				break
+			}
+		}
+		logrus.Warnf("⏳ [Publish] Cookie文件未就绪，等待... (%d/10)", i+1)
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	if !cookieReady {
+		return nil, errors.New("Cookie文件未就绪，请先登录")
+	}
+
+	// 验证浏览器中的Cookie
+	browserCookies, err := pp.Browser().GetCookies()
+	if err == nil {
+		logrus.Infof("🍪 [Publish] 浏览器中Cookie数量: %d", len(browserCookies))
+		if len(browserCookies) == 0 {
+			logrus.Errorf("⚠️ [Publish] 警告：浏览器中没有Cookie！")
+		}
+	}
+
+	logrus.Infof("🌐 [Publish] 开始导航到发布页面: %s", urlOfPublic)
 	pp.MustNavigate(urlOfPublic).MustWaitIdle().MustWaitDOMStable()
+
+	// 检查导航后的URL
+	currentURL := pp.MustInfo().URL
+	logrus.Infof("📍 [Publish] 导航完成，当前URL: %s", currentURL)
+
+	// 如果被重定向到登录页，说明Cookie无效
+	if strings.Contains(currentURL, "/login") {
+		return nil, errors.Errorf("Cookie无效或已过期，被重定向到登录页: %s", currentURL)
+	}
+
 	time.Sleep(1 * time.Second)
 
 	if err := mustClickPublishTab(page, "上传图文"); err != nil {
