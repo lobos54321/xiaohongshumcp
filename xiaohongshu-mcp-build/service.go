@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/proto"
 	"github.com/mattn/go-runewidth"
 	"github.com/sirupsen/logrus"
 	"github.com/xpzouying/headless_browser"
@@ -135,116 +133,14 @@ func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeRe
 
 	if !loggedIn {
 		go func() {
-			logrus.Info("🔄 [扫码等待] goroutine已启动，开始等待用户扫码...")
 			ctxTimeout, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 			defer deferFunc()
 
-			logrus.Infof("⏰ [扫码等待] 等待超时时间: %s", timeout.String())
 			if loginAction.WaitForLogin(ctxTimeout) {
-				logrus.Info("🎉 [扫码等待] ✅ 检测到登录成功！准备保存Cookie...")
-				
-				// 🔥 FIX: 导航到首页确保浏览器完成登录流程，避免后续发布时页面状态异常
-				logrus.Info("🔄 [扫码等待] 导航到首页完成登录流程...")
-				if navErr := page.Navigate("https://www.xiaohongshu.com/explore"); navErr != nil {
-					logrus.Warnf("⚠️ [扫码等待] 导航到首页失败: %v，继续保存Cookie", navErr)
-				} else {
-					page.MustWaitLoad()
-					logrus.Info("✅ [扫码等待] 首页加载完成，浏览器已进入正常登录状态")
-				}
-
-				// 🔥 FIX: 导航到creator域名建立会话，确保Cookie在creator子域名也有效
-				// 问题：登录在www.xiaohongshu.com，但发布在creator.xiaohongshu.com
-				// 解决：登录后访问creator域名，让浏览器在creator域名也建立有效会话
-				logrus.Info("🔄 [Cookie跨域] 导航到creator域名建立会话...")
-
-				// 先获取当前所有Cookie，准备跨域设置
-				allCookies, cookieErr := page.Browser().GetCookies()
-				if cookieErr != nil {
-					logrus.Errorf("❌ [Cookie跨域] 无法获取Cookie: %v", cookieErr)
-				} else {
-					logrus.Infof("📦 [Cookie跨域] 已获取 %d 个Cookie，准备跨域复制", len(allCookies))
-				}
-
-				if navErr := page.Navigate("https://creator.xiaohongshu.com"); navErr != nil {
-					logrus.Warnf("⚠️ [Cookie跨域] 导航到creator域名失败: %v，可能影响后续发布", navErr)
-				} else {
-					page.MustWaitLoad()
-					// 等待2秒确保页面完全加载并建立会话
-					time.Sleep(2 * time.Second)
-					finalURL := page.MustInfo().URL
-					logrus.Infof("✅ [Cookie跨域] Creator域名访问成功，当前URL: %s", finalURL)
-
-					// 检查是否被重定向到登录页（说明Cookie跨域失败）
-					if strings.Contains(finalURL, "/login") {
-						logrus.Warnf("⚠️ [Cookie跨域] 访问creator域名被重定向到登录页，尝试手动设置Cookie...")
-
-						// 🔥 手动在creator域名设置Cookie
-						if allCookies != nil && len(allCookies) > 0 {
-							logrus.Info("🍪 [Cookie跨域] 开始在creator域名手动设置Cookie...")
-
-							// 准备要设置的Cookie列表
-							var cookiesToSet []*proto.NetworkCookieParam
-
-							// 为每个Cookie修改Domain属性为creator域名兼容的值
-							for _, cookie := range allCookies {
-								// 只处理xiaohongshu.com相关的Cookie
-								if strings.Contains(cookie.Domain, "xiaohongshu.com") {
-									// 转换 NetworkCookie 到 NetworkCookieParam
-									// 修改Domain为 .xiaohongshu.com 以支持所有子域名
-									cookieParam := &proto.NetworkCookieParam{
-										Name:     cookie.Name,
-										Value:    cookie.Value,
-										Domain:   ".xiaohongshu.com", // 支持所有子域名
-										Path:     cookie.Path,
-										Secure:   cookie.Secure,
-										HTTPOnly: cookie.HTTPOnly,
-										SameSite: cookie.SameSite,
-										Expires:  cookie.Expires,
-									}
-									cookiesToSet = append(cookiesToSet, cookieParam)
-								}
-							}
-
-							// 批量设置Cookie
-							if len(cookiesToSet) > 0 {
-								logrus.Infof("🍪 [Cookie跨域] 准备设置 %d 个Cookie", len(cookiesToSet))
-								if setErr := page.SetCookies(cookiesToSet); setErr != nil {
-									logrus.Errorf("❌ [Cookie跨域] 批量设置Cookie失败: %v", setErr)
-								} else {
-									logrus.Info("✅ [Cookie跨域] Cookie批量设置成功")
-								}
-							}
-
-							logrus.Info("✅ [Cookie跨域] Cookie手动设置完成，重新检查登录状态...")
-
-							// 重新加载页面验证Cookie是否生效
-							if reloadErr := page.Navigate("https://creator.xiaohongshu.com"); reloadErr != nil {
-								logrus.Warnf("⚠️ [Cookie跨域] 重新加载失败: %v", reloadErr)
-							} else {
-								page.MustWaitLoad()
-								time.Sleep(2 * time.Second)
-								finalURL = page.MustInfo().URL
-
-								if strings.Contains(finalURL, "/login") {
-									logrus.Errorf("❌ [Cookie跨域] 手动设置Cookie后仍然失败，可能需要单独登录creator平台")
-								} else {
-									logrus.Info("🎉 [Cookie跨域] 手动设置Cookie成功！Creator域名已可访问")
-								}
-							}
-						}
-					} else {
-						logrus.Info("✅ [Cookie跨域] Creator域名会话建立成功，Cookie已在两个域名生效")
-					}
-				}
-				
 				if er := saveCookies(page); er != nil {
-					logrus.Errorf("❌ [扫码等待] 保存Cookie失败: %v", er)
-				} else {
-					logrus.Info("✅ [扫码等待] Cookie保存流程完成")
+					logrus.Errorf("failed to save cookies: %v", er)
 				}
-			} else {
-				logrus.Warn("⏱️ [扫码等待] 等待登录超时，未检测到登录成功")
 			}
 		}()
 	}
@@ -308,27 +204,16 @@ func (s *XiaohongshuService) processImages(images []string) ([]string, error) {
 
 // publishContent 执行内容发布
 func (s *XiaohongshuService) publishContent(ctx context.Context, content xiaohongshu.PublishImageContent) error {
-	logrus.Infof("📝 [发布] 准备发布内容: %s", content.Title)
-	logrus.Infof("📷 [发布] 图片数量: %d", len(content.ImagePaths))
-	
-	// 🔥 临时禁用浏览器池，回归上游一次性浏览器模式
-	// 原因：浏览器复用 + Cookie软链切换导致上下文污染
-	logrus.Info("🌐 [发布] 创建一次性浏览器实例（已禁用池复用）")
 	b := newBrowser()
 	defer b.Close()
-	
-	logrus.Info("📄 [发布] 创建新页面...")
+
 	page := b.NewPage()
 	defer page.Close()
-	logrus.Info("✅ [发布] 页面创建成功")
 
-	logrus.Info("📍 [发布] 准备初始化PublishAction...")
 	action, err := xiaohongshu.NewPublishImageAction(page)
 	if err != nil {
-		logrus.Errorf("❌ [发布] 创建PublishAction失败: %v", err)
 		return err
 	}
-	logrus.Info("✅ [发布] PublishAction创建成功，开始执行发布...")
 
 	// 执行发布
 	return action.Publish(ctx, content)
@@ -566,41 +451,18 @@ func newBrowser() *headless_browser.Browser {
 }
 
 func saveCookies(page *rod.Page) error {
-	logrus.Info("💾 [Cookie保存] 开始保存Cookie...")
-
 	cks, err := page.Browser().GetCookies()
 	if err != nil {
-		logrus.Errorf("❌ [Cookie保存] 从浏览器获取Cookie失败: %v", err)
 		return err
-	}
-	logrus.Infof("✅ [Cookie保存] 成功从浏览器获取Cookie，数量: %d", len(cks))
-
-	// 🔍 调试：打印Cookie的Domain属性
-	logrus.Info("🔍 [Cookie调试] Cookie Domain详情:")
-	for i, ck := range cks {
-		if ck != nil {
-			logrus.Infof("  [%d] Name=%s, Domain=%s, Path=%s", i, ck.Name, ck.Domain, ck.Path)
-		}
 	}
 
 	data, err := json.Marshal(cks)
 	if err != nil {
-		logrus.Errorf("❌ [Cookie保存] 序列化Cookie失败: %v", err)
-		return err
-	}
-	logrus.Infof("✅ [Cookie保存] 成功序列化Cookie，大小: %d 字节", len(data))
-
-	cookiePath := cookies.GetCookiesFilePath()
-	logrus.Infof("📁 [Cookie保存] 目标文件路径: %s", cookiePath)
-
-	cookieLoader := cookies.NewLoadCookie(cookiePath)
-	if err := cookieLoader.SaveCookies(data); err != nil {
-		logrus.Errorf("❌ [Cookie保存] 写入文件失败: %v", err)
 		return err
 	}
 
-	logrus.Infof("🎉 [Cookie保存] ✅ 成功保存Cookie到文件!")
-	return nil
+	cookieLoader := cookies.NewLoadCookie(cookies.GetCookiesFilePath())
+	return cookieLoader.SaveCookies(data)
 }
 
 // withBrowserPage 执行需要浏览器页面的操作的通用函数

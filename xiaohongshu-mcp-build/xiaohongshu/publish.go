@@ -33,73 +33,19 @@ const (
 )
 
 func NewPublishImageAction(page *rod.Page) (*PublishAction, error) {
-	logrus.Info("🚀 [NewPublishImageAction] 开始初始化发布Action")
 
-	// 🔧 FIX: Set timeout to 600s (10min) - optimal balance
-	// Reason:
-	// - Actual publish time: 312 seconds
-	// - Buffer: 288 seconds (sufficient for network fluctuations)
-	// - Combined with MCP timeout 900s, provides proper timeout hierarchy
-	// - Fast failure for element not found (via findElementWithRetry 30s timeout)
-	pp := page.Timeout(600 * time.Second)
+	pp := page.Timeout(300 * time.Second)
 
-	// 🔥 关键修复：使用goroutine+channel+超时保护导航，防止MustNavigate永久hang住
-	// 证据：日志显示"准备初始化PublishAction"后10分钟无任何输出，hang在MustNavigate
-	logrus.Info("🌐 [NewPublishImageAction] 开始导航到发布页面...")
-	
-	// 🔍 诊断：导航前记录当前URL
-	currentURL := pp.MustInfo().URL
-	logrus.Infof("📍 [NewPublishImageAction] 导航前当前URL: %s", currentURL)
-	
-	navChan := make(chan error, 1)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				navChan <- fmt.Errorf("导航panic: %v", r)
-			}
-		}()
-		pp.MustNavigate(urlOfPublic).MustWaitIdle().MustWaitDOMStable()
-		navChan <- nil
-	}()
-
-	// 60秒超时等待导航完成
-	select {
-	case err := <-navChan:
-		if err != nil {
-			logrus.Errorf("❌ [NewPublishImageAction] 导航失败: %v", err)
-			return nil, err
-		}
-		// 🔍 诊断：导航后记录URL
-		finalURL := pp.MustInfo().URL
-		logrus.Infof("✅ [NewPublishImageAction] 导航成功，当前URL: %s", finalURL)
-	case <-time.After(60 * time.Second):
-		// 🔍 诊断：超时时记录当前URL和页面状态
-		timeoutURL := pp.MustInfo().URL
-		logrus.Errorf("⏱️ [NewPublishImageAction] 导航超时（60秒），卡在URL: %s", timeoutURL)
-		
-		// 尝试获取页面标题
-		title := ""
-		titleElem, err := pp.Element("title")
-		if err == nil && titleElem != nil {
-			title, _ = titleElem.Text()
-		}
-		logrus.Errorf("📄 [NewPublishImageAction] 超时时页面标题: %s", title)
-		
-		return nil, fmt.Errorf("导航到发布页面超时，卡在: %s", timeoutURL)
-	}
-
+	pp.MustNavigate(urlOfPublic).MustWaitIdle().MustWaitDOMStable()
 	time.Sleep(1 * time.Second)
 
-	logrus.Info("📍 [NewPublishImageAction] 准备点击'上传图文'TAB...")
 	if err := mustClickPublishTab(page, "上传图文"); err != nil {
-		logrus.Errorf("❌ [NewPublishImageAction] 点击上传图文TAB失败: %v", err)
+		logrus.Errorf("点击上传图文 TAB 失败: %v", err)
 		return nil, err
 	}
-	logrus.Info("✅ [NewPublishImageAction] TAB点击成功")
 
 	time.Sleep(1 * time.Second)
 
-	logrus.Info("✅ [NewPublishImageAction] PublishAction初始化完成")
 	return &PublishAction{
 		page: pp,
 	}, nil
