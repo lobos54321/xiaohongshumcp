@@ -100,6 +100,17 @@ func (a *LoginAction) Login(ctx context.Context) error {
 func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error) {
 	pp := a.page.Context(ctx)
 
+	// 🔥 关键修复：清除浏览器中的所有Cookie，防止自动登录
+	// 问题：browser.NewBrowser()会自动从文件加载Cookie，导致访问登录页时自动登录
+	// 解决：在访问登录页前，强制清空浏览器Cookie
+	slog.Info("🧹 [QR Login] 清除浏览器Cookie，确保显示二维码...")
+	// 使用空的Cookie数组清除所有Cookie
+	if err := pp.Browser().SetCookies(nil); err != nil {
+		slog.Warn("⚠️  [QR Login] 清除Cookie失败，可能导致自动登录", "error", err)
+	} else {
+		slog.Info("✅ [QR Login] 浏览器Cookie已清除")
+	}
+
 	// 🔥 修复：直接访问登录页，而不是首页
 	slog.Info("🌐 [QR Login] 开始访问登录页面")
 	pp.MustNavigate("https://www.xiaohongshu.com/login").MustWaitLoad()
