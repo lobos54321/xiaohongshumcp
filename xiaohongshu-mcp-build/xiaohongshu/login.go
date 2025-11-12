@@ -175,27 +175,48 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 			loginCheckCount++
 
 			// 🔥 每次循环都重新检测验证码状态（验证码可能消失）
-			// 检测常见的验证码元素
+
+			// 🔥 关键修复：先检测是否在二维码登录页面，避免误判
+			// 问题：之前的 [class*='verify'] 会匹配二维码页面的元素（如 qrcode-verify）
+			// 解决：明确排除二维码页面，只在真正的验证码页面时才等待
+			isQRCodePage, _, _ := pp.Has(".login-container .qrcode-img")
+
+			// 🔥 使用精确的验证码选择器，避免误判二维码页面
+			// 只检测真正的验证码特征，不使用宽泛的属性选择器
 			captchaSelectors := []string{
-				".verify-box",           // 通用验证框
-				".captcha",              // 验证码容器
-				"[class*='verify']",     // 包含verify的class
-				"[class*='captcha']",    // 包含captcha的class
-				".slider-verify",        // 滑块验证
+				".verify-box",                 // 通用验证框
+				".captcha-container",          // 验证码容器
+				".slider-verify",              // 滑块验证
 				"input[placeholder*='验证码']", // 验证码输入框
+				".nc-container",               // 阿里云验证码
+				"#nc_1_wrapper",               // 滑块验证ID
+				".yidun",                      // 网易验证码
+				".geetest_panel",              // 极验证码
+				// 🔥 已移除宽泛的属性选择器：
+				// "[class*='verify']"   - 太宽泛，会匹配二维码页面
+				// "[class*='captcha']"  - 太宽泛，会匹配二维码页面
 			}
 
 			// 重置验证码检测状态（每次重新检测）
 			captchaDetectedNow := false
-			for _, selector := range captchaSelectors {
-				if exists, _, _ := pp.Has(selector); exists {
-					captchaDetectedNow = true
-					// 只在首次检测到或状态变化时输出日志
-					if !captchaDetected {
-						slog.Warn("🔐 [WaitForLogin] 检测到验证码页面，请在浏览器中完成验证！")
-						slog.Info("💡 [WaitForLogin] 提示：完成验证后系统会自动继续...")
+
+			// 只在非二维码页面时检测验证码
+			if !isQRCodePage {
+				for _, selector := range captchaSelectors {
+					if exists, _, _ := pp.Has(selector); exists {
+						captchaDetectedNow = true
+						// 只在首次检测到或状态变化时输出日志
+						if !captchaDetected {
+							slog.Warn("🔐 [WaitForLogin] 检测到验证码页面，请在浏览器中完成验证！", "selector", selector)
+							slog.Info("💡 [WaitForLogin] 提示：完成验证后系统会自动继续...")
+						}
+						break
 					}
-					break
+				}
+			} else {
+				// 在二维码页面，明确不是验证码页面
+				if loginCheckCount%10 == 1 {
+					slog.Info("📱 [WaitForLogin] 当前在二维码登录页面，等待扫码...")
 				}
 			}
 
