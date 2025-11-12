@@ -2585,6 +2585,46 @@ app.post('/agent/xiaohongshu/logout', async (req: Request, res: Response) => {
               }
             }
           }
+
+          // 🔥 关键修复：删除login/status检查的所有7个cookie路径
+          // 问题：login/status会检查7个路径，但之前logout只删除了1个，导致残留cookie自动登录
+          console.log(`[XHS Logout] 🔍 开始清理login/status检查的所有7个cookie路径...`);
+
+          const criticalCookiePaths = [
+            // 路径1: ../mcp-router/cookies/{userId}/cookies.json
+            path.join(process.cwd(), '..', 'mcp-router', 'cookies', userId, 'cookies.json'),
+            // 路径2: ../mcp-router/latest.json (最危险 - 不包含userId)
+            path.join(process.cwd(), '..', 'mcp-router', 'latest.json'),
+            // 路径3: /app/mcp-router/cookies/{userId}/cookies.json
+            path.join('/app', 'mcp-router', 'cookies', userId, 'cookies.json'),
+            // 路径4: /app/mcp-router/latest.json (最危险 - 不包含userId)
+            path.join('/app', 'mcp-router', 'latest.json'),
+            // 路径5: cookies/{userId}/cookies.json (已在上面删除，但再次确保)
+            path.join(process.cwd(), 'cookies', userId, 'cookies.json'),
+            // 路径6: playwright-service/mcp-router/cookies/{userId}/cookies.json
+            path.join(process.cwd(), 'playwright-service', 'mcp-router', 'cookies', userId, 'cookies.json'),
+            // 路径7: playwright-service/mcp-router/latest.json (最危险 - 不包含userId)
+            path.join(process.cwd(), 'playwright-service', 'mcp-router', 'latest.json'),
+            // 额外：Go后端的cookie文件
+            '/app/data/cookies.json'
+          ];
+
+          let deletedCount = 0;
+          for (const cookiePath of criticalCookiePaths) {
+            try {
+              if (fs.existsSync(cookiePath)) {
+                fs.unlinkSync(cookiePath);
+                deletedCount++;
+                console.log(`[XHS Logout] ✅ 已删除关键cookie文件: ${cookiePath}`);
+              } else {
+                console.log(`[XHS Logout] ⏭️  文件不存在（跳过）: ${cookiePath}`);
+              }
+            } catch (deleteError) {
+              console.warn(`[XHS Logout] ⚠️  删除失败: ${cookiePath}`, deleteError);
+            }
+          }
+          console.log(`[XHS Logout] 📊 清理完成：共删除 ${deletedCount}/${criticalCookiePaths.length} 个关键cookie文件`);
+
         } catch (cookieFileError) {
           console.warn(`[XHS Logout] 清理cookie文件失败:`, cookieFileError);
         }
@@ -2678,6 +2718,37 @@ app.post('/agent/xiaohongshu/logout', async (req: Request, res: Response) => {
               }
             }
           }
+
+          // 🔥 关键修复：删除login/status检查的所有7个cookie路径（本地模式）
+          console.log(`[XHS Logout] 🔍 (本地模式) 开始清理login/status检查的所有7个cookie路径...`);
+
+          const criticalCookiePaths = [
+            path.join(process.cwd(), '..', 'mcp-router', 'cookies', userId, 'cookies.json'),
+            path.join(process.cwd(), '..', 'mcp-router', 'latest.json'),
+            path.join('/app', 'mcp-router', 'cookies', userId, 'cookies.json'),
+            path.join('/app', 'mcp-router', 'latest.json'),
+            path.join(process.cwd(), 'cookies', userId, 'cookies.json'),
+            path.join(process.cwd(), 'playwright-service', 'mcp-router', 'cookies', userId, 'cookies.json'),
+            path.join(process.cwd(), 'playwright-service', 'mcp-router', 'latest.json'),
+            '/app/data/cookies.json'
+          ];
+
+          let deletedCount = 0;
+          for (const cookiePath of criticalCookiePaths) {
+            try {
+              if (fs.existsSync(cookiePath)) {
+                fs.unlinkSync(cookiePath);
+                deletedCount++;
+                console.log(`[XHS Logout] ✅ (本地模式) 已删除关键cookie文件: ${cookiePath}`);
+              } else {
+                console.log(`[XHS Logout] ⏭️  (本地模式) 文件不存在（跳过）: ${cookiePath}`);
+              }
+            } catch (deleteError) {
+              console.warn(`[XHS Logout] ⚠️  (本地模式) 删除失败: ${cookiePath}`, deleteError);
+            }
+          }
+          console.log(`[XHS Logout] 📊 (本地模式) 清理完成：共删除 ${deletedCount}/${criticalCookiePaths.length} 个关键cookie文件`);
+
         } catch (cookieFileError) {
           console.warn(`[XHS Logout] (本地模式) 清理cookie文件失败:`, cookieFileError);
         }
