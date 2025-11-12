@@ -165,6 +165,7 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 
 	loginCheckCount := 0
 	captchaDetected := false
+	previouslyOnQRCodePage := false // 🔥 新增：追踪二维码页面状态
 
 	for {
 		select {
@@ -220,7 +221,7 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 				}
 			}
 
-			// 🔥 关键修复：验证码消失后，主动导航到首页获取登录Cookie
+			// 🔥 关键修复1：验证码消失后，主动导航到首页获取登录Cookie
 			// 问题：小红书扫码登录后，登录页不会自动跳转，Cookie不会更新
 			// 解决：检测到验证码消失后，主动Navigate到首页，触发Cookie设置
 			if captchaDetected && !captchaDetectedNow {
@@ -237,8 +238,70 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 				}
 			}
 
-			// 更新验证码检测状态
+			// 🔥 关键修复2：扫码成功检测 - 二维码消失或页面变化
+			// 问题：扫码成功后二维码页面不会自动跳转，导致Cookie无法更新
+			// 解决：检测二维码消失或扫码成功提示，主动导航获取Cookie
+			qrCodeDisappeared := previouslyOnQRCodePage && !isQRCodePage
+
+			// 检测扫码成功的提示文本
+			scanSuccessDetected := false
+			scanSuccessSelectors := []string{
+				"text=/扫码成功/",
+				"text=/登录成功/",
+				".scan-success",
+				".login-success-tip",
+			}
+
+			for _, selector := range scanSuccessSelectors {
+				if exists, _, _ := pp.Has(selector); exists {
+					scanSuccessDetected = true
+					slog.Info("🎉 [WaitForLogin] 检测到扫码成功提示！", "selector", selector)
+					break
+				}
+			}
+
+			// 如果二维码消失或检测到扫码成功，主动导航
+			if qrCodeDisappeared || scanSuccessDetected {
+				slog.Info("🔄 [WaitForLogin] 触发主动导航（扫码场景），获取登录Cookie...")
+				if err := pp.Navigate("https://www.xiaohongshu.com/explore"); err == nil {
+					slog.Info("🌐 [WaitForLogin] 正在加载首页...")
+					pp.WaitLoad()
+					slog.Info("✅ [WaitForLogin] 首页加载完成，等待Cookie更新...")
+					time.Sleep(2 * time.Second)
+				} else {
+					slog.Warn("⚠️  [WaitForLogin] 导航到首页失败", "error", err)
+				}
+			}
+
+			// 更新状态
 			captchaDetected = captchaDetectedNow
+			previouslyOnQRCodePage = isQRCodePage
+
+			// 🔥 关键修复3：定时主动导航兜底机制（每30秒）
+			// 解决：即使前面的检测都失败，也要定期尝试导航，检查是否已经登录成功
+			// 避免用户扫码成功但系统一直等待的情况
+			if loginCheckCount%60 == 0 { // 60 * 500ms = 30秒
+				slog.Info("🔄 [WaitForLogin] 定时检查：尝试导航到首页确认登录状态...", "count", loginCheckCount)
+				oldWebSessionLen := len(webSessionValue)
+
+				if err := pp.Navigate("https://www.xiaohongshu.com/explore"); err == nil {
+					pp.WaitLoad()
+					time.Sleep(1 * time.Second)
+
+					// 重新获取Cookie检查是否有更新
+					newCookies, err := pp.Browser().GetCookies()
+					if err == nil {
+						for _, cookie := range newCookies {
+							if cookie.Name == "web_session" && len(cookie.Value) > oldWebSessionLen {
+								slog.Info("✅ [WaitForLogin] 定时检查：检测到Cookie已更新！",
+									"oldLen", oldWebSessionLen,
+									"newLen", len(cookie.Value))
+								// 继续循环，下一次检查时会通过Cookie长度判断返回true
+							}
+						}
+					}
+				}
+			}
 
 			// 每10次检查输出一次日志，避免日志过多
 			if loginCheckCount%10 == 1 {
