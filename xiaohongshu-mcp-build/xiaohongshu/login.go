@@ -277,32 +277,6 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 			captchaDetected = captchaDetectedNow
 			previouslyOnQRCodePage = isQRCodePage
 
-			// 🔥 关键修复3：定时主动导航兜底机制（每30秒）
-			// 解决：即使前面的检测都失败，也要定期尝试导航，检查是否已经登录成功
-			// 避免用户扫码成功但系统一直等待的情况
-			if loginCheckCount%60 == 0 { // 60 * 500ms = 30秒
-				slog.Info("🔄 [WaitForLogin] 定时检查：尝试导航到首页确认登录状态...", "count", loginCheckCount)
-				oldWebSessionLen := len(webSessionValue)
-
-				if err := pp.Navigate("https://www.xiaohongshu.com/explore"); err == nil {
-					pp.WaitLoad()
-					time.Sleep(1 * time.Second)
-
-					// 重新获取Cookie检查是否有更新
-					newCookies, err := pp.Browser().GetCookies()
-					if err == nil {
-						for _, cookie := range newCookies {
-							if cookie.Name == "web_session" && len(cookie.Value) > oldWebSessionLen {
-								slog.Info("✅ [WaitForLogin] 定时检查：检测到Cookie已更新！",
-									"oldLen", oldWebSessionLen,
-									"newLen", len(cookie.Value))
-								// 继续循环，下一次检查时会通过Cookie长度判断返回true
-							}
-						}
-					}
-				}
-			}
-
 			// 每10次检查输出一次日志，避免日志过多
 			if loginCheckCount%10 == 1 {
 				if captchaDetected {
@@ -386,6 +360,30 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 						"webSessionLen", len(webSessionValue),
 						"a1Len", len(a1Value),
 						"hint", "可能在页面加载中，继续等待...")
+				}
+			}
+
+			// 🔥 关键修复3：定时主动导航兜底机制（每30秒）
+			// 在扫码成功但页面未自动跳转的情况下，定期尝试导航到首页
+			if loginCheckCount%60 == 0 { // 60 * 500ms = 30秒
+				slog.Info("🔄 [WaitForLogin] 定时检查：尝试导航到首页确认登录状态...", "count", loginCheckCount)
+				oldWebSessionLen := len(webSessionValue)
+
+				if err := pp.Navigate("https://www.xiaohongshu.com/explore"); err == nil {
+					pp.WaitLoad()
+					time.Sleep(1 * time.Second)
+
+					// 重新检查Cookie，看是否有更新
+					newCookies, err := pp.Browser().GetCookies()
+					if err == nil {
+						for _, cookie := range newCookies {
+							if cookie.Name == "web_session" && len(cookie.Value) > oldWebSessionLen {
+								slog.Info("✅ [WaitForLogin] 定时检查：检测到Cookie已更新！",
+									"oldLen", oldWebSessionLen,
+									"newLen", len(cookie.Value))
+							}
+						}
+					}
 				}
 			}
 		}
