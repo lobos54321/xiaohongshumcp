@@ -573,7 +573,32 @@ app.post('/api/xiaohongshu/logout', async (req, res) => {
 
     console.log(`[Logout] ✅ Logout completed for user ${userId}. Deleted ${filesToDelete.length} files/directories.`);
 
-    // 5. 🔥 清理rod浏览器的UserDataDir（关键！防止浏览器缓存残留Cookie）
+    // 5. 🔥 清理数据库中的Cookie（关键！防止从数据库重新加载旧Cookie）
+    try {
+      console.log(`[Logout] 🗑️  开始清理数据库Cookie...`);
+      const axios = await import('axios');
+
+      // 🔥 调用后端服务删除数据库Cookie
+      const backendUrl = process.env.CLAUDE_AGENT_URL
+        || process.env.BACKEND_URL
+        || 'https://xiaohongshu-automation-ai.zeabur.app';
+
+      const deleteResponse = await axios.default.post(
+        `${backendUrl}/agent/xiaohongshu/delete-cookies-from-db`,
+        { userId },
+        { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+      );
+
+      if (deleteResponse.data?.success) {
+        console.log(`[Logout] ✅ 数据库Cookie删除成功`);
+      } else {
+        console.warn(`[Logout] ⚠️  数据库Cookie删除失败: ${deleteResponse.data?.error || 'Unknown error'}`);
+      }
+    } catch (dbDeleteError) {
+      console.warn(`[Logout] ⚠️  数据库Cookie删除失败:`, dbDeleteError instanceof Error ? dbDeleteError.message : String(dbDeleteError));
+    }
+
+    // 6. 🔥 清理rod浏览器的UserDataDir（关键！防止浏览器缓存残留Cookie）
     try {
       const { exec } = await import('child_process');
       const { promisify } = await import('util');
@@ -604,7 +629,7 @@ app.post('/api/xiaohongshu/logout', async (req, res) => {
       console.warn(`[Logout] UserDataDir清理失败: ${userDataError instanceof Error ? userDataError.message : String(userDataError)}`);
     }
 
-    // 6. 验证清理结果
+    // 7. 验证清理结果
     const remainingFiles: string[] = [];
     for (const basePath of allPossibleCookiePaths) {
       try {

@@ -3090,6 +3090,38 @@ app.post('/agent/xiaohongshu/load-cookies-from-db', async (req: Request, res: Re
   }
 });
 
+// 从数据库删除Cookie
+app.post('/agent/xiaohongshu/delete-cookies-from-db', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required',
+      });
+    }
+
+    console.log(`[CookieDB API] 删除Cookie: userId=${userId}`);
+
+    const { CookieDatabaseService } = await import('./cookieDatabaseService.js');
+    const dbService = new CookieDatabaseService();
+    await dbService.deleteCookies(userId);
+
+    res.json({
+      success: true,
+      message: 'Cookies deleted from database successfully',
+      userId: userId
+    });
+  } catch (error: any) {
+    console.error('[CookieDB API] 删除失败:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to delete cookies from database',
+    });
+  }
+});
+
 // 启动服务器
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[Claude Agent Service] Server listening on 0.0.0.0:${PORT}`);
