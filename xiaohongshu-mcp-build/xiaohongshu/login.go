@@ -3,6 +3,7 @@ package xiaohongshu
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -173,27 +174,50 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 		case <-ticker.C:
 			loginCheckCount++
 
-			// 🔥 检测验证码页面（小红书新增的安全验证）
-			if !captchaDetected {
-				// 检测常见的验证码元素
-				captchaSelectors := []string{
-					".verify-box",           // 通用验证框
-					".captcha",              // 验证码容器
-					"[class*='verify']",     // 包含verify的class
-					"[class*='captcha']",    // 包含captcha的class
-					".slider-verify",        // 滑块验证
-					"input[placeholder*='验证码']", // 验证码输入框
-				}
+			// 🔥 每次循环都重新检测验证码状态（验证码可能消失）
+			// 检测常见的验证码元素
+			captchaSelectors := []string{
+				".verify-box",           // 通用验证框
+				".captcha",              // 验证码容器
+				"[class*='verify']",     // 包含verify的class
+				"[class*='captcha']",    // 包含captcha的class
+				".slider-verify",        // 滑块验证
+				"input[placeholder*='验证码']", // 验证码输入框
+			}
 
-				for _, selector := range captchaSelectors {
-					if exists, _, _ := pp.Has(selector); exists {
+			// 重置验证码检测状态（每次重新检测）
+			captchaDetectedNow := false
+			for _, selector := range captchaSelectors {
+				if exists, _, _ := pp.Has(selector); exists {
+					captchaDetectedNow = true
+					// 只在首次检测到或状态变化时输出日志
+					if !captchaDetected {
 						slog.Warn("🔐 [WaitForLogin] 检测到验证码页面，请在浏览器中完成验证！")
 						slog.Info("💡 [WaitForLogin] 提示：完成验证后系统会自动继续...")
-						captchaDetected = true
-						break
 					}
+					break
 				}
 			}
+
+			// 🔥 关键修复：验证码消失后，主动导航到首页获取登录Cookie
+			// 问题：小红书扫码登录后，登录页不会自动跳转，Cookie不会更新
+			// 解决：检测到验证码消失后，主动Navigate到首页，触发Cookie设置
+			if captchaDetected && !captchaDetectedNow {
+				slog.Info("✅ [WaitForLogin] 验证码已完成，正在导航到首页获取登录Cookie...")
+
+				// 导航到explore页面，触发真正的登录Cookie设置
+				if err := pp.Navigate("https://www.xiaohongshu.com/explore"); err == nil {
+					slog.Info("🌐 [WaitForLogin] 正在加载首页...")
+					pp.WaitLoad()
+					slog.Info("✅ [WaitForLogin] 首页加载完成，等待Cookie更新...")
+					time.Sleep(2 * time.Second)
+				} else {
+					slog.Warn("⚠️  [WaitForLogin] 导航到首页失败", "error", err)
+				}
+			}
+
+			// 更新验证码检测状态
+			captchaDetected = captchaDetectedNow
 
 			// 每10次检查输出一次日志，避免日志过多
 			if loginCheckCount%10 == 1 {
@@ -236,20 +260,29 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 					"a1Len", len(a1Value))
 			}
 
-			// 🔥 关键修复：先排除验证码页面，避免误判
+			// 🔥 关键修复：验证码页面时跳过登录检测，避免误判
 			// 问题：验证码页面也可能包含 [class*='user'] 等元素，导致误判为已登录
-			// 解决：如果检测到验证码相关元素，跳过本次登录检查
-			if captchaDetected {
-				// 已在验证码页面，继续等待用户完成验证
+			// 解决：只在验证码确实存在时才跳过登录检查（而不是用历史状态）
+			if captchaDetectedNow {
+				// 当前在验证码页面，跳过登录检查，等待用户完成验证
 				continue
 			}
 
-			// 🔥 优先策略：检查DOM元素（使用更精确的选择器）
+			// 🔥 优先策略1：检查URL变化（最可靠）
+			// 扫码成功后主动导航到explore，URL会从/login变化
+			currentURL := pp.MustInfo().URL
+			if currentURL != "" && !strings.Contains(currentURL, "/login") {
+				slog.Info("🎉 [WaitForLogin] 检测到页面已离开登录页，确认登录成功！", "url", currentURL)
+				return true
+			}
+
+			// 🔥 优先策略2：检查DOM元素（使用更精确的选择器）
 			// 只有真正登录后才会出现用户相关元素
 			loginSelectors := []string{
 				".main-container .user .link-wrapper .channel", // 主页用户菜单（具体）
 				".reds-header-user",                            // 新版header用户区域（具体）
 				"a[href='/user/profile/me']",                   // 个人主页链接（具体）
+				".user-info",                                   // 用户信息元素
 				// 🔥 已移除 "[class*='user']" - 太宽泛，会匹配验证码页面元素
 			}
 
