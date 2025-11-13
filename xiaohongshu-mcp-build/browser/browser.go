@@ -70,18 +70,5 @@ func NewBrowser(headless bool, options ...Option) *headless_browser.Browser {
 		logrus.Errorf("❌ [Browser] 加载Cookie失败: %v", err)
 	}
 
-	browser := headless_browser.New(opts...)
-
-	// 验证浏览器中的Cookie
-	if browser != nil && browser.Browser != nil {
-		cks, err := browser.Browser.GetCookies()
-		if err == nil {
-			logrus.Infof("🔍 [Browser] Rod浏览器中实际Cookie数量: %d", len(cks))
-			if len(cks) == 0 {
-				logrus.Errorf("⚠️ [Browser] 警告：浏览器中没有Cookie，可能导致登录失败！")
-			}
-		}
-	}
-
-	return browser
+	return headless_browser.New(opts...)
 }

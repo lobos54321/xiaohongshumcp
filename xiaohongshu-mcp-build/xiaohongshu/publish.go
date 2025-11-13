@@ -60,15 +60,6 @@ func NewPublishImageAction(page *rod.Page) (*PublishAction, error) {
 		return nil, errors.New("Cookie文件未就绪，请先登录")
 	}
 
-	// 验证浏览器中的Cookie
-	browserCookies, err := pp.Browser().GetCookies()
-	if err == nil {
-		logrus.Infof("🍪 [Publish] 浏览器中Cookie数量: %d", len(browserCookies))
-		if len(browserCookies) == 0 {
-			logrus.Errorf("⚠️ [Publish] 警告：浏览器中没有Cookie！")
-		}
-	}
-
 	logrus.Infof("🌐 [Publish] 开始导航到发布页面: %s", urlOfPublic)
 	pp.MustNavigate(urlOfPublic).MustWaitIdle().MustWaitDOMStable()
 
