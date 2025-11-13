@@ -28,10 +28,7 @@ const PORT = parseInt(process.env.PORT || '8080');
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
 if (!ANTHROPIC_API_KEY || ANTHROPIC_API_KEY === 'demo-key') {
-  console.error('Error: A valid ANTHROPIC_API_KEY is required');
-  console.error('Please set a real Anthropic API key in your environment variables.');
-  console.error('Example: export ANTHROPIC_API_KEY=sk-ant-...');
-  process.exit(1);
+  console.warn('[Startup] ANTHROPIC_API_KEY missing or demo-key. Running in degraded mode: content generation disabled, login/publish via MCP available.');
 }
 
 // MCP Router URL配置 - 支持生产环境和本地开发
@@ -48,7 +45,7 @@ const imageService = new ImageGenerationService({
 
 // 创建 Claude Agent (HTTP版本)
 const agent = new ClaudeAgentHTTP({
-  apiKey: ANTHROPIC_API_KEY,
+  apiKey: ANTHROPIC_API_KEY || '',
   model: process.env.CLAUDE_MODEL,
   maxTokens: parseInt(process.env.MAX_TOKENS || '4096'),
   mcpRouterURL: MCP_ROUTER_URL,
@@ -59,7 +56,7 @@ const mcpAuthClient = new MCPAuthClient(MCP_ROUTER_URL);
 
 // 创建自动内容管理器
 const autoContentManager = new AutoContentManager({
-  anthropicKey: ANTHROPIC_API_KEY,
+  anthropicKey: ANTHROPIC_API_KEY || '',
   imageService: imageService,
   mcpClient: mcpAuthClient
 });

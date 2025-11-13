@@ -1,11 +1,11 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"os"
-	"time"
+    "context"
+    "encoding/json"
+    "fmt"
+    "os"
+    "time"
 
 	"github.com/go-rod/rod"
 	"github.com/mattn/go-runewidth"
@@ -167,10 +167,10 @@ func (s *XiaohongshuService) PublishContent(ctx context.Context, req *PublishReq
 	}
 
 	// 处理图片：下载URL图片或使用本地路径
-	imagePaths, err := s.processImages(req.Images)
-	if err != nil {
-		return nil, err
-	}
+    imagePaths, err := s.processImages(ctx, req.Images)
+    if err != nil {
+        return nil, err
+    }
 
 	// 构建发布内容
 	content := xiaohongshu.PublishImageContent{
@@ -197,9 +197,20 @@ func (s *XiaohongshuService) PublishContent(ctx context.Context, req *PublishReq
 }
 
 // processImages 处理图片列表，支持URL下载和本地路径
-func (s *XiaohongshuService) processImages(images []string) ([]string, error) {
-	processor := downloader.NewImageProcessor()
-	return processor.ProcessImages(images)
+func (s *XiaohongshuService) processImages(ctx context.Context, images []string) ([]string, error) {
+    processor := downloader.NewImageProcessor()
+    start := time.Now()
+    logrus.Infof("📥 开始处理 %d 个图片", len(images))
+    // 设置总超时2分钟
+    ctxTimeout, cancel := context.WithTimeout(ctx, 120*time.Second)
+    defer cancel()
+    imagePaths, err := processor.ProcessImagesWithContext(ctxTimeout, images)
+    if err != nil {
+        logrus.Errorf("❌ 图片处理失败: %v", err)
+        return nil, fmt.Errorf("图片下载超时或失败: %w", err)
+    }
+    logrus.Infof("✅ 图片处理完成，成功 %d 个，耗时 %.2fs", len(imagePaths), time.Since(start).Seconds())
+    return imagePaths, nil
 }
 
 // publishContent 执行内容发布

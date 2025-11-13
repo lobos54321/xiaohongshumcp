@@ -1,11 +1,12 @@
 package downloader
 
 import (
-	"crypto/sha256"
-	"fmt"
-	"io"
-	"net/http"
-	"net/url"
+    "context"
+    "crypto/sha256"
+    "fmt"
+    "io"
+    "net/http"
+    "net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,10 +46,14 @@ func (d *ImageDownloader) DownloadImage(imageURL string) (string, error) {
 	}
 
 	// 下载图片数据
-	resp, err := d.httpClient.Get(imageURL)
-	if err != nil {
-		return "", errors.Wrap(err, "failed to download image")
-	}
+    req, err := http.NewRequest("GET", imageURL, nil)
+    if err != nil {
+        return "", errors.Wrap(err, "failed to create request")
+    }
+    resp, err := d.httpClient.Do(req)
+    if err != nil {
+        return "", errors.Wrap(err, "failed to download image")
+    }
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -88,6 +93,50 @@ func (d *ImageDownloader) DownloadImage(imageURL string) (string, error) {
 	return filePath, nil
 }
 
+// DownloadImageWithContext 下载图片（支持上下文取消）
+func (d *ImageDownloader) DownloadImageWithContext(ctx context.Context, imageURL string) (string, error) {
+    req, err := http.NewRequestWithContext(ctx, "GET", imageURL, nil)
+    if err != nil {
+        return "", errors.Wrap(err, "failed to create request")
+    }
+    resp, err := d.httpClient.Do(req)
+    if err != nil {
+        return "", errors.Wrap(err, "failed to download image")
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return "", fmt.Errorf("download failed with status: %d", resp.StatusCode)
+    }
+
+    imageData, err := io.ReadAll(resp.Body)
+    if err != nil {
+        return "", errors.Wrap(err, "failed to read image data")
+    }
+
+    kind, err := filetype.Match(imageData)
+    if err != nil {
+        return "", errors.Wrap(err, "failed to detect file type")
+    }
+
+    if !filetype.IsImage(imageData) {
+        return "", errors.New("downloaded file is not a valid image")
+    }
+
+    fileName := d.generateFileName(imageURL, kind.Extension)
+    filePath := filepath.Join(d.savePath, fileName)
+
+    if _, err := os.Stat(filePath); err == nil {
+        return filePath, nil
+    }
+
+    if err := os.WriteFile(filePath, imageData, 0644); err != nil {
+        return "", errors.Wrap(err, "failed to save image")
+    }
+
+    return filePath, nil
+}
+
 // DownloadImages 批量下载图片
 func (d *ImageDownloader) DownloadImages(imageURLs []string) ([]string, error) {
 	var localPaths []string
@@ -107,6 +156,27 @@ func (d *ImageDownloader) DownloadImages(imageURLs []string) ([]string, error) {
 	}
 
 	return localPaths, nil
+}
+
+// DownloadImagesWithContext 批量下载图片（支持上下文取消）
+func (d *ImageDownloader) DownloadImagesWithContext(ctx context.Context, imageURLs []string) ([]string, error) {
+    var localPaths []string
+    var errs []error
+
+    for _, imageURL := range imageURLs {
+        localPath, err := d.DownloadImageWithContext(ctx, imageURL)
+        if err != nil {
+            errs = append(errs, fmt.Errorf("failed to download %s: %w", imageURL, err))
+            continue
+        }
+        localPaths = append(localPaths, localPath)
+    }
+
+    if len(errs) > 0 {
+        return localPaths, fmt.Errorf("download errors occurred: %v", errs)
+    }
+
+    return localPaths, nil
 }
 
 // isValidImageURL 检查是否为有效的图片URL

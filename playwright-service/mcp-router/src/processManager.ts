@@ -254,14 +254,16 @@ export class XiaohongshuMCPProcessManager {
     console.log(`[ProcessManager] Cookie file: ${cookiesFile}`);
 
     // Ensure Go binary reads global symlink path rather than legacy /tmp
-    process.env.COOKIES_PATH = '/app/data/cookies.json';
+    const dataDir = process.env.MCP_DATA_DIR || '/app/data';
+    const cookiesPath = path.join(dataDir, 'cookies.json');
+    process.env.COOKIES_PATH = cookiesPath;
 
     const childProcess = spawn(this.mcpBinary, ['-port', `:${port}`], {
       cwd: workDir,  // 设置工作目录，确保Cookie文件隔离
       env: {
         ...process.env,
         USER_ID: userId,
-        COOKIES_PATH: '/app/data/cookies.json',
+        COOKIES_PATH: cookiesPath,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -420,14 +422,14 @@ export class XiaohongshuMCPProcessManager {
    */
   private ensureCookieSymlink(userId: string): void {
     const userCookieFile = path.join(this.cookieDir, userId, 'cookies.json');
-    const mcpExpectedPath = '/app/data/cookies.json';
-    const mcpDataDir = '/app/data';
+    const mcpDataDir = process.env.MCP_DATA_DIR || '/app/data';
+    const mcpExpectedPath = path.join(mcpDataDir, 'cookies.json');
 
     try {
-      // 1. 确保 /app/data 目录存在
+      // 1. 确保数据目录存在
       if (!fs.existsSync(mcpDataDir)) {
         fs.mkdirSync(mcpDataDir, { recursive: true });
-        console.log(`[ProcessManager] Created /app/data directory`);
+        console.log(`[ProcessManager] Created data directory: ${mcpDataDir}`);
       }
 
       // 2. 检查并清理现有文件/符号链接
@@ -488,7 +490,7 @@ export class XiaohongshuMCPProcessManager {
     // 发布操作涉及浏览器自动化、图片上传等，需要更长时间
     // 🔥 修复：与 mcpAuthClient 保持一致，都是 10 分钟
     const isPublishOperation = endpoint.includes('/publish');
-    const timeout = isPublishOperation ? 600000 : 120000; // 发布: 10分钟, 其他: 2分钟
+    const timeout = isPublishOperation ? 900000 : 120000;
 
     console.log(`[ProcessManager] Calling ${method} ${url} for user ${userId}`);
     console.log(`[ProcessManager] Timeout: ${timeout}ms (${timeout / 1000}s)`);

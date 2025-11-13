@@ -19,7 +19,7 @@ func NewLogin(page *rod.Page) *LoginAction {
 }
 
 func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
-	pp := a.page.Context(ctx)
+    pp := a.page.Context(ctx)
 
 	// 🔥 快速检查：只检查Cookie和当前页面状态，不导航
 	// CheckLoginStatus应该是轻量级操作，避免每次都Navigate浪费2秒+
@@ -48,12 +48,12 @@ func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
 
 	// 如果有长Cookie，很可能已登录
 	// 提高阈值：tracking cookie约38/52字节，真实登录cookie通常>100字节
-	if hasWebSession && hasA1 && len(webSessionValue) > 100 && len(a1Value) > 50 {
-		slog.Info("✅ [Login Check] 检测到有效Cookie",
-			"webSessionLen", len(webSessionValue),
-			"a1Len", len(a1Value))
-		return true, nil
-	}
+    if hasWebSession && hasA1 && len(webSessionValue) > 80 && len(a1Value) > 40 {
+        slog.Info("✅ [Login Check] 检测到有效Cookie",
+            "webSessionLen", len(webSessionValue),
+            "a1Len", len(a1Value))
+        return true, nil
+    }
 
 	// 2. 快速检查当前页面的DOM元素（不导航）
 	// 使用更精确的选择器，避免误判验证码页面
@@ -64,16 +64,32 @@ func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
 		// 🔥 已移除 [class*="user"] - 太宽泛，会匹配验证码页面元素
 	}
 
-	for _, selector := range loginSelectors {
-		if exists, _, _ := pp.Has(selector); exists {
-			slog.Info("✅ [Login Check] 当前页面检测到登录元素", "selector", selector)
-			return true, nil
-		}
-	}
+    for _, selector := range loginSelectors {
+        if exists, _, _ := pp.Has(selector); exists {
+            slog.Info("✅ [Login Check] 当前页面检测到登录元素", "selector", selector)
+            return true, nil
+        }
+    }
 
-	// 没有Cookie也没有登录元素 → 未登录
-	slog.Info("⚠️  [Login Check] 未检测到登录状态（无Cookie或登录元素）")
-	return false, nil
+    if hasWebSession && hasA1 {
+        slog.Info("🔄 [Login Check] 尝试通过导航确认登录状态")
+        _ = pp.Timeout(15 * time.Second).Navigate("https://www.xiaohongshu.com/explore")
+        pp.WaitLoad()
+        time.Sleep(1 * time.Second)
+        currentURL := pp.MustInfo().URL
+        if currentURL != "" && !strings.Contains(currentURL, "/login") {
+            slog.Info("🎉 [Login Check] 导航后检测到非登录页", "url", currentURL)
+            for _, selector := range loginSelectors {
+                if exists, _, _ := pp.Has(selector); exists {
+                    slog.Info("🎉 [Login Check] 导航后检测到登录元素", "selector", selector)
+                    return true, nil
+                }
+            }
+        }
+    }
+
+    slog.Info("⚠️  [Login Check] 未检测到登录状态（无Cookie或登录元素）")
+    return false, nil
 }
 
 func (a *LoginAction) Login(ctx context.Context) error {
