@@ -73,17 +73,18 @@ func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
 
     if hasWebSession && hasA1 {
         slog.Info("🔄 [Login Check] 尝试通过导航确认登录状态")
-        _ = pp.Timeout(15 * time.Second).Navigate("https://www.xiaohongshu.com/explore")
+        _ = pp.Timeout(20 * time.Second).Navigate("https://creator.xiaohongshu.com/creator/content")
         pp.WaitLoad()
         time.Sleep(1 * time.Second)
         currentURL := pp.MustInfo().URL
-        if currentURL != "" && !strings.Contains(currentURL, "/login") {
-            slog.Info("🎉 [Login Check] 导航后检测到非登录页", "url", currentURL)
-            for _, selector := range loginSelectors {
-                if exists, _, _ := pp.Has(selector); exists {
-                    slog.Info("🎉 [Login Check] 导航后检测到登录元素", "selector", selector)
-                    return true, nil
-                }
+        if currentURL != "" && strings.Contains(currentURL, "/login") {
+            slog.Info("⚠️  [Login Check] 导航到登录页", "url", currentURL)
+            return false, nil
+        }
+        for _, selector := range loginSelectors {
+            if exists, _, _ := pp.Has(selector); exists {
+                slog.Info("🎉 [Login Check] 导航后检测到登录元素", "selector", selector)
+                return true, nil
             }
         }
     }

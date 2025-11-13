@@ -207,9 +207,15 @@ app.post('/mcp/call', async (req, res) => {
 app.get('/api/xiaohongshu/login/status', async (req, res) => {
   try {
     const userId = req.query.userId as string || req.headers['x-user-id'] as string;
+    const forceQr = (req.query.force_qr as string) === '1' || (req.query.mode as string) === 'strict';
 
     if (!userId) {
       return res.status(400).json({ error: 'userId is required' });
+    }
+
+    if (forceQr) {
+      processManager.setSkipDbCookieLoad(userId, true);
+      await processManager.clearUserCookies(userId);
     }
 
     const result = await processManager.callTool(
@@ -228,9 +234,15 @@ app.get('/api/xiaohongshu/login/status', async (req, res) => {
 app.get('/api/xiaohongshu/login/qrcode', async (req, res) => {
   try {
     const userId = req.query.userId as string || req.headers['x-user-id'] as string;
+    const forceQr = (req.query.force_qr as string) === '1' || (req.query.mode as string) === 'strict';
 
     if (!userId) {
       return res.status(400).json({ error: 'userId is required' });
+    }
+
+    if (forceQr) {
+      processManager.setSkipDbCookieLoad(userId, true);
+      await processManager.clearUserCookies(userId);
     }
 
     const result = await processManager.callTool(

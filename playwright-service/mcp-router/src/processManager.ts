@@ -16,6 +16,7 @@ interface ManagedProcess {
 
 export class XiaohongshuMCPProcessManager {
   private processes = new Map<string, ManagedProcess>();
+  private skipDbCookieLoad = new Set<string>();
   private basePort = 18060;
   private maxProcesses = 20; // 最多 20 个并发进程
   private cleanupTimeout = 10 * 60 * 1000; // 10 分钟不活动自动清理
@@ -204,7 +205,15 @@ export class XiaohongshuMCPProcessManager {
     }
 
     // 从数据库加载Cookie（如果需要）
-    if (needLoadFromDb) {
+    if (this.skipDbCookieLoad.has(userId)) {
+      try {
+        if (!fs.existsSync(workDir)) {
+          fs.mkdirSync(workDir, { recursive: true });
+        }
+        fs.writeFileSync(cookiesFile, '[]', 'utf8');
+        console.log(`[ProcessManager] 跳过数据库加载，创建空Cookie文件`);
+      } catch {}
+    } else if (needLoadFromDb) {
       try {
         console.log(`[ProcessManager] 尝试从数据库加载Cookie...`);
         const axios = await import('axios');
@@ -409,6 +418,24 @@ export class XiaohongshuMCPProcessManager {
     // 创建新进程
     managed = await this.startProcess(userId);
     return managed.port;
+  }
+
+  setSkipDbCookieLoad(userId: string, enabled: boolean) {
+    if (enabled) {
+      this.skipDbCookieLoad.add(userId);
+    } else {
+      this.skipDbCookieLoad.delete(userId);
+    }
+  }
+
+  async clearUserCookies(userId: string): Promise<void> {
+    const userCookieDir = path.join(this.cookieDir, userId);
+    const cookieFile = path.join(userCookieDir, 'cookies.json');
+    try {
+      if (!fs.existsSync(userCookieDir)) fs.mkdirSync(userCookieDir, { recursive: true });
+      fs.writeFileSync(cookieFile, '[]', 'utf8');
+    } catch {}
+    await this.refreshUserCookies(userId, []);
   }
 
   /**
