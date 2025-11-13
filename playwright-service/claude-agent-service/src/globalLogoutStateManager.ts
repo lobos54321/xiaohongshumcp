@@ -14,7 +14,7 @@ export class GlobalLogoutStateManager {
   private static get LOGOUT_COOLDOWN(): number {
     const v = parseInt(process.env.LOGOUT_COOLDOWN_MS || '', 10);
     if (!isNaN(v) && v >= 0) return v;
-    return 60000; // 默认 60 秒
+    return 15000; // 默认 15 秒
   }
   private static get GLOBAL_LOGOUT_COOLDOWN(): number {
     const v = parseInt(process.env.GLOBAL_LOGOUT_COOLDOWN_MS || '', 10);
