@@ -3566,3 +3566,18 @@ app.post('/agent/xiaohongshu/publish-video', async (req: Request, res: Response)
     res.status(500).json({ success: false, error: error.message });
   }
 });
+// 重置退出保护（允许立即再次登录）
+app.post('/agent/xiaohongshu/reset-logout-protection', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.body as { userId?: string };
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+    const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+    globalLogoutState.forceResetUserLogoutState(userId);
+    globalLogoutState.forceResetGlobalLogoutState();
+    res.json({ success: true, message: 'Logout protection has been reset' });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message || 'Failed to reset logout protection' });
+  }
+});

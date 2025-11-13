@@ -10,8 +10,17 @@ export class GlobalLogoutStateManager {
   private logoutTimestamps: Map<string, number> = new Map();
   private globalLogoutState: boolean = false; // 全局退出状态
   private globalLogoutTimestamp: number = 0;
-  private static readonly LOGOUT_COOLDOWN = 180000; // 3分钟冷却期，确保Cookie文件完全删除
-  private static readonly GLOBAL_LOGOUT_COOLDOWN = 120000; // 全局退出保护2分钟 - 给足够时间清理所有Cookie文件
+  // 冷却期可通过环境变量配置：LOGOUT_COOLDOWN_MS 与 GLOBAL_LOGOUT_COOLDOWN_MS
+  private static get LOGOUT_COOLDOWN(): number {
+    const v = parseInt(process.env.LOGOUT_COOLDOWN_MS || '', 10);
+    if (!isNaN(v) && v >= 0) return v;
+    return 60000; // 默认 60 秒
+  }
+  private static get GLOBAL_LOGOUT_COOLDOWN(): number {
+    const v = parseInt(process.env.GLOBAL_LOGOUT_COOLDOWN_MS || '', 10);
+    if (!isNaN(v) && v >= 0) return v;
+    return 15000; // 默认 15 秒
+  }
 
   private constructor() {}
 
