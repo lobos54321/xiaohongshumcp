@@ -353,7 +353,13 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 
 			// 🔥 优先策略1：检查URL变化（最可靠）
 			// 扫码成功后主动导航到explore，URL会从/login变化
-			currentURL := pp.MustInfo().URL
+			// 🔧 FIX: 使用Info()替代MustInfo()避免panic
+			pageInfo, err := pp.Info()
+			if err != nil {
+				slog.Warn("⚠️  [WaitForLogin] 无法获取页面信息", "error", err)
+				continue
+			}
+			currentURL := pageInfo.URL
 			if currentURL != "" && !strings.Contains(currentURL, "/login") {
 				slog.Info("🎉 [WaitForLogin] 检测到页面已离开登录页，确认登录成功！", "url", currentURL)
 				return true
