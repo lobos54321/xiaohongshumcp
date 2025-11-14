@@ -76,7 +76,15 @@ func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
         _ = pp.Timeout(20 * time.Second).Navigate("https://creator.xiaohongshu.com/creator/content")
         pp.WaitLoad()
         time.Sleep(1 * time.Second)
-        currentURL := pp.MustInfo().URL
+
+        // 🔧 FIX: 使用Info()替代MustInfo()避免panic
+        pageInfo, err := pp.Info()
+        if err != nil {
+            slog.Warn("⚠️  [Login Check] 无法获取页面信息", "error", err)
+            return false, nil
+        }
+
+        currentURL := pageInfo.URL
         if currentURL != "" && strings.Contains(currentURL, "/login") {
             slog.Info("⚠️  [Login Check] 导航到登录页", "url", currentURL)
             return false, nil
