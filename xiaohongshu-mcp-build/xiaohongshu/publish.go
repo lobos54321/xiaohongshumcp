@@ -61,11 +61,30 @@ func NewPublishImageAction(page *rod.Page) (*PublishAction, error) {
 	}
 
 	logrus.Infof("🌐 [Publish] 开始导航到发布页面: %s", urlOfPublic)
-	pp.MustNavigate(urlOfPublic).MustWaitIdle().MustWaitDOMStable()
+	if err := pp.Navigate(urlOfPublic); err != nil {
+		logrus.Errorf("❌ [Publish] 导航到发布页面失败: %v", err)
+		return nil, errors.Wrap(err, "navigate to publish page failed")
+	}
 
-	// 检查导航后的URL
-	currentURL := pp.MustInfo().URL
-	logrus.Infof("📍 [Publish] 导航完成，当前URL: %s", currentURL)
+	if err := pp.WaitIdle(30 * time.Second); err != nil {
+		logrus.Errorf("❌ [Publish] 等待页面idle失败: %v", err)
+		return nil, errors.Wrap(err, "wait idle failed")
+	}
+
+	if err := pp.WaitDOMStable(30*time.Second, 0.1); err != nil {
+		logrus.Warn("⚠️  [Publish] 等待DOM稳定失败（继续执行）", "error", err)
+		// DOM稳定性检查失败不是致命错误，继续执行
+	}
+
+	// 检查导航后的URL（使用安全的Info()方法）
+	var currentURL string
+	if pageInfo, err := pp.Info(); err == nil {
+		currentURL = pageInfo.URL
+		logrus.Infof("📍 [Publish] 导航完成，当前URL: %s", currentURL)
+	} else {
+		logrus.Warn("⚠️  [Publish] 无法获取当前URL", "error", err)
+		currentURL = ""
+	}
 
 	// 如果被重定向到登录页，说明Cookie无效
 	if strings.Contains(currentURL, "/login") {

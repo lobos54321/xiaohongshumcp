@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/proto"
 	"github.com/pkg/errors"
 )
 
@@ -105,20 +106,34 @@ func (a *LoginAction) Login(ctx context.Context) error {
 	pp := a.page.Context(ctx)
 
 	// 导航到小红书首页，这会触发二维码弹窗
-	pp.MustNavigate("https://www.xiaohongshu.com/explore").MustWaitLoad()
+	slog.Info("🌐 [Login] 导航到explore页面")
+	if err := pp.Navigate("https://www.xiaohongshu.com/explore"); err != nil {
+		slog.Error("❌ [Login] 导航失败", "error", err)
+		return errors.Wrap(err, "navigate to explore page failed")
+	}
+	if err := pp.WaitLoad(); err != nil {
+		slog.Error("❌ [Login] 等待页面加载失败", "error", err)
+		return errors.Wrap(err, "wait for page load failed")
+	}
 
 	// 等待一小段时间让页面完全加载
 	time.Sleep(2 * time.Second)
 
 	// 检查是否已经登录
 	if exists, _, _ := pp.Has(".main-container .user .link-wrapper .channel"); exists {
-		// 已经登录，直接返回
+		slog.Info("✅ [Login] 检测到已登录状态")
 		return nil
 	}
 
 	// 等待扫码成功提示或者登录完成
 	// 这里我们等待登录成功的元素出现，这样更简单可靠
-	pp.MustElement(".main-container .user .link-wrapper .channel")
+	slog.Info("⏳ [Login] 等待登录元素出现（60秒超时）")
+	_, err := pp.Timeout(60 * time.Second).Element(".main-container .user .link-wrapper .channel")
+	if err != nil {
+		slog.Error("❌ [Login] 等待登录元素超时", "error", err)
+		return errors.Wrap(err, "wait for login element timeout")
+	}
+	slog.Info("✅ [Login] 登录成功")
 
 	return nil
 }
@@ -139,7 +154,14 @@ func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error
 
 	// 🔥 修复：直接访问登录页，而不是首页
 	slog.Info("🌐 [QR Login] 开始访问登录页面")
-	pp.MustNavigate("https://www.xiaohongshu.com/login").MustWaitLoad()
+	if err := pp.Navigate("https://www.xiaohongshu.com/login"); err != nil {
+		slog.Error("❌ [QR Login] 导航到登录页面失败", "error", err)
+		return "", false, errors.Wrap(err, "navigate to login page failed")
+	}
+	if err := pp.WaitLoad(); err != nil {
+		slog.Error("❌ [QR Login] 等待登录页面加载失败", "error", err)
+		return "", false, errors.Wrap(err, "wait for login page load failed")
+	}
 	slog.Info("✅ [QR Login] 登录页面加载完成")
 
 	// 等待页面完全加载
@@ -155,7 +177,11 @@ func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error
 	slog.Info("🔍 [QR Login] 查找扫码登录按钮")
 	if scanBtn, err := pp.Timeout(3 * time.Second).Element("text=/扫码登录/"); err == nil {
 		slog.Info("👆 [QR Login] 点击扫码登录按钮")
-		scanBtn.MustClick()
+		if err := scanBtn.Click(proto.InputMouseButtonLeft, 1); err != nil {
+			slog.Warn("⚠️  [QR Login] 点击扫码登录按钮失败", "error", err)
+		} else {
+			slog.Info("✅ [QR Login] 扫码登录按钮点击成功")
+		}
 		time.Sleep(1 * time.Second)
 	} else {
 		slog.Warn("⚠️  [QR Login] 未找到扫码登录按钮，可能已在扫码模式")
