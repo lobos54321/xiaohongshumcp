@@ -154,15 +154,9 @@ func clickEmptyPosition(page *rod.Page) {
 	y := 20 + rand.Intn(60)
 	logrus.Infof("🖱️  [Publish] 点击空白位置解除焦点: (%d, %d)", x, y)
 
-	// 🔧 FIX: 使用安全的MoveTo和Click方法替代MustMoveTo和MustClick
-	if err := page.Mouse.MoveTo(float64(x), float64(y)); err != nil {
-		logrus.Warn("⚠️  [Publish] 移动鼠标失败（非致命）", "error", err)
-		return
-	}
-
-	if err := page.Mouse.Click(proto.InputMouseButtonLeft, 1); err != nil {
-		logrus.Warn("⚠️  [Publish] 点击空白位置失败（非致命）", "error", err)
-	}
+	// 🔧 FIX: MoveTo接受proto.Point,Click接受button和count
+	_ = page.Mouse.MoveTo(proto.Point{X: float64(x), Y: float64(y)})
+	_ = page.Mouse.Click(proto.InputMouseButtonLeft, 1)
 }
 
 func mustClickPublishTab(page *rod.Page, tabname string) error {
@@ -294,9 +288,9 @@ func uploadImages(page *rod.Page, imagesPaths []string) error {
 		return errors.Wrap(err, "未找到上传输入框")
 	}
 
-	// 🔧 FIX: 使用安全的SetFiles方法替代MustSetFiles避免panic
+	// 🔧 FIX: SetFiles接受[]string而非...string
 	slog.Info("开始上传图片", "count", len(validPaths))
-	if err := uploadInput.SetFiles(validPaths...); err != nil {
+	if err := uploadInput.SetFiles(validPaths); err != nil {
 		slog.Error("❌ [Publish] 设置上传文件失败", "error", err)
 		return errors.Wrap(err, "set upload files failed")
 	}
@@ -515,20 +509,22 @@ func getContentElement(page *rod.Page) (*rod.Element, bool) {
 	var foundElement *rod.Element
 	var found bool
 
-	// 🔧 FIX: 使用Handle和Do替代MustHandle和MustDo避免panic
+	// 🔧 FIX: Handle需要返回error,Do()返回(Element, error)
 	race := page.Race().
-		Element("div.ql-editor").Handle(func(e *rod.Element) {
+		Element("div.ql-editor").Handle(func(e *rod.Element) error {
 		foundElement = e
 		found = true
+		return nil
 	}).
 		ElementFunc(func(page *rod.Page) (*rod.Element, error) {
 			return findTextboxByPlaceholder(page)
-		}).Handle(func(e *rod.Element) {
+		}).Handle(func(e *rod.Element) error {
 		foundElement = e
 		found = true
+		return nil
 	})
 
-	if err := race.Do(); err != nil {
+	if _, err := race.Do(); err != nil {
 		slog.Warn("⚠️  [Publish] Race查找内容输入框失败", "error", err)
 		return nil, false
 	}
@@ -548,18 +544,26 @@ func inputTags(contentElem *rod.Element, tags []string) {
 
 	time.Sleep(1 * time.Second)
 
-	// 🔧 FIX: 使用KeyActions和Do替代MustKeyActions和MustDo避免panic
+	// 🔧 FIX: KeyActions()返回(*KeyActions, error)
 	for i := 0; i < 20; i++ {
-		if err := contentElem.KeyActions().Type(input.ArrowDown).Do(); err != nil {
-			slog.Warn("⚠️  [Publish] 模拟ArrowDown失败（非致命）", "error", err)
+		ka, err := contentElem.KeyActions()
+		if err != nil {
+			slog.Warn("⚠️  [Publish] 创建KeyActions失败", "error", err)
+			break
+		}
+		if err := ka.Type(input.ArrowDown).Do(); err != nil {
+			slog.Warn("⚠️  [Publish] 模拟ArrowDown失败", "error", err)
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// 🔧 FIX: 使用KeyActions和Do替代MustKeyActions和MustDo避免panic
-	if err := contentElem.KeyActions().Press(input.Enter).Press(input.Enter).Do(); err != nil {
-		slog.Warn("⚠️  [Publish] 模拟Enter失败（非致命）", "error", err)
+	// 🔧 FIX: KeyActions()返回(*KeyActions, error)
+	ka, err := contentElem.KeyActions()
+	if err != nil {
+		slog.Warn("⚠️  [Publish] 创建KeyActions失败", "error", err)
+	} else if err := ka.Press(input.Enter).Press(input.Enter).Do(); err != nil {
+		slog.Warn("⚠️  [Publish] 模拟Enter失败", "error", err)
 	}
 
 	time.Sleep(1 * time.Second)
