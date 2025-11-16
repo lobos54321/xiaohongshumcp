@@ -139,7 +139,10 @@ func removePopCover(page *rod.Page) {
 		return
 	}
 	if has {
-		elem.MustRemove()
+		// 🔧 FIX: 使用安全的Remove方法替代MustRemove避免panic
+		if err := elem.Remove(); err != nil {
+			logrus.Warn("⚠️  [Publish] 移除元素失败（非致命）", "error", err)
+		}
 	}
 
 	// 兜底：点击一下空位置吧
@@ -149,7 +152,17 @@ func removePopCover(page *rod.Page) {
 func clickEmptyPosition(page *rod.Page) {
 	x := 380 + rand.Intn(100)
 	y := 20 + rand.Intn(60)
-	page.Mouse.MustMoveTo(float64(x), float64(y)).MustClick(proto.InputMouseButtonLeft)
+	logrus.Infof("🖱️  [Publish] 点击空白位置解除焦点: (%d, %d)", x, y)
+
+	// 🔧 FIX: 使用安全的MoveTo和Click方法替代MustMoveTo和MustClick
+	if err := page.Mouse.MoveTo(float64(x), float64(y)); err != nil {
+		logrus.Warn("⚠️  [Publish] 移动鼠标失败（非致命）", "error", err)
+		return
+	}
+
+	if err := page.Mouse.Click(proto.InputMouseButtonLeft, 1); err != nil {
+		logrus.Warn("⚠️  [Publish] 点击空白位置失败（非致命）", "error", err)
+	}
 }
 
 func mustClickPublishTab(page *rod.Page, tabname string) error {
@@ -281,9 +294,12 @@ func uploadImages(page *rod.Page, imagesPaths []string) error {
 		return errors.Wrap(err, "未找到上传输入框")
 	}
 
-	// 上传多个文件
+	// 🔧 FIX: 使用安全的SetFiles方法替代MustSetFiles避免panic
 	slog.Info("开始上传图片", "count", len(validPaths))
-	uploadInput.MustSetFiles(validPaths...)
+	if err := uploadInput.SetFiles(validPaths...); err != nil {
+		slog.Error("❌ [Publish] 设置上传文件失败", "error", err)
+		return errors.Wrap(err, "set upload files failed")
+	}
 
 	// 等待并验证上传完成
 	return waitForUploadComplete(page, len(validPaths))
@@ -336,16 +352,24 @@ func submitPublish(page *rod.Page, title, content string, tags []string) error {
 		return errors.Wrap(err, "未找到标题输入框")
 	}
 
-	titleElem.MustInput(title)
-	slog.Info("标题填写完成", "title", title)
+	// 🔧 FIX: 使用安全的Input方法替代MustInput避免panic
+	if err := titleElem.Input(title); err != nil {
+		slog.Error("❌ [Publish] 填写标题失败", "error", err)
+		return errors.Wrap(err, "input title failed")
+	}
+	slog.Info("✅ [Publish] 标题填写完成", "title", title)
 
 	time.Sleep(1 * time.Second)
 
 	// 查找内容输入框
 	slog.Info("开始填写内容")
 	if contentElem, ok := getContentElement(page); ok {
-		contentElem.MustInput(content)
-		slog.Info("内容填写完成", "content_length", len(content))
+		// 🔧 FIX: 使用安全的Input方法替代MustInput避免panic
+		if err := contentElem.Input(content); err != nil {
+			slog.Error("❌ [Publish] 填写内容失败", "error", err)
+			return errors.Wrap(err, "input content failed")
+		}
+		slog.Info("✅ [Publish] 内容填写完成", "content_length", len(content))
 
 		slog.Info("开始添加标签", "tags", tags)
 		inputTags(contentElem, tags)
@@ -435,10 +459,13 @@ func waitForPublishApproval(page *rod.Page) error {
 					(strings.Contains(text, "发布") && len(text) < 10) { // 避免匹配"发布中..."等状态文本
 					slog.Info("找到批准发布按钮", "text", text, "selector", selector)
 
-					// 点击按钮
-					elem.MustClick()
+					// 🔧 FIX: 使用安全的Click方法替代MustClick避免panic
+					if err := elem.Click(proto.InputMouseButtonLeft, 1); err != nil {
+						slog.Error("❌ [Publish] 点击批准发布按钮失败", "error", err)
+						return errors.Wrap(err, "click approve button failed")
+					}
 
-					slog.Info("已点击批准发布按钮，等待发布完成...")
+					slog.Info("✅ [Publish] 已点击批准发布按钮，等待发布完成...")
 
 					// 等待弹窗消失
 					time.Sleep(3 * time.Second)
@@ -488,18 +515,23 @@ func getContentElement(page *rod.Page) (*rod.Element, bool) {
 	var foundElement *rod.Element
 	var found bool
 
-	page.Race().
-		Element("div.ql-editor").MustHandle(func(e *rod.Element) {
+	// 🔧 FIX: 使用Handle和Do替代MustHandle和MustDo避免panic
+	race := page.Race().
+		Element("div.ql-editor").Handle(func(e *rod.Element) {
 		foundElement = e
 		found = true
 	}).
 		ElementFunc(func(page *rod.Page) (*rod.Element, error) {
 			return findTextboxByPlaceholder(page)
-		}).MustHandle(func(e *rod.Element) {
+		}).Handle(func(e *rod.Element) {
 		foundElement = e
 		found = true
-	}).
-		MustDo()
+	})
+
+	if err := race.Do(); err != nil {
+		slog.Warn("⚠️  [Publish] Race查找内容输入框失败", "error", err)
+		return nil, false
+	}
 
 	if found {
 		return foundElement, true
@@ -516,17 +548,19 @@ func inputTags(contentElem *rod.Element, tags []string) {
 
 	time.Sleep(1 * time.Second)
 
+	// 🔧 FIX: 使用KeyActions和Do替代MustKeyActions和MustDo避免panic
 	for i := 0; i < 20; i++ {
-		contentElem.MustKeyActions().
-			Type(input.ArrowDown).
-			MustDo()
+		if err := contentElem.KeyActions().Type(input.ArrowDown).Do(); err != nil {
+			slog.Warn("⚠️  [Publish] 模拟ArrowDown失败（非致命）", "error", err)
+			break
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	contentElem.MustKeyActions().
-		Press(input.Enter).
-		Press(input.Enter).
-		MustDo()
+	// 🔧 FIX: 使用KeyActions和Do替代MustKeyActions和MustDo避免panic
+	if err := contentElem.KeyActions().Press(input.Enter).Press(input.Enter).Do(); err != nil {
+		slog.Warn("⚠️  [Publish] 模拟Enter失败（非致命）", "error", err)
+	}
 
 	time.Sleep(1 * time.Second)
 
@@ -537,11 +571,19 @@ func inputTags(contentElem *rod.Element, tags []string) {
 }
 
 func inputTag(contentElem *rod.Element, tag string) {
-	contentElem.MustInput("#")
+	// 🔧 FIX: 使用安全的Input方法替代MustInput避免panic
+	if err := contentElem.Input("#"); err != nil {
+		slog.Warn("⚠️  [Publish] 输入#失败", "tag", tag, "error", err)
+		return
+	}
 	time.Sleep(200 * time.Millisecond)
 
+	// 🔧 FIX: 使用安全的Input方法替代MustInput避免panic
 	for _, char := range tag {
-		contentElem.MustInput(string(char))
+		if err := contentElem.Input(string(char)); err != nil {
+			slog.Warn("⚠️  [Publish] 输入标签字符失败", "char", string(char), "error", err)
+			return
+		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
@@ -552,25 +594,38 @@ func inputTag(contentElem *rod.Element, tag string) {
 	if err == nil && topicContainer != nil {
 		firstItem, err := topicContainer.Element(".item")
 		if err == nil && firstItem != nil {
-			firstItem.MustClick()
-			slog.Info("成功点击标签联想选项", "tag", tag)
-			time.Sleep(200 * time.Millisecond)
+			// 🔧 FIX: 使用安全的Click方法替代MustClick避免panic
+			if err := firstItem.Click(proto.InputMouseButtonLeft, 1); err != nil {
+				slog.Warn("⚠️  [Publish] 点击标签联想选项失败（非致命）", "tag", tag, "error", err)
+			} else {
+				slog.Info("✅ [Publish] 成功点击标签联想选项", "tag", tag)
+				time.Sleep(200 * time.Millisecond)
+			}
 		} else {
 			slog.Warn("未找到标签联想选项，直接输入空格", "tag", tag)
-			// 如果没有找到联想选项，输入空格结束
-			contentElem.MustInput(" ")
+			// 🔧 FIX: 使用安全的Input方法替代MustInput避免panic
+			if err := contentElem.Input(" "); err != nil {
+				slog.Warn("⚠️  [Publish] 输入空格失败（非致命）", "error", err)
+			}
 		}
 	} else {
 		slog.Warn("未找到标签联想下拉框，直接输入空格", "tag", tag)
-		// 如果没有找到下拉框，输入空格结束
-		contentElem.MustInput(" ")
+		// 🔧 FIX: 使用安全的Input方法替代MustInput避免panic
+		if err := contentElem.Input(" "); err != nil {
+			slog.Warn("⚠️  [Publish] 输入空格失败（非致命）", "error", err)
+		}
 	}
 
 	time.Sleep(500 * time.Millisecond) // 等待标签处理完成
 }
 
 func findTextboxByPlaceholder(page *rod.Page) (*rod.Element, error) {
-	elements := page.MustElements("p")
+	// 🔧 FIX: 使用安全的Elements方法替代MustElements避免panic
+	elements, err := page.Elements("p")
+	if err != nil {
+		slog.Warn("⚠️  [Publish] 查找p元素失败", "error", err)
+		return nil, errors.Wrap(err, "find p elements failed")
+	}
 	if elements == nil {
 		return nil, errors.New("no p elements found")
 	}
