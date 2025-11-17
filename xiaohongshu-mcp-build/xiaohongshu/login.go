@@ -86,11 +86,26 @@ func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
         // 🔧 FIX: 在导航前手动确保Cookie已设置
         // 问题：即使Cookie有正确的域名，Rod可能没有在HTTP请求中携带它们
         // 解决：在Navigate前显式设置Cookie到Browser
-        err = pp.Browser().SetCookies(cookies)
+        // 需要转换NetworkCookie为NetworkCookieParam
+        cookieParams := make([]*proto.NetworkCookieParam, len(cookies))
+        for i, c := range cookies {
+            cookieParams[i] = &proto.NetworkCookieParam{
+                Name:     c.Name,
+                Value:    c.Value,
+                Domain:   c.Domain,
+                Path:     c.Path,
+                Secure:   c.Secure,
+                HTTPOnly: c.HTTPOnly,
+                SameSite: c.SameSite,
+                Expires:  c.Expires,
+            }
+        }
+
+        err = pp.Browser().SetCookies(cookieParams)
         if err != nil {
             slog.Warn("⚠️  [Login Check] 设置Cookie失败", "error", err)
         } else {
-            slog.Info("✅ [Login Check] Cookie已设置到浏览器")
+            slog.Info("✅ [Login Check] Cookie已设置到浏览器", "count", len(cookieParams))
         }
 
         _ = pp.Timeout(20 * time.Second).Navigate("https://creator.xiaohongshu.com/creator/content")
