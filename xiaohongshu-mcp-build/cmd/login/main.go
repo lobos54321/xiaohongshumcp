@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"strings"
 
 	"github.com/go-rod/rod"
 	"github.com/sirupsen/logrus"
@@ -67,6 +68,17 @@ func saveCookies(page *rod.Page) error {
 	cks, err := page.Browser().GetCookies()
 	if err != nil {
 		return err
+	}
+
+	// 🔧 FIX: 规范化Cookie域名，确保跨子域访问
+	// 问题：Cookie在www.xiaohongshu.com设置，但需要在creator.xiaohongshu.com使用
+	// 解决：将xiaohongshu.com相关Cookie的domain统一设置为.xiaohongshu.com
+	for i := range cks {
+		if strings.Contains(cks[i].Domain, "xiaohongshu.com") {
+			// 规范化为.xiaohongshu.com以支持所有子域名
+			cks[i].Domain = ".xiaohongshu.com"
+			logrus.Debugf("🍪 [SaveCookies] 规范化Cookie域名: %s → .xiaohongshu.com", cks[i].Name)
+		}
 	}
 
 	data, err := json.Marshal(cks)
