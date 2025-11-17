@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/proto"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -25,26 +27,60 @@ func (f *CommentFeedAction) PostComment(ctx context.Context, feedID, xsecToken, 
 	// 构建详情页 URL
 	url := makeFeedDetailURL(feedID, xsecToken)
 
-	logrus.Infof("Opening feed detail page: %s", url)
+	logrus.Infof("🌐 [Comment] Opening feed detail page: %s", url)
 
-	// 导航到详情页
-	page.MustNavigate(url)
-	page.MustWaitDOMStable()
+	// 🔧 FIX: 导航到详情页 - 使用安全方法
+	if err := page.Navigate(url); err != nil {
+		logrus.Errorf("❌ [Comment] Navigate failed: %v", err)
+		return errors.Wrap(err, "navigate to feed detail failed")
+	}
 
-	time.Sleep(1 * time.Second)
-
-	elem := page.MustElement("div.input-box div.content-edit span")
-	elem.MustClick()
-
-	elem2 := page.MustElement("div.input-box div.content-edit p.content-input")
-	elem2.MustInput(content)
+	if err := page.WaitDOMStable(30*time.Second, 0.1); err != nil {
+		logrus.Warnf("⚠️  [Comment] WaitDOMStable failed: %v", err)
+	}
 
 	time.Sleep(1 * time.Second)
 
-	submitButton := page.MustElement("div.bottom button.submit")
-	submitButton.MustClick()
+	// 🔧 FIX: 查找评论输入框 - 使用安全方法
+	elem, err := page.Timeout(10 * time.Second).Element("div.input-box div.content-edit span")
+	if err != nil {
+		logrus.Errorf("❌ [Comment] Find input box failed: %v", err)
+		return errors.Wrap(err, "find comment input box failed")
+	}
+
+	if err := elem.Click(proto.InputMouseButtonLeft, 1); err != nil {
+		logrus.Errorf("❌ [Comment] Click input box failed: %v", err)
+		return errors.Wrap(err, "click comment input box failed")
+	}
+
+	// 🔧 FIX: 查找内容输入框 - 使用安全方法
+	elem2, err := page.Timeout(10 * time.Second).Element("div.input-box div.content-edit p.content-input")
+	if err != nil {
+		logrus.Errorf("❌ [Comment] Find content input failed: %v", err)
+		return errors.Wrap(err, "find content input failed")
+	}
+
+	if err := elem2.Input(content); err != nil {
+		logrus.Errorf("❌ [Comment] Input content failed: %v", err)
+		return errors.Wrap(err, "input comment content failed")
+	}
 
 	time.Sleep(1 * time.Second)
+
+	// 🔧 FIX: 查找提交按钮 - 使用安全方法
+	submitButton, err := page.Timeout(10 * time.Second).Element("div.bottom button.submit")
+	if err != nil {
+		logrus.Errorf("❌ [Comment] Find submit button failed: %v", err)
+		return errors.Wrap(err, "find submit button failed")
+	}
+
+	if err := submitButton.Click(proto.InputMouseButtonLeft, 1); err != nil {
+		logrus.Errorf("❌ [Comment] Click submit button failed: %v", err)
+		return errors.Wrap(err, "click submit button failed")
+	}
+
+	time.Sleep(1 * time.Second)
+	logrus.Infof("✅ [Comment] Comment posted successfully")
 
 	return nil
 }

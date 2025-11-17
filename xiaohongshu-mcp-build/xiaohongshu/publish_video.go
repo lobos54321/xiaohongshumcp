@@ -2,6 +2,7 @@ package xiaohongshu
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 // PublishVideoContent 发布视频内容
@@ -20,11 +22,25 @@ type PublishVideoContent struct {
 	VideoPath string
 }
 
-// NewPublishVideoAction 进入发布页并切换到“上传视频”
+// NewPublishVideoAction 进入发布页并切换到"上传视频"
 func NewPublishVideoAction(page *rod.Page) (*PublishAction, error) {
 	pp := page.Timeout(300 * time.Second)
 
-	pp.MustNavigate(urlOfPublic).MustWaitIdle().MustWaitDOMStable()
+	// 🔧 FIX: 导航到发布页 - 使用安全方法
+	logrus.Info("🌐 [PublishVideo] Navigating to publish page")
+	if err := pp.Navigate(urlOfPublic); err != nil {
+		logrus.Errorf("❌ [PublishVideo] Navigate failed: %v", err)
+		return nil, fmt.Errorf("navigate to publish page failed: %w", err)
+	}
+
+	if err := pp.WaitIdle(30 * time.Second); err != nil {
+		logrus.Warnf("⚠️  [PublishVideo] WaitIdle failed: %v", err)
+	}
+
+	if err := pp.WaitDOMStable(30*time.Second, 0.1); err != nil {
+		logrus.Warnf("⚠️  [PublishVideo] WaitDOMStable failed: %v", err)
+	}
+
 	time.Sleep(1 * time.Second)
 
 	if err := mustClickPublishTab(page, "上传视频"); err != nil {
@@ -73,7 +89,12 @@ func uploadVideo(page *rod.Page, videoPath string) error {
 		}
 	}
 
-	fileInput.MustSetFiles(videoPath)
+	// 🔧 FIX: 设置文件 - 使用安全方法
+	if err := fileInput.SetFiles([]string{videoPath}); err != nil {
+		logrus.Errorf("❌ [PublishVideo] SetFiles failed: %v", err)
+		return fmt.Errorf("set video file failed: %w", err)
+	}
+	logrus.Info("✅ [PublishVideo] Video file set successfully")
 
 	// 对于视频，等待发布按钮变为可点击即表示处理完成
 	btn, err := waitForPublishButtonClickable(pp)
@@ -117,14 +138,26 @@ func waitForPublishButtonClickable(page *rod.Page) (*rod.Element, error) {
 
 // submitPublishVideo 填写标题、正文、标签并点击发布（等待按钮可点击后再提交）
 func submitPublishVideo(page *rod.Page, title, content string, tags []string) error {
-	// 标题
-	titleElem := page.MustElement("div.d-input input")
-	titleElem.MustInput(title)
+	// 🔧 FIX: 查找标题输入框 - 使用安全方法
+	titleElem, err := page.Timeout(10 * time.Second).Element("div.d-input input")
+	if err != nil {
+		logrus.Errorf("❌ [PublishVideo] Find title element failed: %v", err)
+		return fmt.Errorf("find title element failed: %w", err)
+	}
+
+	if err := titleElem.Input(title); err != nil {
+		logrus.Errorf("❌ [PublishVideo] Input title failed: %v", err)
+		return fmt.Errorf("input title failed: %w", err)
+	}
 	time.Sleep(1 * time.Second)
 
 	// 正文 + 标签
+	// 🔧 FIX: 输入内容 - 使用安全方法
 	if contentElem, ok := getContentElement(page); ok {
-		contentElem.MustInput(content)
+		if err := contentElem.Input(content); err != nil {
+			logrus.Errorf("❌ [PublishVideo] Input content failed: %v", err)
+			return fmt.Errorf("input content failed: %w", err)
+		}
 		inputTags(contentElem, tags)
 	} else {
 		return errors.New("没有找到内容输入框")
