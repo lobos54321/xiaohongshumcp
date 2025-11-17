@@ -49,6 +49,14 @@ func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
 
 	// 如果有长Cookie，很可能已登录
 	// 提高阈值：tracking cookie约38/52字节，真实登录cookie通常>100字节
+    // 🔧 FIX: 添加详细日志查看Cookie长度
+    slog.Info("🔍 [Login Check] Cookie长度检查",
+        "hasWebSession", hasWebSession,
+        "hasA1", hasA1,
+        "webSessionLen", len(webSessionValue),
+        "a1Len", len(a1Value),
+        "threshold", "webSession>80 && a1>40")
+
     if hasWebSession && hasA1 && len(webSessionValue) > 80 && len(a1Value) > 40 {
         slog.Info("✅ [Login Check] 检测到有效Cookie",
             "webSessionLen", len(webSessionValue),
@@ -74,6 +82,17 @@ func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
 
     if hasWebSession && hasA1 {
         slog.Info("🔄 [Login Check] 尝试通过导航确认登录状态")
+
+        // 🔧 FIX: 在导航前手动确保Cookie已设置
+        // 问题：即使Cookie有正确的域名，Rod可能没有在HTTP请求中携带它们
+        // 解决：在Navigate前显式设置Cookie到Browser
+        err = pp.Browser().SetCookies(cookies)
+        if err != nil {
+            slog.Warn("⚠️  [Login Check] 设置Cookie失败", "error", err)
+        } else {
+            slog.Info("✅ [Login Check] Cookie已设置到浏览器")
+        }
+
         _ = pp.Timeout(20 * time.Second).Navigate("https://creator.xiaohongshu.com/creator/content")
         pp.WaitLoad()
         time.Sleep(1 * time.Second)
