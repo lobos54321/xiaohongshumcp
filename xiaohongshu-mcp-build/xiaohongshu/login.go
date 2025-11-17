@@ -3,6 +3,7 @@ package xiaohongshu
 import (
 	"context"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -12,7 +13,9 @@ import (
 )
 
 type LoginAction struct {
-	page *rod.Page
+	page                   *rod.Page
+	verificationQRCode     string    // 存储验证二维码（用于二次验证）
+	verificationDetectedAt time.Time // 验证页面检测时间
 }
 
 func NewLogin(page *rod.Page) *LoginAction {
@@ -20,7 +23,7 @@ func NewLogin(page *rod.Page) *LoginAction {
 }
 
 func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
-    pp := a.page.Context(ctx)
+	pp := a.page.Context(ctx)
 
 	// 🔥 快速检查：只检查Cookie和当前页面状态，不导航
 	// CheckLoginStatus应该是轻量级操作，避免每次都Navigate浪费2秒+
@@ -49,20 +52,20 @@ func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
 
 	// 如果有长Cookie，很可能已登录
 	// 提高阈值：tracking cookie约38/52字节，真实登录cookie通常>100字节
-    // 🔧 FIX: 添加详细日志查看Cookie长度
-    slog.Info("🔍 [Login Check] Cookie长度检查",
-        "hasWebSession", hasWebSession,
-        "hasA1", hasA1,
-        "webSessionLen", len(webSessionValue),
-        "a1Len", len(a1Value),
-        "threshold", "webSession>80 && a1>40")
+	// 🔧 FIX: 添加详细日志查看Cookie长度
+	slog.Info("🔍 [Login Check] Cookie长度检查",
+		"hasWebSession", hasWebSession,
+		"hasA1", hasA1,
+		"webSessionLen", len(webSessionValue),
+		"a1Len", len(a1Value),
+		"threshold", "webSession>80 && a1>40")
 
-    if hasWebSession && hasA1 && len(webSessionValue) > 80 && len(a1Value) > 40 {
-        slog.Info("✅ [Login Check] 检测到有效Cookie",
-            "webSessionLen", len(webSessionValue),
-            "a1Len", len(a1Value))
-        return true, nil
-    }
+	if hasWebSession && hasA1 && len(webSessionValue) > 80 && len(a1Value) > 40 {
+		slog.Info("✅ [Login Check] 检测到有效Cookie",
+			"webSessionLen", len(webSessionValue),
+			"a1Len", len(a1Value))
+		return true, nil
+	}
 
 	// 2. 快速检查当前页面的DOM元素（不导航）
 	// 使用更精确的选择器，避免误判验证码页面
@@ -73,67 +76,67 @@ func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
 		// 🔥 已移除 [class*="user"] - 太宽泛，会匹配验证码页面元素
 	}
 
-    for _, selector := range loginSelectors {
-        if exists, _, _ := pp.Has(selector); exists {
-            slog.Info("✅ [Login Check] 当前页面检测到登录元素", "selector", selector)
-            return true, nil
-        }
-    }
+	for _, selector := range loginSelectors {
+		if exists, _, _ := pp.Has(selector); exists {
+			slog.Info("✅ [Login Check] 当前页面检测到登录元素", "selector", selector)
+			return true, nil
+		}
+	}
 
-    if hasWebSession && hasA1 {
-        slog.Info("🔄 [Login Check] 尝试通过导航确认登录状态")
+	if hasWebSession && hasA1 {
+		slog.Info("🔄 [Login Check] 尝试通过导航确认登录状态")
 
-        // 🔧 FIX: 在导航前手动确保Cookie已设置
-        // 问题：即使Cookie有正确的域名，Rod可能没有在HTTP请求中携带它们
-        // 解决：在Navigate前显式设置Cookie到Browser
-        // 需要转换NetworkCookie为NetworkCookieParam
-        cookieParams := make([]*proto.NetworkCookieParam, len(cookies))
-        for i, c := range cookies {
-            cookieParams[i] = &proto.NetworkCookieParam{
-                Name:     c.Name,
-                Value:    c.Value,
-                Domain:   c.Domain,
-                Path:     c.Path,
-                Secure:   c.Secure,
-                HTTPOnly: c.HTTPOnly,
-                SameSite: c.SameSite,
-                Expires:  c.Expires,
-            }
-        }
+		// 🔧 FIX: 在导航前手动确保Cookie已设置
+		// 问题：即使Cookie有正确的域名，Rod可能没有在HTTP请求中携带它们
+		// 解决：在Navigate前显式设置Cookie到Browser
+		// 需要转换NetworkCookie为NetworkCookieParam
+		cookieParams := make([]*proto.NetworkCookieParam, len(cookies))
+		for i, c := range cookies {
+			cookieParams[i] = &proto.NetworkCookieParam{
+				Name:     c.Name,
+				Value:    c.Value,
+				Domain:   c.Domain,
+				Path:     c.Path,
+				Secure:   c.Secure,
+				HTTPOnly: c.HTTPOnly,
+				SameSite: c.SameSite,
+				Expires:  c.Expires,
+			}
+		}
 
-        err = pp.Browser().SetCookies(cookieParams)
-        if err != nil {
-            slog.Warn("⚠️  [Login Check] 设置Cookie失败", "error", err)
-        } else {
-            slog.Info("✅ [Login Check] Cookie已设置到浏览器", "count", len(cookieParams))
-        }
+		err = pp.Browser().SetCookies(cookieParams)
+		if err != nil {
+			slog.Warn("⚠️  [Login Check] 设置Cookie失败", "error", err)
+		} else {
+			slog.Info("✅ [Login Check] Cookie已设置到浏览器", "count", len(cookieParams))
+		}
 
-        _ = pp.Timeout(20 * time.Second).Navigate("https://creator.xiaohongshu.com/creator/content")
-        pp.WaitLoad()
-        time.Sleep(1 * time.Second)
+		_ = pp.Timeout(20 * time.Second).Navigate("https://creator.xiaohongshu.com/creator/content")
+		pp.WaitLoad()
+		time.Sleep(1 * time.Second)
 
-        // 🔧 FIX: 使用Info()替代MustInfo()避免panic
-        pageInfo, err := pp.Info()
-        if err != nil {
-            slog.Warn("⚠️  [Login Check] 无法获取页面信息", "error", err)
-            return false, nil
-        }
+		// 🔧 FIX: 使用Info()替代MustInfo()避免panic
+		pageInfo, err := pp.Info()
+		if err != nil {
+			slog.Warn("⚠️  [Login Check] 无法获取页面信息", "error", err)
+			return false, nil
+		}
 
-        currentURL := pageInfo.URL
-        if currentURL != "" && strings.Contains(currentURL, "/login") {
-            slog.Info("⚠️  [Login Check] 导航到登录页", "url", currentURL)
-            return false, nil
-        }
-        for _, selector := range loginSelectors {
-            if exists, _, _ := pp.Has(selector); exists {
-                slog.Info("🎉 [Login Check] 导航后检测到登录元素", "selector", selector)
-                return true, nil
-            }
-        }
-    }
+		currentURL := pageInfo.URL
+		if currentURL != "" && strings.Contains(currentURL, "/login") {
+			slog.Info("⚠️  [Login Check] 导航到登录页", "url", currentURL)
+			return false, nil
+		}
+		for _, selector := range loginSelectors {
+			if exists, _, _ := pp.Has(selector); exists {
+				slog.Info("🎉 [Login Check] 导航后检测到登录元素", "selector", selector)
+				return true, nil
+			}
+		}
+	}
 
-    slog.Info("⚠️  [Login Check] 未检测到登录状态（无Cookie或登录元素）")
-    return false, nil
+	slog.Info("⚠️  [Login Check] 未检测到登录状态（无Cookie或登录元素）")
+	return false, nil
 }
 
 func (a *LoginAction) Login(ctx context.Context) error {
@@ -175,19 +178,10 @@ func (a *LoginAction) Login(ctx context.Context) error {
 func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error) {
 	pp := a.page.Context(ctx)
 
-	// 🔥 关键修复：清除浏览器中的所有Cookie，防止自动登录
-	// 问题：browser.NewBrowser()会自动从文件加载Cookie，导致访问登录页时自动登录
-	// 解决：在访问登录页前，强制清空浏览器Cookie
-	slog.Info("🧹 [QR Login] 清除浏览器Cookie，确保显示二维码...")
-	// 使用空的Cookie数组清除所有Cookie
-	if err := pp.Browser().SetCookies(nil); err != nil {
-		slog.Warn("⚠️  [QR Login] 清除Cookie失败，可能导致自动登录", "error", err)
-	} else {
-		slog.Info("✅ [QR Login] 浏览器Cookie已清除")
-	}
-
-	// 🔥 修复：直接访问登录页，而不是首页
-	slog.Info("🌐 [QR Login] 开始访问登录页面")
+	// 🔧 NOTE: 不再需要手动清除Cookie
+	// Browser创建时已通过WithSkipCookies(true)确保不加载任何Cookie
+	// 这样更可靠，避免了SetCookies(nil)可能的失败情况
+	slog.Info("🌐 [QR Login] 使用干净浏览器环境（无Cookie），开始访问登录页面")
 	if err := pp.Navigate("https://www.xiaohongshu.com/login"); err != nil {
 		slog.Error("❌ [QR Login] 导航到登录页面失败", "error", err)
 		return "", false, errors.Wrap(err, "navigate to login page failed")
@@ -227,13 +221,13 @@ func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error
 
 	// 🐛 DEBUG: 尝试多个选择器并记录页面信息
 	selectors := []string{
-		".login-container .qrcode-img",      // 原始选择器
-		".qrcode-img",                       // 简化选择器
-		"img[src*='qrcode']",                // 通过src属性匹配
-		"img[src*='qr']",                    // 通过src属性匹配（更宽泛）
-		".login-qrcode img",                 // 备选容器
-		".qr-code img",                      // 备选容器
-		"[class*='qrcode'] img",             // 通过class部分匹配
+		".login-container .qrcode-img", // 原始选择器
+		".qrcode-img",                  // 简化选择器
+		"img[src*='qrcode']",           // 通过src属性匹配
+		"img[src*='qr']",               // 通过src属性匹配（更宽泛）
+		".login-qrcode img",            // 备选容器
+		".qr-code img",                 // 备选容器
+		"[class*='qrcode'] img",        // 通过class部分匹配
 	}
 
 	var qrcodeEl *rod.Element
@@ -287,10 +281,12 @@ func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error
 
 		// 尝试截图（如果可能）
 		screenshotPath := "/tmp/qrcode-debug-" + time.Now().Format("20060102-150405") + ".png"
-		if screenshotErr := pp.Screenshot(false, &proto.PageCaptureScreenshot{
+		if screenshotBytes, screenshotErr := pp.Screenshot(false, &proto.PageCaptureScreenshot{
 			Format: proto.PageCaptureScreenshotFormatPng,
-		}).Save(screenshotPath); screenshotErr == nil {
-			slog.Info("📸 [DEBUG] 已保存调试截图", "path", screenshotPath)
+		}); screenshotErr == nil {
+			if saveErr := os.WriteFile(screenshotPath, screenshotBytes, 0644); saveErr == nil {
+				slog.Info("📸 [DEBUG] 已保存调试截图", "path", screenshotPath)
+			}
 		}
 
 		return "", false, errors.Wrap(lastErr, "⏰ 获取二维码元素超时 - 所有选择器均失败，请检查页面结构")
@@ -335,14 +331,14 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 			// 🔥 使用精确的验证码选择器，避免误判二维码页面
 			// 只检测真正的验证码特征，不使用宽泛的属性选择器
 			captchaSelectors := []string{
-				".verify-box",                 // 通用验证框
-				".captcha-container",          // 验证码容器
-				".slider-verify",              // 滑块验证
+				".verify-box",               // 通用验证框
+				".captcha-container",        // 验证码容器
+				".slider-verify",            // 滑块验证
 				"input[placeholder*='验证码']", // 验证码输入框
-				".nc-container",               // 阿里云验证码
-				"#nc_1_wrapper",               // 滑块验证ID
-				".yidun",                      // 网易验证码
-				".geetest_panel",              // 极验证码
+				".nc-container",             // 阿里云验证码
+				"#nc_1_wrapper",             // 滑块验证ID
+				".yidun",                    // 网易验证码
+				".geetest_panel",            // 极验证码
 				// 🔥 已移除宽泛的属性选择器：
 				// "[class*='verify']"   - 太宽泛，会匹配二维码页面
 				// "[class*='captcha']"  - 太宽泛，会匹配二维码页面
@@ -485,6 +481,39 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 				continue
 			}
 			currentURL := pageInfo.URL
+
+			// 🔥 关键修复：识别验证页面，继续等待而不是误判为成功
+			// 验证页面URL特征：/captcha, /verify, /verification 等
+			isVerificationPage := strings.Contains(currentURL, "/captcha") ||
+				strings.Contains(currentURL, "/verify") ||
+				strings.Contains(currentURL, "/verification") ||
+				strings.Contains(currentURL, "verifyUuid") ||
+				strings.Contains(currentURL, "verifyType")
+
+			if isVerificationPage {
+				// 🔥 关键：首次检测到验证页面时，立即提取验证二维码
+				if a.verificationQRCode == "" || time.Since(a.verificationDetectedAt) > 50*time.Second {
+					// 首次检测或二维码可能过期（接近60秒），重新提取
+					qrcode, err := a.extractVerificationQRCode(ctx)
+					if err == nil && qrcode != "" {
+						a.verificationQRCode = qrcode
+						a.verificationDetectedAt = time.Now()
+						slog.Warn("🔐 [WaitForLogin] 检测到验证二维码", "url", currentURL, "qrcodeLen", len(qrcode))
+						slog.Info("⏰ [WaitForLogin] 验证二维码有效期约60秒，请尽快扫描！")
+					} else {
+						slog.Warn("⚠️  [WaitForLogin] 检测到验证页面但未找到二维码", "error", err)
+					}
+				}
+
+				// 在验证页面，需要等待用户完成验证
+				if loginCheckCount%10 == 1 {
+					slog.Warn("🔐 [WaitForLogin] 等待验证完成...", "url", currentURL)
+					slog.Info("💡 [WaitForLogin] 提示：请扫描验证二维码（前端可调用GetVerificationQRCode获取）")
+				}
+				continue // 继续等待，不返回
+			}
+
+			// 只有真正离开登录/验证页面，才确认登录成功
 			if currentURL != "" && !strings.Contains(currentURL, "/login") {
 				slog.Info("🎉 [WaitForLogin] 检测到页面已离开登录页，确认登录成功！", "url", currentURL)
 				return true
@@ -544,4 +573,52 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 			}
 		}
 	}
+}
+
+// extractVerificationQRCode 提取验证页面的二维码
+// 用于二次验证场景：扫码后小红书显示第二个二维码需要再次扫描
+func (a *LoginAction) extractVerificationQRCode(ctx context.Context) (string, error) {
+	pp := a.page.Context(ctx)
+
+	// 🔥 关键：验证页面的二维码可能使用不同的选择器
+	// 需要尝试多个可能的位置
+	selectors := []string{
+		".qrcode-img",           // 通用二维码类
+		"img[src*='qrcode']",    // 通过src属性匹配
+		"img[src*='qr']",        // QR相关图片
+		".verify-qrcode img",    // 验证二维码容器
+		".captcha-qrcode img",   // 验证码二维码
+		"img[src*='verify']",    // 验证相关图片
+		"[class*='qrcode'] img", // 通过class部分匹配
+	}
+
+	for i, selector := range selectors {
+		slog.Info("🔍 [Extract Verify QR] 尝试选择器", "index", i+1, "selector", selector)
+		el, err := pp.Timeout(2 * time.Second).Element(selector)
+		if err == nil {
+			// 找到二维码元素，获取src
+			src, err := el.Attribute("src")
+			if err == nil && src != nil && *src != "" {
+				slog.Info("✅ [Extract Verify QR] 找到验证二维码", "selector", selector, "srcLen", len(*src))
+				return *src, nil
+			}
+		}
+	}
+
+	return "", errors.New("verification QR code not found")
+}
+
+// GetVerificationQRCode 获取验证二维码（供外部调用）
+func (a *LoginAction) GetVerificationQRCode() (string, bool) {
+	if a.verificationQRCode == "" {
+		return "", false
+	}
+
+	// 检查二维码是否过期（60秒）
+	if time.Since(a.verificationDetectedAt) > 55*time.Second {
+		slog.Warn("⚠️  [Get Verify QR] 验证二维码可能已过期", "age", time.Since(a.verificationDetectedAt))
+		return a.verificationQRCode, true // 仍然返回，但警告可能过期
+	}
+
+	return a.verificationQRCode, true
 }

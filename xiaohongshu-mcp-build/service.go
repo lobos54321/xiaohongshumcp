@@ -112,7 +112,9 @@ func (s *XiaohongshuService) CheckLoginStatus(ctx context.Context) (*LoginStatus
 
 // GetLoginQrcode 获取登录的扫码二维码
 func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeResponse, error) {
-	b := newBrowser()
+	// 🔧 FIX: 使用newBrowserForLogin确保不加载任何Cookie
+	// 避免Guest Cookie导致登录页面不显示二维码
+	b := newBrowserForLogin()
 	page := b.NewPage()
 
 	deferFunc := func() {
@@ -460,6 +462,16 @@ func (s *XiaohongshuService) UnfavoriteFeed(ctx context.Context, feedID, xsecTok
 
 func newBrowser() *headless_browser.Browser {
 	return browser.NewBrowser(configs.IsHeadless(), browser.WithBinPath(configs.GetBinPath()))
+}
+
+// newBrowserForLogin 创建用于登录流程的浏览器（不加载Cookie）
+// 确保登录页面不会因为Guest Cookie而无法显示二维码
+func newBrowserForLogin() *headless_browser.Browser {
+	return browser.NewBrowser(
+		configs.IsHeadless(),
+		browser.WithBinPath(configs.GetBinPath()),
+		browser.WithSkipCookies(true), // 🔧 登录时跳过Cookie加载
+	)
 }
 
 func saveCookies(page *rod.Page) error {
