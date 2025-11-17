@@ -1,0 +1,64 @@
+================================
+  用户认证流程测试
+  测试时间: Mon Nov 17 07:51:56 UTC 2025
+  测试用户: e2e-test-1763365916-s9f7u
+================================
+
+测试用例 2.1: 用户初始化
+----------------------------------------
+响应状态码: 200
+响应内容: {"success":false,"message":"未找到任何Cookie源","authStatus":{"isAuthenticated":false,"userId":"e2e-test-1763365916-s9f7u","source":"none","lastValidated":"2025-11-17T07:51:56.782Z","cookieCount":0},"actions":["请先完成小红书登录","确保Cookie已保存到浏览器或文件"],"timestamp":"2025-11-17T07:51:56.782Z"}
+
+步骤: 用户初始化
+  ✅ PASS
+
+测试用例 2.2: 获取用户状态
+----------------------------------------
+响应状态码: 200
+响应内容: {"success":true,"userId":"e2e-test-1763365916-s9f7u","status":{"authentication":{"isLoggedIn":false,"cookieSource":"none","lastValidated":"2025-11-17T07:51:57.432Z"},"configuration":{"isConfigured":false},"operation":{"isRunning":true,"stats":{"postsPublished":0,"totalReads":0,"totalFollowers":0,"engagementRate":"0%"}},"nextAction":{"action":"authenticate","description":"需要完成小红书登录认证","endpoint":"POST /api/user/initialize"}},"timestamp":"2025-11-17T07:51:57.433Z"}
+
+步骤: 获取用户状态
+  ✅ PASS
+
+测试用例 2.3: 自动登录流程
+----------------------------------------
+步骤 1/3: 获取登录二维码...
+响应状态码: 200
+  ✅ 二维码获取成功
+  ✓ 二维码已保存: e2e-test-reports/qrcode-1763365916.png
+步骤: 获取二维码
+  ✅ PASS
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  📱 手动测试步骤
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+如需完整测试登录流程，请执行以下步骤：
+1. 打开二维码文件: e2e-test-reports/qrcode-1763365916.png
+2. 使用小红书APP扫描二维码
+3. 完成登录后，运行以下命令检查状态：
+
+   curl -s 'https://xiaohongshu-automation-ai.zeabur.app/api/xiaohongshu/login/status?userId=e2e-test-1763365916-s9f7u' | jq .
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+步骤 2/3: 检查当前登录状态...
+登录状态: {"success":true,"data":{"is_logged_in":false,"username":"xiaohongshu-mcp"},"message":"检查登录状态成功"}
+
+  ⚠️  用户未登录（预期行为，需要扫码）
+步骤: 登录状态检查（未扫码）
+  ✅ PASS
+
+
+================================
+  测试结果汇总
+================================
+
+测试用户ID: e2e-test-1763365916-s9f7u
+通过步骤: 4
+失败步骤: 0
+
+  ✅ 认证流程测试通过！
+
+📝 备注：完整的登录流程需要人工扫码，自动化测试已验证API可用性。
