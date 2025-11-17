@@ -224,12 +224,77 @@ func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error
 	// 🔍 使用 Timeout 避免永久阻塞，并添加详细日志
 	// 30秒超时：配合三层降级机制，快速失败快速降级
 	slog.Info("⏳ [QR Login] 等待二维码元素出现（30秒超时）")
-	qrcodeEl, err := pp.Timeout(30 * time.Second).Element(".login-container .qrcode-img")
-	if err != nil {
-		slog.Error("❌ [QR Login] 获取二维码元素失败", "error", err)
-		return "", false, errors.Wrap(err, "⏰ 获取二维码元素超时(30秒) - 页面可能未正确加载二维码")
+
+	// 🐛 DEBUG: 尝试多个选择器并记录页面信息
+	selectors := []string{
+		".login-container .qrcode-img",      // 原始选择器
+		".qrcode-img",                       // 简化选择器
+		"img[src*='qrcode']",                // 通过src属性匹配
+		"img[src*='qr']",                    // 通过src属性匹配（更宽泛）
+		".login-qrcode img",                 // 备选容器
+		".qr-code img",                      // 备选容器
+		"[class*='qrcode'] img",             // 通过class部分匹配
 	}
-	slog.Info("✅ [QR Login] 找到二维码元素")
+
+	var qrcodeEl *rod.Element
+	var lastErr error
+
+	for i, selector := range selectors {
+		slog.Info("🔍 [QR Login] 尝试选择器", "index", i+1, "selector", selector)
+		el, err := pp.Timeout(5 * time.Second).Element(selector)
+		if err == nil {
+			qrcodeEl = el
+			slog.Info("✅ [QR Login] 找到二维码元素", "selector", selector)
+			break
+		}
+		lastErr = err
+		slog.Warn("⚠️  [QR Login] 选择器未找到元素", "selector", selector, "error", err)
+	}
+
+	// 如果所有选择器都失败，记录调试信息
+	if qrcodeEl == nil {
+		slog.Error("❌ [QR Login] 所有选择器均失败，开始调试")
+
+		// 列出页面上所有的img元素
+		imgEls, imgErr := pp.Elements("img")
+		if imgErr == nil {
+			slog.Info("🐛 [DEBUG] 页面上找到的img元素数量", "count", len(imgEls))
+			for i, imgEl := range imgEls {
+				if i >= 10 { // 只显示前10个避免日志过大
+					break
+				}
+				imgSrc, _ := imgEl.Attribute("src")
+				imgClass, _ := imgEl.Attribute("class")
+				imgId, _ := imgEl.Attribute("id")
+				slog.Info("🐛 [DEBUG] img元素",
+					"index", i+1,
+					"src", imgSrc,
+					"class", imgClass,
+					"id", imgId)
+			}
+		}
+
+		// 获取页面HTML（部分）
+		html, htmlErr := pp.HTML()
+		if htmlErr == nil {
+			// 只记录前2000字符避免日志过大
+			htmlPreview := html
+			if len(html) > 2000 {
+				htmlPreview = html[:2000] + "..."
+			}
+			slog.Info("🐛 [DEBUG] 页面HTML预览", "html", htmlPreview)
+		}
+
+		// 尝试截图（如果可能）
+		screenshotPath := "/tmp/qrcode-debug-" + time.Now().Format("20060102-150405") + ".png"
+		if screenshotErr := pp.Screenshot(false, &proto.PageCaptureScreenshot{
+			Format: proto.PageCaptureScreenshotFormatPng,
+		}).Save(screenshotPath); screenshotErr == nil {
+			slog.Info("📸 [DEBUG] 已保存调试截图", "path", screenshotPath)
+		}
+
+		return "", false, errors.Wrap(lastErr, "⏰ 获取二维码元素超时 - 所有选择器均失败，请检查页面结构")
+	}
 
 	// 获取二维码图片src属性
 	src, err := qrcodeEl.Attribute("src")
