@@ -28,14 +28,21 @@ func (f *FeedDetailAction) GetFeedDetail(ctx context.Context, feedID, xsecToken 
 	// 构建详情页 URL
 	url := makeFeedDetailURL(feedID, xsecToken)
 
-	logrus.Infof("打开 feed 详情页: %s", url)
+	logrus.Infof("🌐 [FeedDetail] 打开 feed 详情页: %s", url)
 
-	// 导航到详情页
-	page.MustNavigate(url)
-	page.MustWaitDOMStable()
+	// 🔧 FIX: 导航到详情页 - 使用安全方法
+	if err := page.Navigate(url); err != nil {
+		logrus.Errorf("❌ [FeedDetail] Navigate failed: %v", err)
+		return nil, fmt.Errorf("navigate to feed detail failed: %w", err)
+	}
+
+	if err := page.WaitDOMStable(30*time.Second, 0.1); err != nil {
+		logrus.Warnf("⚠️  [FeedDetail] WaitDOMStable failed: %v", err)
+	}
 	time.Sleep(1 * time.Second)
 
-	result := page.MustEval(`() => {
+	// 🔧 FIX: 执行JS获取数据 - 使用安全方法
+	evalResult, err := page.Eval(`() => {
 		if (window.__INITIAL_STATE__ &&
 		    window.__INITIAL_STATE__.note &&
 		    window.__INITIAL_STATE__.note.noteDetailMap) {
@@ -43,7 +50,13 @@ func (f *FeedDetailAction) GetFeedDetail(ctx context.Context, feedID, xsecToken 
 			return JSON.stringify(noteDetailMap);
 		}
 		return "";
-	}`).String()
+	}`)
+	if err != nil {
+		logrus.Errorf("❌ [FeedDetail] Eval failed: %v", err)
+		return nil, fmt.Errorf("eval noteDetailMap failed: %w", err)
+	}
+
+	result := evalResult.Value.String()
 
 	if result == "" {
 		return nil, errors.ErrNoFeedDetail
