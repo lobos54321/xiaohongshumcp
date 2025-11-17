@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/proto"
+	"github.com/sirupsen/logrus"
 	"github.com/xpzouying/xiaohongshu-mcp/errors"
 )
 
@@ -169,10 +171,22 @@ func (s *SearchAction) Search(ctx context.Context, keyword string, filters ...Fi
 	page := s.page.Context(ctx)
 
 	searchURL := makeSearchURL(keyword)
-	page.MustNavigate(searchURL)
-	page.MustWaitStable()
 
-	page.MustWait(`() => window.__INITIAL_STATE__ !== undefined`)
+	// 🔧 FIX: 导航到搜索页 - 使用安全方法
+	logrus.Infof("🌐 [Search] Navigating to search URL: %s", searchURL)
+	if err := page.Navigate(searchURL); err != nil {
+		logrus.Errorf("❌ [Search] Navigate failed: %v", err)
+		return nil, fmt.Errorf("navigate to search page failed: %w", err)
+	}
+
+	if err := page.WaitStable(10 * time.Second); err != nil {
+		logrus.Warnf("⚠️  [Search] WaitStable failed: %v", err)
+	}
+
+	if err := page.Wait(`() => window.__INITIAL_STATE__ !== undefined`); err != nil {
+		logrus.Errorf("❌ [Search] Wait for __INITIAL_STATE__ failed: %v", err)
+		return nil, fmt.Errorf("wait for initial state failed: %w", err)
+	}
 
 	// 如果有筛选条件，则应用筛选
 	if len(filters) > 0 {
@@ -193,28 +207,55 @@ func (s *SearchAction) Search(ctx context.Context, keyword string, filters ...Fi
 			}
 		}
 
-		// 悬停在筛选按钮上
-		filterButton := page.MustElement(`div.filter`)
-		filterButton.MustHover()
+		// 🔧 FIX: 查找并悬停筛选按钮 - 使用安全方法
+		filterButton, err := page.Timeout(10 * time.Second).Element(`div.filter`)
+		if err != nil {
+			logrus.Errorf("❌ [Search] Find filter button failed: %v", err)
+			return nil, fmt.Errorf("find filter button failed: %w", err)
+		}
+
+		if err := filterButton.Hover(); err != nil {
+			logrus.Errorf("❌ [Search] Hover filter button failed: %v", err)
+			return nil, fmt.Errorf("hover filter button failed: %w", err)
+		}
 
 		// 等待筛选面板出现
-		page.MustWait(`() => document.querySelector('div.filter-panel') !== null`)
+		if err := page.Wait(`() => document.querySelector('div.filter-panel') !== null`); err != nil {
+			logrus.Errorf("❌ [Search] Wait for filter panel failed: %v", err)
+			return nil, fmt.Errorf("wait for filter panel failed: %w", err)
+		}
 
 		// 应用所有筛选条件
 		for _, filter := range allInternalFilters {
 			selector := fmt.Sprintf(`div.filter-panel div.filters:nth-child(%d) div.tags:nth-child(%d)`,
 				filter.FiltersIndex, filter.TagsIndex)
-			option := page.MustElement(selector)
-			option.MustClick()
+
+			option, err := page.Timeout(10 * time.Second).Element(selector)
+			if err != nil {
+				logrus.Errorf("❌ [Search] Find filter option failed: %v", err)
+				return nil, fmt.Errorf("find filter option %s failed: %w", selector, err)
+			}
+
+			if err := option.Click(proto.InputMouseButtonLeft, 1); err != nil {
+				logrus.Errorf("❌ [Search] Click filter option failed: %v", err)
+				return nil, fmt.Errorf("click filter option failed: %w", err)
+			}
 		}
 
 		// 等待页面更新
-		page.MustWaitStable()
+		if err := page.WaitStable(10 * time.Second); err != nil {
+			logrus.Warnf("⚠️  [Search] WaitStable after filter failed: %v", err)
+		}
+
 		// 重新等待 __INITIAL_STATE__ 更新
-		page.MustWait(`() => window.__INITIAL_STATE__ !== undefined`)
+		if err := page.Wait(`() => window.__INITIAL_STATE__ !== undefined`); err != nil {
+			logrus.Errorf("❌ [Search] Wait for __INITIAL_STATE__ after filter failed: %v", err)
+			return nil, fmt.Errorf("wait for initial state after filter failed: %w", err)
+		}
 	}
 
-	result := page.MustEval(`() => {
+	// 🔧 FIX: 执行JS获取搜索结果 - 使用安全方法
+	evalResult, err := page.Eval(`() => {
 		if (window.__INITIAL_STATE__ &&
 		    window.__INITIAL_STATE__.search &&
 		    window.__INITIAL_STATE__.search.feeds) {
@@ -225,8 +266,13 @@ func (s *SearchAction) Search(ctx context.Context, keyword string, filters ...Fi
 			}
 		}
 		return "";
-	}`).String()
+	}`)
+	if err != nil {
+		logrus.Errorf("❌ [Search] Eval search results failed: %v", err)
+		return nil, fmt.Errorf("eval search results failed: %w", err)
+	}
 
+	result := evalResult.Value.String()
 	if result == "" {
 		return nil, errors.ErrNoFeeds
 	}
