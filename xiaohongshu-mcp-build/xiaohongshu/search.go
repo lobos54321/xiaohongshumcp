@@ -183,10 +183,8 @@ func (s *SearchAction) Search(ctx context.Context, keyword string, filters ...Fi
 		logrus.Warnf("⚠️  [Search] WaitStable failed: %v", err)
 	}
 
-	if err := page.Wait(`() => window.__INITIAL_STATE__ !== undefined`); err != nil {
-		logrus.Errorf("❌ [Search] Wait for __INITIAL_STATE__ failed: %v", err)
-		return nil, fmt.Errorf("wait for initial state failed: %w", err)
-	}
+	// 🔧 FIX: 使用 WaitLoad 代替 Wait,或者直接继续执行
+	time.Sleep(1 * time.Second)
 
 	// 如果有筛选条件，则应用筛选
 	if len(filters) > 0 {
@@ -220,10 +218,7 @@ func (s *SearchAction) Search(ctx context.Context, keyword string, filters ...Fi
 		}
 
 		// 等待筛选面板出现
-		if err := page.Wait(`() => document.querySelector('div.filter-panel') !== null`); err != nil {
-			logrus.Errorf("❌ [Search] Wait for filter panel failed: %v", err)
-			return nil, fmt.Errorf("wait for filter panel failed: %w", err)
-		}
+		time.Sleep(500 * time.Millisecond)
 
 		// 应用所有筛选条件
 		for _, filter := range allInternalFilters {
@@ -247,11 +242,8 @@ func (s *SearchAction) Search(ctx context.Context, keyword string, filters ...Fi
 			logrus.Warnf("⚠️  [Search] WaitStable after filter failed: %v", err)
 		}
 
-		// 重新等待 __INITIAL_STATE__ 更新
-		if err := page.Wait(`() => window.__INITIAL_STATE__ !== undefined`); err != nil {
-			logrus.Errorf("❌ [Search] Wait for __INITIAL_STATE__ after filter failed: %v", err)
-			return nil, fmt.Errorf("wait for initial state after filter failed: %w", err)
-		}
+		// 等待页面数据更新
+		time.Sleep(1 * time.Second)
 	}
 
 	// 🔧 FIX: 执行JS获取搜索结果 - 使用安全方法

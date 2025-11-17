@@ -41,11 +41,8 @@ func (u *UserProfileAction) UserProfile(ctx context.Context, userID, xsecToken s
 
 // extractUserProfileData 从页面中提取用户资料数据的通用方法
 func (u *UserProfileAction) extractUserProfileData(page *rod.Page) (*UserProfileResponse, error) {
-	// 🔧 FIX: 等待页面状态 - 使用安全方法
-	if err := page.Wait(`() => window.__INITIAL_STATE__ !== undefined`); err != nil {
-		logrus.Errorf("❌ [UserProfile] Wait for __INITIAL_STATE__ failed: %v", err)
-		return nil, fmt.Errorf("wait for initial state failed: %w", err)
-	}
+	// 🔧 FIX: 等待页面状态 - 使用时间等待
+	time.Sleep(1 * time.Second)
 
 	// 🔧 FIX: 获取用户数据 - 使用安全方法
 	userDataEvalResult, err := page.Eval(`() => {
