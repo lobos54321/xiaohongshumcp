@@ -20,11 +20,21 @@ import (
 )
 
 // XiaohongshuService 小红书业务服务
-type XiaohongshuService struct{}
+type XiaohongshuService struct {
+	// currentLoginAction 保存当前登录会话，用于获取验证二维码
+	currentLoginAction *xiaohongshu.LoginAction
+}
 
 // NewXiaohongshuService 创建小红书服务实例
 func NewXiaohongshuService() *XiaohongshuService {
 	return &XiaohongshuService{}
+}
+
+// VerificationQRCodeResponse 验证二维码响应
+type VerificationQRCodeResponse struct {
+	Available bool   `json:"available"`
+	Img       string `json:"img,omitempty"`
+	Message   string `json:"message,omitempty"`
 }
 
 // PublishRequest 发布请求
@@ -120,9 +130,13 @@ func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeRe
 	deferFunc := func() {
 		_ = page.Close()
 		b.Close()
+		// 清除当前登录会话引用
+		s.currentLoginAction = nil
 	}
 
 	loginAction := xiaohongshu.NewLogin(page)
+	// 🔥 保存当前登录会话，用于获取验证二维码
+	s.currentLoginAction = loginAction
 
 	img, loggedIn, err := loginAction.FetchQrcodeImage(ctx)
 	if err != nil || loggedIn {
@@ -157,6 +171,30 @@ func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeRe
 		}(),
 		Img:        img,
 		IsLoggedIn: loggedIn,
+	}, nil
+}
+
+// GetVerificationQRCode 获取验证二维码（二次验证场景）
+func (s *XiaohongshuService) GetVerificationQRCode(ctx context.Context) (*VerificationQRCodeResponse, error) {
+	if s.currentLoginAction == nil {
+		return &VerificationQRCodeResponse{
+			Available: false,
+			Message:   "没有正在进行的登录会话",
+		}, nil
+	}
+
+	qrCode, available := s.currentLoginAction.GetVerificationQRCode()
+	if !available {
+		return &VerificationQRCodeResponse{
+			Available: false,
+			Message:   "验证二维码尚未出现",
+		}, nil
+	}
+
+	return &VerificationQRCodeResponse{
+		Available: true,
+		Img:       qrCode,
+		Message:   "请扫描验证二维码完成登录",
 	}, nil
 }
 

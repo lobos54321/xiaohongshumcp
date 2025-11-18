@@ -63,6 +63,18 @@ func (s *AppServer) getLoginQrcodeHandler(c *gin.Context) {
 	respondSuccess(c, result, "获取登录二维码成功")
 }
 
+// getVerificationQRCodeHandler 获取验证二维码（二次验证场景）
+func (s *AppServer) getVerificationQRCodeHandler(c *gin.Context) {
+	result, err := s.xiaohongshuService.GetVerificationQRCode(c.Request.Context())
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "GET_VERIFICATION_QRCODE_FAILED",
+			"获取验证二维码失败", err.Error())
+		return
+	}
+
+	respondSuccess(c, result, "获取验证二维码成功")
+}
+
 // publishHandler 发布内容
 func (s *AppServer) publishHandler(c *gin.Context) {
 	logrus.Info("🔔 [PublishHandler] 收到发布请求")
