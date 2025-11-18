@@ -191,9 +191,35 @@ func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error
 		slog.Error("❌ [QR Login] 等待登录页面加载失败", "error", err)
 		return "", false, errors.Wrap(err, "wait for login page load failed")
 	}
-	slog.Info("✅ [QR Login] 登录页面加载完成")
+	slog.Info("✅ [QR Login] 登录页面DOM加载完成")
 
-	// 等待页面完全加载
+	// 🔥 关键修复：等待页面JavaScript渲染完成
+	// creator.xiaohongshu.com是SPA应用，需要等待React/Vue渲染完成
+	slog.Info("⏳ [QR Login] 等待页面JavaScript渲染...")
+
+	// 等待登录表单或二维码容器出现，说明页面渲染完成
+	pageReadySelectors := []string{
+		"input[type='text']",           // 手机号输入框
+		"input[placeholder*='手机']",   // 手机号输入框
+		".login-form",                  // 登录表单
+		".phone-login",                 // 手机登录区域
+		"form",                         // 任意表单
+	}
+
+	pageReady := false
+	for _, selector := range pageReadySelectors {
+		if _, err := pp.Timeout(8 * time.Second).Element(selector); err == nil {
+			slog.Info("✅ [QR Login] 页面渲染完成", "indicator", selector)
+			pageReady = true
+			break
+		}
+	}
+
+	if !pageReady {
+		slog.Warn("⚠️  [QR Login] 页面渲染检测超时，继续尝试...")
+	}
+
+	// 额外等待确保动画完成
 	time.Sleep(2 * time.Second)
 
 	// 检查是否已经登录（检查用户相关元素）
