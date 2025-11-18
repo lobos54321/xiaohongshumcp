@@ -181,8 +181,9 @@ func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error
 	// 🔧 NOTE: 不再需要手动清除Cookie
 	// Browser创建时已通过WithSkipCookies(true)确保不加载任何Cookie
 	// 这样更可靠，避免了SetCookies(nil)可能的失败情况
-	slog.Info("🌐 [QR Login] 使用干净浏览器环境（无Cookie），开始访问登录页面")
-	if err := pp.Navigate("https://www.xiaohongshu.com/login"); err != nil {
+	// 🔥 修改：使用creator.xiaohongshu.com登录，确保Cookie适用于创作者平台
+	slog.Info("🌐 [QR Login] 使用干净浏览器环境（无Cookie），开始访问创作者平台登录页面")
+	if err := pp.Navigate("https://creator.xiaohongshu.com/login"); err != nil {
 		slog.Error("❌ [QR Login] 导航到登录页面失败", "error", err)
 		return "", false, errors.Wrap(err, "navigate to login page failed")
 	}
@@ -201,18 +202,45 @@ func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error
 		return "", true, nil
 	}
 
-	// 🔥 修复：主动点击"扫码登录"按钮（如果存在）
-	slog.Info("🔍 [QR Login] 查找扫码登录按钮")
-	if scanBtn, err := pp.Timeout(3 * time.Second).Element("text=/扫码登录/"); err == nil {
-		slog.Info("👆 [QR Login] 点击扫码登录按钮")
-		if err := scanBtn.Click(proto.InputMouseButtonLeft, 1); err != nil {
-			slog.Warn("⚠️  [QR Login] 点击扫码登录按钮失败", "error", err)
-		} else {
-			slog.Info("✅ [QR Login] 扫码登录按钮点击成功")
+	// 🔥 修复：creator.xiaohongshu.com默认显示短信登录，需要点击右上角二维码图标切换
+	slog.Info("🔍 [QR Login] 查找二维码登录切换按钮（右上角）")
+	qrSwitchSelectors := []string{
+		"img[src*='qrcode']",           // 二维码图标
+		"img[src*='qr']",               // 二维码图标（宽泛）
+		".qrcode-switch",               // 二维码切换按钮
+		"[class*='qrcode']",            // 包含qrcode的元素
+		".login-other-way img",         // 其他登录方式中的图标
+		".switch-login img",            // 切换登录方式
+	}
+
+	qrSwitchClicked := false
+	for _, selector := range qrSwitchSelectors {
+		if switchBtn, err := pp.Timeout(2 * time.Second).Element(selector); err == nil {
+			slog.Info("👆 [QR Login] 找到二维码切换按钮，点击切换", "selector", selector)
+			if err := switchBtn.Click(proto.InputMouseButtonLeft, 1); err != nil {
+				slog.Warn("⚠️  [QR Login] 点击二维码切换按钮失败", "error", err)
+			} else {
+				slog.Info("✅ [QR Login] 二维码切换按钮点击成功")
+				qrSwitchClicked = true
+				time.Sleep(1 * time.Second)
+				break
+			}
 		}
-		time.Sleep(1 * time.Second)
-	} else {
-		slog.Warn("⚠️  [QR Login] 未找到扫码登录按钮，可能已在扫码模式")
+	}
+
+	if !qrSwitchClicked {
+		// 备选：尝试点击"扫码登录"文字
+		if scanBtn, err := pp.Timeout(2 * time.Second).Element("text=/扫码登录/"); err == nil {
+			slog.Info("👆 [QR Login] 点击扫码登录按钮")
+			if err := scanBtn.Click(proto.InputMouseButtonLeft, 1); err != nil {
+				slog.Warn("⚠️  [QR Login] 点击扫码登录按钮失败", "error", err)
+			} else {
+				slog.Info("✅ [QR Login] 扫码登录按钮点击成功")
+			}
+			time.Sleep(1 * time.Second)
+		} else {
+			slog.Warn("⚠️  [QR Login] 未找到二维码切换按钮，可能已在扫码模式或页面结构变化")
+		}
 	}
 
 	// 🔍 使用 Timeout 避免永久阻塞，并添加详细日志
