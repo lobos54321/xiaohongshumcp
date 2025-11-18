@@ -257,6 +257,27 @@ app.get('/api/xiaohongshu/login/qrcode', async (req, res) => {
   }
 });
 
+// 便捷API：获取验证二维码（预登录人机验证）
+app.get('/api/xiaohongshu/login/verification-qrcode', async (req, res) => {
+  try {
+    const userId = req.query.userId as string || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    const result = await processManager.callTool(
+      userId,
+      '/api/v1/login/verification-qrcode',
+      'GET'
+    );
+
+    res.json(result);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 便捷API：发布内容
 app.post('/api/xiaohongshu/publish', async (req, res) => {
   try {

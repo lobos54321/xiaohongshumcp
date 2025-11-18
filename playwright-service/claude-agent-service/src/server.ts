@@ -2835,6 +2835,34 @@ app.get('/api/xiaohongshu/login/status', async (req: Request, res: Response) => 
   }
 });
 
+// 获取验证二维码 (预登录人机验证)
+app.get('/api/xiaohongshu/login/verification-qrcode', async (req: Request, res: Response) => {
+  try {
+    const userId = req.query.userId as string;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    console.log(`[API Proxy] Verification QR code request for user ${userId}`);
+
+    // 代理到 MCP Router
+    const axios = await import('axios');
+    const response = await axios.default.get(
+      `${MCP_ROUTER_URL}/api/xiaohongshu/login/verification-qrcode?userId=${userId}`,
+      { timeout: 10000 }
+    );
+
+    res.json(response.data);
+  } catch (error: any) {
+    console.error('[API Proxy] Verification QR code error:', error.message);
+    res.status(500).json({
+      error: `MCP Router connection failed: ${error.message}`,
+      mcp_router_url: MCP_ROUTER_URL
+    });
+  }
+});
+
 // Cookie同步API - 从ultra-simple-login同步Cookie到Claude Agent Service
 app.post('/agent/xiaohongshu/sync-cookies', async (req: Request, res: Response) => {
   try {
