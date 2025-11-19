@@ -566,7 +566,15 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 			// 提高阈值：tracking cookie约38/52字节，真实登录cookie通常>100字节
 			if hasWebSession && hasA1 && len(webSessionValue) > 100 && len(a1Value) > 50 {
 				// 有真实登录Cookie但无登录元素，可能是页面加载中
-				if loginCheckCount%10 == 1 {
+				// 或者DOM选择器没有匹配到（小红书更新了页面结构）
+				// 连续检测到长Cookie 3次（3秒），就认为登录成功
+				if loginCheckCount >= 6 { // 6 * 500ms = 3秒
+					slog.Info("🎉 [WaitForLogin] 连续检测到完整登录Cookie，确认登录成功！",
+						"webSessionLen", len(webSessionValue),
+						"a1Len", len(a1Value),
+						"hint", "基于Cookie判断")
+					return true
+				} else if loginCheckCount%10 == 1 {
 					slog.Info("🍪 [WaitForLogin] 检测到长Cookie但无登录元素",
 						"webSessionLen", len(webSessionValue),
 						"a1Len", len(a1Value),
