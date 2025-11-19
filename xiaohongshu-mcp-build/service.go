@@ -53,9 +53,12 @@ type LoginStatusResponse struct {
 
 // LoginQrcodeResponse 登录扫码二维码
 type LoginQrcodeResponse struct {
-	Timeout    string `json:"timeout"`
-	IsLoggedIn bool   `json:"is_logged_in"`
-	Img        string `json:"img,omitempty"`
+	Timeout         string `json:"timeout"`
+	IsLoggedIn      bool   `json:"is_logged_in"`
+	Img             string `json:"img,omitempty"`
+	// 验证二维码相关字段（预登录人机验证）
+	HasVerification bool   `json:"has_verification,omitempty"`
+	VerificationImg string `json:"verification_img,omitempty"`
 }
 
 // PublishResponse 发布响应
@@ -162,6 +165,9 @@ func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeRe
 		}()
 	}
 
+	// 检查是否有验证二维码
+	verificationImg, hasVerification := loginAction.GetVerificationQRCode()
+
 	return &LoginQrcodeResponse{
 		Timeout: func() string {
 			if loggedIn {
@@ -169,8 +175,10 @@ func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeRe
 			}
 			return timeout.String()
 		}(),
-		Img:        img,
-		IsLoggedIn: loggedIn,
+		Img:             img,
+		IsLoggedIn:      loggedIn,
+		HasVerification: hasVerification,
+		VerificationImg: verificationImg,
 	}, nil
 }
 
