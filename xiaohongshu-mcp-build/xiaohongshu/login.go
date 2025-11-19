@@ -516,6 +516,13 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 				continue // 继续等待，不返回
 			}
 
+			// 🔥 关键：如果之前有验证二维码，但现在不是验证页面，说明验证完成
+			// 清空验证二维码，让前端知道可以获取新的登录二维码
+			if a.verificationQRCode != "" {
+				slog.Info("✅ [WaitForLogin] 验证成功！已离开验证页面，清空验证二维码", "url", currentURL)
+				a.verificationQRCode = ""
+			}
+
 			// 只有真正离开登录/验证页面，才确认登录成功
 			if currentURL != "" && !strings.Contains(currentURL, "/login") {
 				slog.Info("🎉 [WaitForLogin] 检测到页面已离开登录页，确认登录成功！", "url", currentURL)
