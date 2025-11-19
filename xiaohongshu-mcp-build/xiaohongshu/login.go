@@ -523,10 +523,26 @@ func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
 				a.verificationQRCode = ""
 			}
 
-			// 只有真正离开登录/验证页面，才确认登录成功
-			if currentURL != "" && !strings.Contains(currentURL, "/login") {
-				slog.Info("🎉 [WaitForLogin] 检测到页面已离开登录页，确认登录成功！", "url", currentURL)
-				return true
+			// 🔥 修复：不要仅凭URL就判断登录成功
+			// 必须同时满足：离开登录页 + 有有效Cookie 或 有登录DOM元素
+			// 否则可能在Cookie还未完全设置时就返回true，导致保存不完整的Cookie
+			leftLoginPage := currentURL != "" && !strings.Contains(currentURL, "/login")
+
+			if leftLoginPage {
+				// 离开了登录页，但需要等待Cookie完全设置
+				// 检查是否有完整的登录Cookie（web_session > 100字节）
+				if hasWebSession && len(webSessionValue) > 100 {
+					slog.Info("🎉 [WaitForLogin] 检测到页面已离开登录页且有完整Cookie，确认登录成功！",
+						"url", currentURL,
+						"webSessionLen", len(webSessionValue))
+					return true
+				} else if loginCheckCount%10 == 1 {
+					// 离开登录页但Cookie还没完整设置，继续等待
+					slog.Info("⏳ [WaitForLogin] 已离开登录页，等待Cookie完全设置...",
+						"hasWebSession", hasWebSession,
+						"webSessionLen", len(webSessionValue),
+						"hint", "继续等待web_session Cookie")
+				}
 			}
 
 			// 🔥 优先策略2：检查DOM元素（使用更精确的选择器）
