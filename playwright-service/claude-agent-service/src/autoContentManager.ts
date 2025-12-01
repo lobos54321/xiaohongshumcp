@@ -9,6 +9,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { DatabaseService } from './databaseService.js';
+import { PlaywrightPublisher } from './playwrightPublisher.js';
+import { BrowserSessionManager } from './browserSessionManager.js';
 
 interface UserProfile {
   userId: string;
@@ -69,21 +71,24 @@ export class AutoContentManager {
   private mcpClient: any;
   private supabase?: SupabaseClient;
   private db?: DatabaseService;  // 🔥 新增：数据库服务
+  private playwrightPublisher: PlaywrightPublisher;
   private userProfiles: Map<string, UserProfile> = new Map();
   private contentPlans: Map<string, ContentPlan> = new Map();
   private dataDir: string;
   private generationStatus: Map<string, 'idle' | 'generating' | 'completed' | 'failed'> = new Map();
-  private realTimeActivities: Map<string, Array<{timestamp: Date, message: string, type: string}>> = new Map();
+  private realTimeActivities: Map<string, Array<{ timestamp: Date, message: string, type: string }>> = new Map();
   private allowDemoMode: boolean;
 
   // 🚀 异步发布作业存储 - 解决 Zeabur 120秒超时
   private publishJobs: Map<string, PublishJob> = new Map();
   private jobCleanupInterval?: NodeJS.Timeout;
+  private xhsWorkerUrl?: string;
+  private workerSecret?: string;
 
   constructor(config: {
-    anthropicKey: string;
-    imageService: ImageGenerationService;
-    mcpClient: any;
+    browserSessionManager: BrowserSessionManager;
+    xhsWorkerUrl?: string;
+    workerSecret?: string;
   }) {
     this.anthropic = new Anthropic({
       apiKey: config.anthropicKey,
@@ -91,6 +96,8 @@ export class AutoContentManager {
     this.imageService = config.imageService;
     this.mcpClient = config.mcpClient;
     this.allowDemoMode = process.env.ALLOW_DEMO_MODE !== 'false';
+    this.xhsWorkerUrl = config.xhsWorkerUrl;
+    this.workerSecret = config.workerSecret;
 
     // 初始化 Supabase 客户端（用于图片清理）
     // 🔥 FIX: 支持 VITE_SUPABASE_* 环境变量（Zeabur使用的格式）
@@ -110,7 +117,7 @@ export class AutoContentManager {
     }
 
     // 创建数据存储目录 - 兼容本地开发和生产环境
-    this.dataDir = process.env.DATA_DIR || (process.env.NODE_ENV === 'production' ? '/app/data/auto-content' : './data/auto-content');
+    this.dataDir = process.env.DATA_DIR || './data/auto-content';
     console.log(`📁 数据目录: ${this.dataDir}`);
     this.ensureDataDir();
 
@@ -121,6 +128,8 @@ export class AutoContentManager {
 
     // 🚀 启动作业清理任务 - 每小时清理过期作业（24小时前）
     this.startJobCleanup();
+
+    this.playwrightPublisher = new PlaywrightPublisher(config.browserSessionManager);
   }
 
   private ensureDataDir(): void {
@@ -505,7 +514,7 @@ export class AutoContentManager {
   /**
    * 获取实时活动列表
    */
-  getRealTimeActivities(userId: string): Array<{timestamp: string, message: string, type: string}> {
+  getRealTimeActivities(userId: string): Array<{ timestamp: string, message: string, type: string }> {
     const activities = this.realTimeActivities.get(userId) || [];
     return activities.map(activity => ({
       timestamp: activity.timestamp.toLocaleTimeString('zh-CN'),
@@ -753,7 +762,7 @@ export class AutoContentManager {
 
     try {
       let responseText = response.content[0].type === 'text' ? response.content[0].text : '';
-      
+
       // 清理markdown代码块标记
       responseText = responseText.trim();
       if (responseText.startsWith('```json')) {
@@ -762,9 +771,9 @@ export class AutoContentManager {
         responseText = responseText.replace(/^```\s*/, '').replace(/\s*```$/, '');
       }
       responseText = responseText.trim();
-      
+
       console.log('📋 [DEBUG] 清理后的响应文本:', responseText.substring(0, 200) + '...');
-      
+
       const rawStrategy = JSON.parse(responseText);
       console.log('📋 [DEBUG] Claude原始策略数据:', JSON.stringify(rawStrategy, null, 2));
 
@@ -1009,8 +1018,8 @@ export class AutoContentManager {
             if (typeof day.date === 'string') {
               // 检查是否是星期名称（中文或英文）
               if (['周一', '周二', '周三', '周四', '周五', '周六', '周日',
-                   '星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日',
-                   'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].includes(day.date)) {
+                '星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日',
+                'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].includes(day.date)) {
                 dayDate = this.getDateFromDayName(day.date);
                 console.log(`📅 [DEBUG] 第${index + 1}天: ${day.date} -> ${dayDate.toISOString().split('T')[0]}`);
               } else {
@@ -1080,7 +1089,7 @@ export class AutoContentManager {
    */
   private getDateFromDayName(dayName: string): Date {
     const today = new Date();
-    const dayMap: {[key: string]: number} = {
+    const dayMap: { [key: string]: number } = {
       // 英文
       'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4,
       'Friday': 5, 'Saturday': 6, 'Sunday': 0,
@@ -2005,100 +2014,86 @@ export class AutoContentManager {
    */
   private async publishContent(userId: string, task: DailyTask, imageUrls: string[]): Promise<void> {
     try {
-      if (!this.mcpClient) {
-        console.log('⚠️ [发布] MCP客户端未配置，无法发布');
-        throw new Error('MCP客户端未配置');
-      }
+      console.log(`🚀 [发布] 开始发布任务: ${task.title}`);
 
-      // 🔥 验证和截断标题长度 - 使用 UTF-8 字节数（与 MCP 一致）
-      const MAX_TITLE_BYTES = 60;  // MCP 二进制使用 UTF-8 字节数限制
-      let title = task.title;
-      let titleBytes = Buffer.byteLength(title, 'utf8');
-
-      if (titleBytes > MAX_TITLE_BYTES) {
-        console.warn(`⚠️ [发布] 标题过长 (${titleBytes} 字节)，截断到 ${MAX_TITLE_BYTES} 字节`);
-        console.warn(`⚠️ [发布] 原标题: ${title}`);
-
-        // 安全截断 UTF-8 字符串（避免截断到字符中间）
-        let truncated = title;
-        while (Buffer.byteLength(truncated, 'utf8') > MAX_TITLE_BYTES) {
-          truncated = truncated.slice(0, -1);
-        }
-        title = truncated;
-
-        console.log(`✂️ [发布] 截断后: ${title} (${Buffer.byteLength(title, 'utf8')} 字节)`);
-      }
-
-      // 🔍 自动检测内容类型（基于实际内容而非标签）
-      // 如果任务有videoUrl字段，则为视频；否则为图文
-      const actualContentType = (task as any).videoUrl ? 'video' : 'normal';
-
-      // 🔍 调试信息：记录发布请求详情
-      console.log(`📝 [发布] 准备发布内容: ${title}`);
-      console.log(`📏 [发布] 标题长度: ${Buffer.byteLength(title, 'utf8')}/${MAX_TITLE_BYTES}字节 (${title.length}字符)`);
-      console.log(`📝 [发布] Claude标注的contentType: "${task.contentType}"`);
-      console.log(`🤖 [发布] 自动检测的实际类型: "${actualContentType}"`);
-      console.log(`📷 [发布] 图片数量: ${imageUrls.length}`);
-      console.log(`🎬 [发布] 视频URL: ${(task as any).videoUrl || '无'}`);
-      imageUrls.forEach((url, index) => {
-        console.log(`   图片${index + 1}: ${url}`);
-      });
-      // 🔥 验证标签：确保有标签且符合产品定位
-      if (!task.hashtags || task.hashtags.length === 0) {
-        console.error(`❌ [发布] 标签缺失，无法发布`);
-        throw new Error('标签缺失：请确保任务包含至少一个相关标签。请重新编辑任务并添加符合产品定位的标签。');
-      }
-      console.log(`🏷️ [发布] 标签 (${task.hashtags.length}个): ${task.hashtags.join(', ')}`);
-
-      // 调用真实的小红书发布工具 - 传递 Supabase 公网 URL
-      // MCP Router 会自动下载这些 URL 并上传到小红书
-      const result = await this.mcpClient.publishContent(userId, {
-        title: title,  // 🔥 使用验证后的标题（UTF-8字节数验证）
-        content: task.content,  // 🔥 修复：MCP binary期望 "content" 字段而非 "description"
-        images: imageUrls,  // ✅ Supabase 公网 URL，MCP自动下载
-        tags: task.hashtags,  // 🔥 使用原始标签（必须存在）
-        type: actualContentType  // 🔥 使用自动检测的类型，而非Claude的标签
-      });
-
-      if (result.success) {
-        console.log('✅ [发布] 发布成功:', result.data);
-
-        // 发布成功后清理 Supabase Storage 中的图片
-        if (task.storageKeys && task.storageKeys.length > 0) {
-          await this.cleanupSupabaseImages(task.storageKeys);
-        }
+      // 优先尝试通过 Chrome Extension 发布 (xhs-worker)
+      if (this.xhsWorkerUrl && this.workerSecret) {
+        console.log(`🚀 [发布] 使用 Chrome Extension 发布 (xhs-worker)`);
+        await this.publishViaExtension(userId, task, imageUrls);
       } else {
-        console.error('❌ [发布] 发布失败:', result.error);
-        throw new Error(result.error || '发布失败');
+        console.log(`🚀 [发布] 使用本地 Playwright 发布`);
+        // 使用本地 PlaywrightPublisher 发布
+        await this.playwrightPublisher.publishContent(userId, {
+          title: task.title,
+          content: task.content,
+          images: imageUrls,
+          topics: task.hashtags
+        });
       }
+
+      console.log(`✅ [发布] 发布成功: ${task.title}`);
+      this.addRealTimeActivity(userId, `✅ 发布成功: ${task.title}`, 'execution');
+
+      // 发布成功后清理 Supabase Storage 中的图片
+      if (task.storageKeys && task.storageKeys.length > 0) {
+        await this.cleanupSupabaseImages(task.storageKeys);
+      }
+
     } catch (error: any) {
-      // 🔥 保留完整的错误信息，特别是从mcpClient.publishContent返回的详细错误
-      const errorDetails = {
-        message: error.message,
-        error: error.error,
-        details: error.details,
-        status: error.status,
-        originalError: error.originalError
-      };
-
-      console.error('❌ [发布] 发布失败:', errorDetails);
-
-      // 优先使用详细的错误信息
-      const errorMessage = error.error ||           // mcpClient返回的详细错误
-                          error.details?.error ||   // 可能的嵌套错误
-                          error.message ||          // 标准错误消息
-                          '发布失败';
-
-      // 创建包含完整信息的新错误对象
-      const enhancedError = new Error(errorMessage);
-      (enhancedError as any).error = error.error;
-      (enhancedError as any).details = error.details;
-      (enhancedError as any).status = error.status;
-      (enhancedError as any).originalError = error.originalError;
-
-      throw enhancedError;
+      console.error(`❌ [发布] 发布失败: ${task.title}`, error);
+      this.addRealTimeActivity(userId, `❌ 发布失败: ${error.message}`, 'execution');
+      throw error; // 重新抛出错误，以便上层捕获
     }
   }
+
+  /**
+   * 通过 Chrome Extension 发布 (调用 xhs-worker)
+   */
+  private async publishViaExtension(userId: string, task: DailyTask, imageUrls: string[]): Promise<void> {
+    if (!this.xhsWorkerUrl || !this.workerSecret) {
+      throw new Error('xhs-worker URL or secret not configured');
+    }
+
+    try {
+      console.log(`🌐 [Extension] 调用 xhs-worker API: ${this.xhsWorkerUrl}/api/v1/extension/publish`);
+
+      // 准备请求数据
+      const payload = {
+        title: task.title,
+        content: task.content,
+        images: imageUrls,
+        tags: task.hashtags,
+        user_id: userId
+      };
+
+      // 调用 xhs-worker API
+      const response = await fetch(`${this.xhsWorkerUrl}/api/v1/extension/publish?title=${encodeURIComponent(task.title)}&content=${encodeURIComponent(task.content)}&user_id=${encodeURIComponent(userId)}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.workerSecret}`
+        },
+        body: JSON.stringify({
+          images: imageUrls,
+          tags: task.hashtags
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`xhs-worker API error: ${response.status} ${response.statusText} - ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log(`✅ [Extension] 发布指令已发送:`, result);
+
+    } catch (error: any) {
+      console.error(`❌ [Extension] 发布失败:`, error);
+      throw error;
+    }
+  }
+
+
 
   /**
    * 清理 Supabase Storage 中的图片
@@ -2202,19 +2197,26 @@ export class AutoContentManager {
   }
 
   private shouldFallbackToDemo(error: any): boolean {
+    console.log('[DEBUG] Checking fallback to demo for error:', error.message, error.status, error.response?.status);
     const message = (error?.message || '').toLowerCase();
     const anthropicStatus = error?.status || error?.response?.status;
 
-    return (
+    const result = (
+      anthropicStatus === 401 ||
       anthropicStatus === 403 ||
+      message.includes('401') ||
+      message.includes('unauthorized') ||
       message.includes('request not allowed') ||
       message.includes('forbidden') ||
       message.includes('rate limit') ||
       message.includes('overloaded')
     );
+    console.log('[DEBUG] Fallback result:', result);
+    return result;
   }
 
   private async useDemoPlan(userProfile: UserProfile): Promise<void> {
+    console.log('[DEBUG] Starting useDemoPlan for user:', userProfile.userId);
     const strategy = this.getDefaultStrategy();
     const weeklyPlan = this.getDefaultWeeklyPlan();
 
@@ -2575,8 +2577,8 @@ export class AutoContentManager {
           const errorMsg = error.message || String(error);
 
           if (errorMsg.includes('Converting circular structure to JSON') ||
-              errorMsg.includes('circular') ||
-              error.status === 500) {
+            errorMsg.includes('circular') ||
+            error.status === 500) {
             console.warn(`⚠️ [热门话题] MCP Binary序列化错误（已知问题）- 关键词 "${keyword}"`);
             console.warn(`   原因: xiaohongshu-mcp返回数据包含循环引用`);
             console.warn(`   影响: 跳过此关键词，继续处理其他关键词`);
