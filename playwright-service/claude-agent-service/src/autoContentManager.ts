@@ -2073,16 +2073,13 @@ export class AutoContentManager {
       };
 
       // 调用 xhs-worker API
-      const response = await fetch(`${this.xhsWorkerUrl}/api/v1/extension/publish?title=${encodeURIComponent(task.title)}&content=${encodeURIComponent(task.content)}&user_id=${encodeURIComponent(userId)}`, {
+      const response = await fetch(`${this.xhsWorkerUrl}/api/v1/extension/publish`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.workerSecret}`
         },
-        body: JSON.stringify({
-          images: imageUrls,
-          tags: task.hashtags
-        })
+        body: JSON.stringify(payload)
       });
 
       if (!response.ok) {
