@@ -62,7 +62,7 @@ const browserSessionManager = new BrowserSessionManager(30 * 60 * 1000);
 const autoContentManager = new AutoContentManager({
   anthropicKey: ANTHROPIC_API_KEY || '',
   imageService: imageService,
-  mcpClient: mcpAuthClient,
+  // mcpClient: mcpAuthClient, // Removed MCP client
   browserSessionManager: browserSessionManager,
   xhsWorkerUrl: process.env.XHS_WORKER_URL,
   workerSecret: process.env.WORKER_SECRET

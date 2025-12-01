@@ -68,7 +68,7 @@ interface PublishJob {
 export class AutoContentManager {
   private anthropic: Anthropic;
   private imageService: ImageGenerationService;
-  private mcpClient: any;
+  // private mcpClient: any; // Removed MCP client
   private supabase?: SupabaseClient;
   private db?: DatabaseService;  // 🔥 新增：数据库服务
   private playwrightPublisher: PlaywrightPublisher;
@@ -85,7 +85,10 @@ export class AutoContentManager {
   private xhsWorkerUrl?: string;
   private workerSecret?: string;
 
+
   constructor(config: {
+    anthropicKey: string;
+    imageService: ImageGenerationService;
     browserSessionManager: BrowserSessionManager;
     xhsWorkerUrl?: string;
     workerSecret?: string;
@@ -94,7 +97,7 @@ export class AutoContentManager {
       apiKey: config.anthropicKey,
     });
     this.imageService = config.imageService;
-    this.mcpClient = config.mcpClient;
+    // this.mcpClient = config.mcpClient; // Removed MCP client
     this.allowDemoMode = process.env.ALLOW_DEMO_MODE !== 'false';
     this.xhsWorkerUrl = config.xhsWorkerUrl;
     this.workerSecret = config.workerSecret;
@@ -282,7 +285,7 @@ export class AutoContentManager {
 
               console.log(`📂 [DB] 已恢复用户数据: ${userId}`);
               this.initializeUserActivities(userId);
-              await this.updateTrendingTopicsIfMissing(userId);
+              // await this.updateTrendingTopicsIfMissing(userId); // Removed MCP call
             } catch (error) {
               console.error(`❌ [DB] 恢复用户 ${userId} 数据失败:`, error);
             }
@@ -347,7 +350,7 @@ export class AutoContentManager {
 
           console.log(`📂 [FS] 已恢复用户数据: ${userId}`);
           this.initializeUserActivities(userId);
-          await this.updateTrendingTopicsIfMissing(userId);
+          // await this.updateTrendingTopicsIfMissing(userId); // Removed MCP call
 
           // 🔥 迁移：将文件数据保存到数据库（如果数据库可用且有映射）
           if (this.db) {
@@ -788,6 +791,8 @@ export class AutoContentManager {
 
       console.log('📋 [DEBUG] 解析后的策略数据:', JSON.stringify(strategy, null, 2));
 
+      // Removed MCP trending topics fetching
+      /*
       // 尝试从小红书获取真实的热门话题
       if (strategy.keyThemes && strategy.keyThemes.length > 0) {
         const realTrending = await this.fetchRealTrendingTopics(profile.userId, strategy.keyThemes);
@@ -796,6 +801,7 @@ export class AutoContentManager {
           console.log('✅ [热门话题] 已更新为真实热门话题:', realTrending);
         }
       }
+      */
 
       return strategy;
     } catch (error) {
@@ -2543,6 +2549,7 @@ export class AutoContentManager {
   /**
    * 从小红书获取真实的热门话题
    */
+  /*
   private async fetchRealTrendingTopics(userId: string, keywords: string[]): Promise<string[]> {
     try {
       if (!this.mcpClient) {
@@ -2601,10 +2608,12 @@ export class AutoContentManager {
       return [];
     }
   }
+  */
 
   /**
    * 为现有用户更新热门话题（如果缺失的话）
    */
+  /*
   private async updateTrendingTopicsIfMissing(userId: string): Promise<void> {
     const plan = this.contentPlans.get(userId);
     if (plan && plan.strategy && (!plan.strategy.trendingTopics || plan.strategy.trendingTopics.length === 0)) {
@@ -2624,6 +2633,7 @@ export class AutoContentManager {
       console.log(`📊 为用户 ${userId} 添加了热门话题:`, trendingTopics);
     }
   }
+  */
 
   /**
    * 批准并发布内容 - 已弃用
