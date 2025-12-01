@@ -2021,13 +2021,15 @@ export class AutoContentManager {
   private async publishContent(userId: string, task: DailyTask, imageUrls: string[]): Promise<void> {
     try {
       console.log(`🚀 [发布] 开始发布任务: ${task.title}`);
+      console.log(`🔍 [发布] 配置检查: xhsWorkerUrl=${this.xhsWorkerUrl ? '已配置' : '未配置'}, workerSecret=${this.workerSecret ? '已配置' : '未配置'}`);
 
       // 优先尝试通过 Chrome Extension 发布 (xhs-worker)
       if (this.xhsWorkerUrl && this.workerSecret) {
-        console.log(`🚀 [发布] 使用 Chrome Extension 发布 (xhs-worker)`);
+        console.log(`🚀 [发布] ✅ 使用 Chrome Extension 发布 (xhs-worker)`);
+        console.log(`🌐 [发布] Worker URL: ${this.xhsWorkerUrl}`);
         await this.publishViaExtension(userId, task, imageUrls);
       } else {
-        console.log(`🚀 [发布] 使用本地 Playwright 发布`);
+        console.log(`🚀 [发布] ⚠️ 使用本地 Playwright 发布（xhsWorkerUrl 或 workerSecret 未配置）`);
         // 使用本地 PlaywrightPublisher 发布
         await this.playwrightPublisher.publishContent(userId, {
           title: task.title,
@@ -2061,7 +2063,15 @@ export class AutoContentManager {
     }
 
     try {
-      console.log(`🌐 [Extension] 调用 xhs-worker API: ${this.xhsWorkerUrl}/api/v1/extension/publish`);
+      // 移除尾部斜杠（如果存在）
+      const baseUrl = this.xhsWorkerUrl.endsWith('/')
+        ? this.xhsWorkerUrl.slice(0, -1)
+        : this.xhsWorkerUrl;
+
+      const apiUrl = `${baseUrl}/api/v1/extension/publish`;
+
+      console.log(`🌐 [Extension] 调用 xhs-worker API: ${apiUrl}`);
+      console.log(`🔑 [Extension] 使用 WORKER_SECRET (前6位): ${this.workerSecret?.substring(0, 6)}...`);
 
       // 准备请求数据
       const payload = {
@@ -2072,8 +2082,16 @@ export class AutoContentManager {
         user_id: userId
       };
 
+      console.log(`📦 [Extension] 请求数据:`, {
+        title: task.title,
+        contentLength: task.content.length,
+        imageCount: imageUrls.length,
+        tagCount: task.hashtags.length,
+        userId
+      });
+
       // 调用 xhs-worker API
-      const response = await fetch(`${this.xhsWorkerUrl}/api/v1/extension/publish`, {
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
