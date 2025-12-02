@@ -15,6 +15,7 @@ const MCP_BINARY = process.env.MCP_BINARY_PATH || './xiaohongshu-mcp';
 // 🔥 使用持久化卷目录，防止重启丢失Cookie
 const COOKIE_DIR = process.env.COOKIE_DIR || '/app/data/cookies';
 const HTTP_PORT = parseInt(process.env.HTTP_PORT || '3000');
+const CLAUDE_AGENT_URL = process.env.CLAUDE_AGENT_URL || 'http://127.0.0.1:8080';
 // 创建进程管理器
 const processManager = new XiaohongshuMCPProcessManager(MCP_BINARY, COOKIE_DIR);
 // 创建 Express 应用
@@ -39,6 +40,72 @@ app.get('/health', (_req, res) => {
 app.get('/stats', (_req, res) => {
     const stats = processManager.getStats();
     res.json(stats);
+});
+app.all('/proxy/*', async (req, res) => {
+    try {
+        const targetPath = req.url.replace(/^\/proxy\//, '');
+        const url = `${CLAUDE_AGENT_URL}/${targetPath}`;
+        const init = { method: req.method, headers: { 'Content-Type': 'application/json' } };
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+            init.body = JSON.stringify(req.body || {});
+        }
+        const r = await fetch(url, init);
+        const text = await r.text();
+        res.status(r.status).send(text);
+    }
+    catch (e) {
+        res.status(500).json({ error: String(e?.message || e) });
+    }
+});
+app.get('/frontend/xhs-test', (_req, res) => {
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>小红书发布测试</title><style>body{font-family:system-ui,-apple-system;max-width:820px;margin:40px auto;padding:0 20px}button{padding:8px 14px;margin-right:8px}input{padding:6px 8px;width:280px}</style></head><body>
+  <h2>小红书前端驱动发布测试</h2>
+  <div><label>用户ID: <input id="uid" value="local_test_user"></label></div>
+  <div style="margin:12px 0;">
+    <button onclick="checkStatus()">检查登录状态</button>
+    <button onclick="showQR()">显示扫码二维码</button>
+  </div>
+  <div id="status"></div>
+  <div id="qr"></div>
+  <hr>
+  <h3>批准发布</h3>
+  <div><label>任务ID(可选): <input id="tid" placeholder="例如: 1"></label></div>
+  <div style="margin:12px 0;"><button onclick="approve()">批准发布</button></div>
+  <div id="approve"></div>
+  <div id="poll"></div>
+  <script>
+    async function checkStatus(){
+      const uid=document.getElementById('uid').value.trim();
+      const r=await fetch('/proxy/api/xiaohongshu/login/status?userId='+encodeURIComponent(uid));
+      const t=await r.text();
+      document.getElementById('status').textContent=t;
+    }
+    async function showQR(){
+      const uid=document.getElementById('uid').value.trim();
+      const r=await fetch('/proxy/api/xiaohongshu/login/qrcode?userId='+encodeURIComponent(uid));
+      const j=await r.json();
+      const img=j.data?.img||j.img||'';
+      document.getElementById('qr').innerHTML=img?('<img src="'+img+'" style="max-width:320px;border:1px solid #ddd">'):'无二维码';
+    }
+    async function approve(){
+      const uid=document.getElementById('uid').value.trim();
+      const tid=document.getElementById('tid').value.trim();
+      const r=await fetch('/proxy/agent/auto/approve/'+encodeURIComponent(uid),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(tid?{taskId:tid}:{})});
+      const j=await r.json();
+      document.getElementById('approve').textContent=JSON.stringify(j);
+      if(j.success&&j.jobId){ poll(uid,j.jobId); }
+    }
+    async function poll(uid,job){
+      const el=document.getElementById('poll');
+      el.textContent='';
+      const iv=setInterval(async()=>{
+        const r=await fetch('/proxy/agent/auto/publish-status/'+job+'?userId='+encodeURIComponent(uid));
+        const j=await r.json();
+        el.textContent=JSON.stringify(j);
+        if(j.success && (j.status==='completed'||j.status==='failed')) clearInterval(iv);
+      },3000);
+    }
+  </script></body></html>`);
 });
 // 调用MCP工具（通用接口）
 app.post('/mcp/call', async (req, res) => {
@@ -113,8 +180,13 @@ app.post('/mcp/call', async (req, res) => {
 app.get('/api/xiaohongshu/login/status', async (req, res) => {
     try {
         const userId = req.query.userId || req.headers['x-user-id'];
+        const forceQr = req.query.force_qr === '1' || req.query.mode === 'strict';
         if (!userId) {
             return res.status(400).json({ error: 'userId is required' });
+        }
+        if (forceQr) {
+            processManager.setSkipDbCookieLoad(userId, true);
+            await processManager.clearUserCookies(userId);
         }
         const result = await processManager.callTool(userId, '/api/v1/login/status', 'GET');
         res.json(result);
@@ -127,10 +199,29 @@ app.get('/api/xiaohongshu/login/status', async (req, res) => {
 app.get('/api/xiaohongshu/login/qrcode', async (req, res) => {
     try {
         const userId = req.query.userId || req.headers['x-user-id'];
+        const forceQr = req.query.force_qr === '1' || req.query.mode === 'strict';
         if (!userId) {
             return res.status(400).json({ error: 'userId is required' });
         }
+        if (forceQr) {
+            processManager.setSkipDbCookieLoad(userId, true);
+            await processManager.clearUserCookies(userId);
+        }
         const result = await processManager.callTool(userId, '/api/v1/login/qrcode', 'GET');
+        res.json(result);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// 便捷API：获取验证二维码（预登录人机验证）
+app.get('/api/xiaohongshu/login/verification-qrcode', async (req, res) => {
+    try {
+        const userId = req.query.userId || req.headers['x-user-id'];
+        if (!userId) {
+            return res.status(400).json({ error: 'userId is required' });
+        }
+        const result = await processManager.callTool(userId, '/api/v1/login/verification-qrcode', 'GET');
         res.json(result);
     }
     catch (error) {
@@ -480,7 +571,26 @@ app.post('/api/xiaohongshu/logout', async (req, res) => {
             }
         }
         console.log(`[Logout] ✅ Logout completed for user ${userId}. Deleted ${filesToDelete.length} files/directories.`);
-        // 5. 🔥 清理rod浏览器的UserDataDir（关键！防止浏览器缓存残留Cookie）
+        // 5. 🔥 清理数据库中的Cookie（关键！防止从数据库重新加载旧Cookie）
+        try {
+            console.log(`[Logout] 🗑️  开始清理数据库Cookie...`);
+            const axios = await import('axios');
+            // 🔥 调用后端服务删除数据库Cookie
+            const backendUrl = process.env.CLAUDE_AGENT_URL
+                || process.env.BACKEND_URL
+                || 'https://xiaohongshu-automation-ai.zeabur.app';
+            const deleteResponse = await axios.default.post(`${backendUrl}/agent/xiaohongshu/delete-cookies-from-db`, { userId }, { timeout: 10000, headers: { 'Content-Type': 'application/json' } });
+            if (deleteResponse.data?.success) {
+                console.log(`[Logout] ✅ 数据库Cookie删除成功`);
+            }
+            else {
+                console.warn(`[Logout] ⚠️  数据库Cookie删除失败: ${deleteResponse.data?.error || 'Unknown error'}`);
+            }
+        }
+        catch (dbDeleteError) {
+            console.warn(`[Logout] ⚠️  数据库Cookie删除失败:`, dbDeleteError instanceof Error ? dbDeleteError.message : String(dbDeleteError));
+        }
+        // 6. 🔥 清理rod浏览器的UserDataDir（关键！防止浏览器缓存残留Cookie）
         try {
             const { exec } = await import('child_process');
             const { promisify } = await import('util');
@@ -510,7 +620,7 @@ app.post('/api/xiaohongshu/logout', async (req, res) => {
         catch (userDataError) {
             console.warn(`[Logout] UserDataDir清理失败: ${userDataError instanceof Error ? userDataError.message : String(userDataError)}`);
         }
-        // 6. 验证清理结果
+        // 7. 验证清理结果
         const remainingFiles = [];
         for (const basePath of allPossibleCookiePaths) {
             try {

@@ -14,6 +14,7 @@ import ImageGenerationService from './imageGenerationService.js';
 import { CookieOrchestrator } from './cookieOrchestrator.js';
 import { AutoCookieImporter } from './autoCookieImporter.js';
 import { MCPAuthClient } from './mcpAuthClient.js';
+import { BrowserSessionManager } from './browserSessionManager.js';
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,10 +22,7 @@ const __dirname = path.dirname(__filename);
 const PORT = parseInt(process.env.PORT || '8080');
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 if (!ANTHROPIC_API_KEY || ANTHROPIC_API_KEY === 'demo-key') {
-    console.error('Error: A valid ANTHROPIC_API_KEY is required');
-    console.error('Please set a real Anthropic API key in your environment variables.');
-    console.error('Example: export ANTHROPIC_API_KEY=sk-ant-...');
-    process.exit(1);
+    console.warn('[Startup] ANTHROPIC_API_KEY missing or demo-key. Running in degraded mode: content generation disabled, login/publish via MCP available.');
 }
 // MCP Router URL配置 - 支持生产环境和本地开发
 const MCP_ROUTER_URL = process.env.MCP_ROUTER_URL || 'http://127.0.0.1:3000';
@@ -38,18 +36,23 @@ const imageService = new ImageGenerationService({
 });
 // 创建 Claude Agent (HTTP版本)
 const agent = new ClaudeAgentHTTP({
-    apiKey: ANTHROPIC_API_KEY,
+    apiKey: ANTHROPIC_API_KEY || '',
     model: process.env.CLAUDE_MODEL,
     maxTokens: parseInt(process.env.MAX_TOKENS || '4096'),
     mcpRouterURL: MCP_ROUTER_URL,
 });
 // 创建MCP客户端
 const mcpAuthClient = new MCPAuthClient(MCP_ROUTER_URL);
+// 🔥 Initialize BrowserSessionManager (30min session timeout)
+const browserSessionManager = new BrowserSessionManager(30 * 60 * 1000);
 // 创建自动内容管理器
 const autoContentManager = new AutoContentManager({
-    anthropicKey: ANTHROPIC_API_KEY,
+    anthropicKey: ANTHROPIC_API_KEY || '',
     imageService: imageService,
-    mcpClient: mcpAuthClient
+    // mcpClient: mcpAuthClient, // Removed MCP client
+    browserSessionManager: browserSessionManager,
+    xhsWorkerUrl: process.env.XHS_WORKER_URL,
+    workerSecret: process.env.WORKER_SECRET
 });
 // 创建Cookie协调器
 const cookieOrchestrator = new CookieOrchestrator(MCP_ROUTER_URL);
@@ -136,11 +139,13 @@ async function ensurePlaywrightChromiumInstalled() {
     }
 }
 class PlaywrightLoginManager {
-    persistFn;
     sessions = new Map();
     timeoutMs;
-    constructor(persistFn, timeoutMs = 3 * 60 * 1000) {
+    persistFn;
+    browserSessionManager;
+    constructor(persistFn, browserSessionManager, timeoutMs = 3 * 60 * 1000) {
         this.persistFn = persistFn;
+        this.browserSessionManager = browserSessionManager;
         this.timeoutMs = timeoutMs;
     }
     async startLogin(userId) {
@@ -186,7 +191,7 @@ class PlaywrightLoginManager {
         const tempDirPattern = `/tmp/playwright-${userId}-*`;
         console.log(`[PlaywrightLogin] 🧹 清理旧的临时目录: ${tempDirPattern}`);
         try {
-            const { execSync } = require('child_process');
+            const { execSync } = await import('child_process');
             execSync(`rm -rf ${tempDirPattern}`, { stdio: 'ignore' });
             console.log(`[PlaywrightLogin] ✅ 旧临时目录已清理`);
         }
@@ -197,13 +202,13 @@ class PlaywrightLoginManager {
         const tempUserDataDir = `/tmp/playwright-${userId}-${Date.now()}`;
         console.log(`[PlaywrightLogin] 创建新的用户数据目录: ${tempUserDataDir}`);
         const context = await chromium.launchPersistentContext(tempUserDataDir, {
-            headless: false, // 🔥 改为非无头模式，让用户可以看到和操作
+            headless: true, // ✅ 使用headless模式以支持无显示环境
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
-                '--single-process'
+                '--disable-dev-tools'
             ],
             viewport: { width: 1200, height: 900 },
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -211,26 +216,34 @@ class PlaywrightLoginManager {
         });
         const browser = context.browser();
         const page = await context.newPage();
-        await page.goto('https://www.xiaohongshu.com/login', {
+        await page.goto('https://creator.xiaohongshu.com/login', {
             waitUntil: 'networkidle',
             timeout: 45000
         });
+        // 🔥 跳过登录检测以避免在headless模式下阻塞
+        // 由于我们已经在启动前清理了所有旧的临时目录，不应该有残留的登录状态
+        /*
         // 🔥 关键功能：检测是否已登录并引导用户退出
         const isLoggedIn = await this.checkIfAlreadyLoggedIn(page);
+    
         if (isLoggedIn) {
-            console.log('[PlaywrightLogin] 检测到已登录账号，引导用户手动退出');
-            await this.showLogoutGuidance(page);
-            const result = await this.waitForUserLogout(page);
-            if (result === 'canceled') {
-                await context.close();
-                throw new Error('用户取消了登录操作');
-            }
-            console.log('[PlaywrightLogin] 用户已完成退出登录，继续登录流程');
-            // 刷新到登录页面
-            await page.goto('https://www.xiaohongshu.com/login', {
-                waitUntil: 'networkidle'
-            });
+          console.log('[PlaywrightLogin] 检测到已登录账号，引导用户手动退出');
+          await this.showLogoutGuidance(page);
+    
+          const result = await this.waitForUserLogout(page);
+    
+          if (result === 'canceled') {
+            await context.close();
+            throw new Error('用户取消了登录操作');
+          }
+    
+          console.log('[PlaywrightLogin] 用户已完成退出登录，继续登录流程');
+          // 刷新到登录页面
+          await page.goto('https://creator.xiaohongshu.com/login', {
+            waitUntil: 'networkidle'
+          });
         }
+        */
         try {
             const scanButton = page.locator('text=扫码登录');
             if (await scanButton.count() > 0) {
@@ -470,47 +483,110 @@ class PlaywrightLoginManager {
     }
     async captureQRCode(page) {
         try {
-            await page.waitForTimeout(1500);
+            console.log('[PlaywrightLogin] Waiting for QR code to render...');
+            await page.waitForTimeout(3000);
+            // Strategy 1: Specific selectors (Standard & SVG)
+            const selectors = [
+                'canvas',
+                'svg', // XHS might use SVG
+                '.qrcode-img',
+                '.login-qrcode',
+                'img[src*="qrcode"]',
+                'img[src*="qr"]',
+                '[class*="qr"][class*="code"]', // Generic class match
+                '.login-container .qrcode-img img' // From xpzouying/xiaohongshu-mcp
+            ];
+            for (const selector of selectors) {
+                try {
+                    const locator = page.locator(selector);
+                    const count = await locator.count();
+                    if (count > 0) {
+                        console.log(`[PlaywrightLogin] Found selector '${selector}', count: ${count}`);
+                        for (let i = 0; i < count; i++) {
+                            const element = locator.nth(i);
+                            const box = await element.boundingBox();
+                            if (box && box.width >= 100 && box.height >= 100) {
+                                console.log(`[PlaywrightLogin] Capturing QR from '${selector}' (size: ${box.width}x${box.height})`);
+                                const buffer = await element.screenshot({ omitBackground: true });
+                                if (buffer.length > 1000) {
+                                    return `data:image/png;base64,${buffer.toString('base64')}`;
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (e) {
+                    console.warn(`[PlaywrightLogin] Error checking selector '${selector}':`, e);
+                }
+            }
+            // Strategy 2: Text Anchor Heuristic (Find "Scan" text and look above it)
+            console.log('[PlaywrightLogin] Selectors failed, trying text anchor heuristic...');
+            try {
+                // Find text containing "扫码" or "微信"
+                const textLocator = page.getByText(/扫码|微信|WeChat/i).first();
+                if (await textLocator.isVisible()) {
+                    const textBox = await textLocator.boundingBox();
+                    if (textBox) {
+                        console.log(`[PlaywrightLogin] Found anchor text at y=${textBox.y}`);
+                        // Define a region above the text to look for the QR code
+                        // Assuming QR code is roughly 200x200 and sits above the text
+                        const searchRegion = {
+                            x: Math.max(0, textBox.x + textBox.width / 2 - 150), // Center horizontally
+                            y: Math.max(0, textBox.y - 300), // Look up to 300px above
+                            width: 300,
+                            height: 300
+                        };
+                        // Take a screenshot of this region
+                        console.log(`[PlaywrightLogin] Capturing region above text:`, searchRegion);
+                        const buffer = await page.screenshot({ clip: searchRegion });
+                        return `data:image/png;base64,${buffer.toString('base64')}`;
+                    }
+                }
+            }
+            catch (e) {
+                console.warn('[PlaywrightLogin] Text anchor strategy failed:', e);
+            }
+            // Strategy 3: Generic Image Search (Filtered)
+            console.log('[PlaywrightLogin] Text anchor failed, searching all images...');
             const dataUrl = await page.evaluate(() => {
                 const doc = globalThis.document;
                 if (!doc)
                     return null;
                 const imgs = Array.from(doc.querySelectorAll('img'));
-                const candidate = imgs.find((img) => {
+                const candidates = imgs
+                    .map((img) => {
                     const src = (img?.getAttribute ? img.getAttribute('src') : img?.src) || '';
-                    if (!src)
-                        return false;
-                    const lower = String(src).toLowerCase();
-                    return lower.startsWith('data:image') || lower.includes('qrcode') || lower.includes('qr-code');
-                });
-                if (!candidate)
-                    return null;
-                const getSrc = candidate.getAttribute ? candidate.getAttribute('src') : candidate.src;
-                return getSrc || null;
+                    const width = img.width || img.clientWidth || 0;
+                    const height = img.height || img.clientHeight || 0;
+                    if (width < 100 || height < 100)
+                        return null;
+                    if (src.includes('logo') || src.includes('icon'))
+                        return null;
+                    return {
+                        src,
+                        width,
+                        height
+                    };
+                })
+                    .filter(Boolean)
+                    .sort((a, b) => b.width * b.height - a.width * a.height); // Sort by area
+                if (candidates.length > 0 && candidates[0]) {
+                    console.log('[QR Search] Found candidate:', candidates[0]);
+                    return candidates[0].src;
+                }
+                return null;
             });
             if (dataUrl && dataUrl.startsWith('data:image')) {
+                console.log('[PlaywrightLogin] ✅ Found QR code from generic image search');
                 return dataUrl;
             }
-            const selectors = ['canvas', 'img', '.login-qrcode', '.qrcode-img', '[class*="qr" i]'];
-            for (const selector of selectors) {
-                const locator = page.locator(selector).first();
-                if (await locator.count() > 0) {
-                    try {
-                        const buffer = await locator.screenshot({ omitBackground: true });
-                        if (buffer?.length) {
-                            return `data:image/png;base64,${buffer.toString('base64')}`;
-                        }
-                    }
-                    catch (error) {
-                        // ignore and try next selector
-                    }
-                }
-            }
+            // Strategy 4: Full page screenshot as last resort
+            console.warn('[PlaywrightLogin] ⚠️ No QR code found, taking full page screenshot');
             const fallback = await page.screenshot({ fullPage: true });
             return `data:image/png;base64,${fallback.toString('base64')}`;
         }
         catch (error) {
-            console.error('[PlaywrightLogin] 捕获二维码失败，使用页面截图:', error instanceof Error ? error.message : error);
+            console.error('[PlaywrightLogin] Capture failed:', error);
             const fallback = await page.screenshot({ fullPage: true });
             return `data:image/png;base64,${fallback.toString('base64')}`;
         }
@@ -545,12 +621,21 @@ class PlaywrightLoginManager {
         session.status = 'success';
         try {
             await this.persistFn(session.userId, cookies, 'playwright');
+            // 🔥 NEW: Register persistent session instead of closing browser
+            if (session.context && session.userDataDir) {
+                console.log(`[PlaywrightLogin] ✅ Registering persistent session for ${session.userId}`);
+                await this.browserSessionManager.registerSession(session.userId, session.context, session.userDataDir);
+                // Remove from local sessions map but DON'T close the browser
+                this.sessions.delete(session.userId);
+            }
+            else {
+                console.warn(`[PlaywrightLogin] ⚠️ Missing context/userDataDir, falling back to old behavior`);
+                await this.disposeSession(session.userId);
+            }
         }
         catch (error) {
             console.error('[PlaywrightLogin] 保存Cookie失败:', error instanceof Error ? error.message : error);
             session.error = error instanceof Error ? error.message : String(error);
-        }
-        finally {
             await this.disposeSession(session.userId);
         }
     }
@@ -653,7 +738,7 @@ class PlaywrightLoginManager {
 }
 const playwrightLoginManager = new PlaywrightLoginManager(async (userId, cookies, source = 'playwright') => {
     await persistUserCookies(userId, cookies, source);
-});
+}, browserSessionManager);
 const app = express();
 app.use(express.json());
 // 配置静态文件服务 - 提供图片访问
@@ -667,12 +752,18 @@ app.use((req, res, next) => {
         'http://localhost:3000'
     ];
     const origin = req.headers.origin;
+    console.log(`[CORS] Request from origin: ${origin}, path: ${req.path}`);
     if (origin && allowedOrigins.includes(origin)) {
         res.header('Access-Control-Allow-Origin', origin);
+        console.log(`[CORS] ✅ Allowed origin: ${origin}`);
     }
     else if (!origin) {
         // 非浏览器请求（如 Postman）
         res.header('Access-Control-Allow-Origin', '*');
+        console.log(`[CORS] No origin header, allowing all`);
+    }
+    else {
+        console.log(`[CORS] ❌ Blocked origin: ${origin}`);
     }
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
@@ -680,6 +771,7 @@ app.use((req, res, next) => {
     res.header('Access-Control-Max-Age', '86400'); // 24小时缓存 preflight
     // 处理 OPTIONS 预检请求
     if (req.method === 'OPTIONS') {
+        console.log(`[CORS] OPTIONS preflight request for ${req.path}`);
         return res.status(200).end();
     }
     next();
@@ -1289,6 +1381,122 @@ app.post('/agent/auto/approve/:userId', async (req, res) => {
         });
     }
 });
+// ============ 为浏览器插件提供发布数据（postMessage 方案）============
+/**
+ * 获取发布数据供浏览器插件使用
+ * 前端调用此端点获取完整的发布数据，然后通过 postMessage 发送给插件
+ */
+app.post('/agent/auto/approve-for-extension/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { taskId } = req.body;
+        console.log(`🔌 [插件发布] 获取发布数据，user ${userId}, task ${taskId}`);
+        // 获取任务数据
+        const dailyTasks = autoContentManager.getDailyTasks(userId);
+        if (!dailyTasks || dailyTasks.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: '没有找到待发布的任务'
+            });
+        }
+        // 找到指定任务 (taskId 从 1 开始)
+        const taskIndex = taskId
+            ? parseInt(taskId) - 1
+            : dailyTasks.findIndex((t) => t.status === 'ready');
+        if (taskIndex < 0 || taskIndex >= dailyTasks.length) {
+            return res.status(404).json({
+                success: false,
+                error: `找不到任务 ${taskId}`
+            });
+        }
+        const task = dailyTasks[taskIndex];
+        // 构建发布数据（插件需要的格式）
+        const publishData = {
+            taskId: taskId || (taskIndex + 1).toString(),
+            title: task.title || '',
+            content: task.content || '',
+            images: task.imageUrls || task.image_urls || [],
+            tags: task.hashtags || task.tags || [],
+            video: task.videoUrl || task.video_url || null,
+            videos: task.videoUrls || task.video_urls || []
+        };
+        console.log(`✅ [插件发布] 返回发布数据:`, {
+            taskId: publishData.taskId,
+            title: publishData.title.substring(0, 30) + '...',
+            imageCount: publishData.images.length,
+            tagCount: publishData.tags.length
+        });
+        res.json({
+            success: true,
+            publishData,
+            message: '请在小红书发布页面完成发布'
+        });
+    }
+    catch (error) {
+        console.error('❌ [插件发布] 获取数据失败:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || '获取发布数据失败'
+        });
+    }
+});
+/**
+ * 更新任务状态（插件发布完成后调用）
+ */
+app.post('/agent/auto/update-task-status/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { taskId, status, message } = req.body;
+        console.log(`📝 [任务状态] 更新任务状态: user ${userId}, task ${taskId}, status ${status}`);
+        // 验证参数
+        if (!taskId || !status) {
+            return res.status(400).json({
+                success: false,
+                error: '缺少必要参数: taskId, status'
+            });
+        }
+        // 获取任务
+        const dailyTasks = autoContentManager.getDailyTasks(userId);
+        if (!dailyTasks || dailyTasks.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: '没有找到任务'
+            });
+        }
+        // 找到并更新任务
+        const taskIndex = parseInt(taskId) - 1;
+        if (taskIndex < 0 || taskIndex >= dailyTasks.length) {
+            return res.status(404).json({
+                success: false,
+                error: `找不到任务 ${taskId}`
+            });
+        }
+        // 更新任务状态
+        const task = dailyTasks[taskIndex];
+        task.status = status;
+        // 记录活动
+        if (autoContentManager.addRealTimeActivity) {
+            autoContentManager.addRealTimeActivity(userId, `📝 任务 "${task.title}" 状态更新为 ${status}${message ? `: ${message}` : ''}`, 'execution');
+        }
+        console.log(`✅ [任务状态] 更新成功: task ${taskId} -> ${status}`);
+        res.json({
+            success: true,
+            message: '状态已更新',
+            data: {
+                taskId,
+                newStatus: status,
+                taskTitle: task.title
+            }
+        });
+    }
+    catch (error) {
+        console.error('❌ [任务状态] 更新失败:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || '更新状态失败'
+        });
+    }
+});
 // 🚀 查询发布作业状态（轮询用）
 app.get('/agent/auto/publish-status/:jobId', async (req, res) => {
     try {
@@ -1712,8 +1920,7 @@ app.post('/agent/xiaohongshu/auto-login', async (req, res) => {
         let playwrightFallbackError = null;
         try {
             const axios = await import('axios');
-            const qrResponse = await axios.default.get(`${MCP_ROUTER_URL}/api/xiaohongshu/login/qrcode?userId=${userId}`, { timeout: 45000 } // 45秒超时：浏览器启动(5s) + 页面加载(3s) + 二维码生成(2s) + 缓冲(35s)
-            );
+            const qrResponse = await axios.default.get(`${MCP_ROUTER_URL}/api/xiaohongshu/login/qrcode?userId=${userId}`, { timeout: 5000 });
             // 🔧 适配MCP Go响应结构：
             // MCP Go返回被包装为: { success: true, data: { img: "...", timeout: "...", is_logged_in: false }, message: "..." }
             // 所以二维码在 qrResponse.data.data.img
@@ -1826,6 +2033,51 @@ app.post('/agent/xiaohongshu/auto-login', async (req, res) => {
             success: false,
             error: error.message || 'Popup QR login failed',
         });
+    }
+});
+// 🔥 QR Code Generation Endpoint
+app.get('/agent/xiaohongshu/login/qr', async (req, res) => {
+    try {
+        const userId = req.query.userId;
+        if (!userId) {
+            return res.status(400).json({ success: false, error: 'userId is required' });
+        }
+        console.log(`[QR Endpoint] Generating QR code for user ${userId}`);
+        // 1. Try MCP Router first
+        try {
+            const axios = await import('axios');
+            const qrResponse = await axios.default.get(`${MCP_ROUTER_URL}/api/xiaohongshu/login/qrcode?userId=${userId}`, { timeout: 45000 });
+            const qrCodeImage = qrResponse.data?.data?.img || qrResponse.data?.img || qrResponse.data?.qrcode_url;
+            if (qrCodeImage) {
+                console.log(`[QR Endpoint] Got QR from MCP Router`);
+                return res.json({
+                    success: true,
+                    data: { qrcode_url: qrCodeImage }
+                });
+            }
+        }
+        catch (e) {
+            console.warn(`[QR Endpoint] MCP Router failed, trying fallback:`, e instanceof Error ? e.message : e);
+        }
+        // 2. Fallback to Playwright
+        try {
+            const result = await playwrightLoginManager.startLogin(userId);
+            if (result && result.qrImage) {
+                console.log(`[QR Endpoint] Got QR from Playwright fallback`);
+                return res.json({
+                    success: true,
+                    data: { qrcode_url: result.qrImage }
+                });
+            }
+        }
+        catch (e) {
+            console.error(`[QR Endpoint] Playwright fallback failed:`, e);
+        }
+        res.status(500).json({ success: false, error: 'Failed to generate QR code' });
+    }
+    catch (error) {
+        console.error('[QR Endpoint] Error:', error);
+        res.status(500).json({ success: false, error: 'Internal server error' });
     }
 });
 // 手动提交Cookie（用于Zeabur等云端环境）
@@ -2057,398 +2309,175 @@ app.get('/agent/xiaohongshu/logout-status', async (req, res) => {
     }
 });
 // 🔥 强制清除Cookie并准备重新登录
+// 🔥 Shared Cleanup Function
+async function performComprehensiveCleanup(userId) {
+    const cleanedItems = [];
+    console.log(`[Cleanup] 🧹 Starting comprehensive cleanup for user ${userId}`);
+    // 1. Stop AutoCookieImporter
+    try {
+        autoCookieImporter.notifyUserLogout(userId);
+        cleanedItems.push('AutoCookieImporter stopped');
+    }
+    catch (error) {
+        console.warn(`[Cleanup] ⚠️  AutoCookieImporter stop failed:`, error);
+    }
+    // 2. Activate GlobalLogoutState
+    try {
+        const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+        globalLogoutState.notifyUserLogout(userId);
+        cleanedItems.push('GlobalLogoutState activated');
+    }
+    catch (error) {
+        console.warn(`[Cleanup] ⚠️  GlobalLogoutState activation failed:`, error);
+    }
+    // 3. Clear CookieManager (Encrypted Storage)
+    try {
+        const { CookieManager } = await import('./cookieManager.js');
+        const cookieManager = new CookieManager();
+        await cookieManager.deleteCookies(userId);
+        cleanedItems.push('CookieManager storage cleared');
+    }
+    catch (error) {
+        console.warn(`[Cleanup] ⚠️  CookieManager cleanup failed:`, error);
+    }
+    // 4. Clear CookieDatabaseService (DB Storage)
+    try {
+        const { CookieDatabaseService } = await import('./cookieDatabaseService.js');
+        const dbService = new CookieDatabaseService();
+        await dbService.deleteCookies(userId);
+        cleanedItems.push('CookieDatabaseService cleared');
+    }
+    catch (error) {
+        console.warn(`[Cleanup] ⚠️  CookieDatabaseService cleanup failed:`, error);
+    }
+    // 5. Force Cleanup PlaywrightLoginManager Sessions
+    try {
+        await playwrightLoginManager.forceCleanupAllSessions();
+        cleanedItems.push('PlaywrightLoginManager sessions cleared');
+    }
+    catch (error) {
+        console.warn(`[Cleanup] ⚠️  PlaywrightLoginManager cleanup failed:`, error);
+    }
+    // 6. Close Persistent Browser Session (BrowserSessionManager)
+    try {
+        await browserSessionManager.closeSession(userId);
+        cleanedItems.push('BrowserSessionManager session closed');
+    }
+    catch (error) {
+        console.warn(`[Cleanup] ⚠️  BrowserSessionManager cleanup failed:`, error);
+    }
+    // 7. Clear AutoContentManager Data
+    try {
+        autoContentManager.clearUserData(userId);
+        cleanedItems.push('AutoContentManager data cleared');
+    }
+    catch (error) {
+        console.warn(`[Cleanup] ⚠️  AutoContentManager cleanup failed:`, error);
+    }
+    // 8. 🔥 CRITICAL: Delete Raw Cookie Files (The "7 Paths")
+    try {
+        const path = await import('path');
+        const fs = await import('fs');
+        const { execSync } = await import('child_process');
+        // 8a. Playwright Temp Dirs
+        const tempDirPattern = `/tmp/playwright-${userId}-*`;
+        const loginTempPattern = `/tmp/playwright-login-${userId}-*`;
+        try {
+            execSync(`rm -rf ${tempDirPattern}`, { stdio: 'ignore' });
+            execSync(`rm -rf ${loginTempPattern}`, { stdio: 'ignore' });
+            cleanedItems.push('Playwright temp directories');
+        }
+        catch (e) { /* ignore */ }
+        // 8b. Cookies Directory Files
+        const cookiesDir = path.join(process.cwd(), 'cookies');
+        if (fs.existsSync(cookiesDir)) {
+            const files = fs.readdirSync(cookiesDir);
+            for (const file of files) {
+                if (file.endsWith('.json') && (file.startsWith(userId) || file.startsWith('auto_'))) {
+                    const filePath = path.join(cookiesDir, file);
+                    fs.unlinkSync(filePath);
+                }
+            }
+        }
+        // 8c. Critical Paths
+        const criticalCookiePaths = [
+            path.join(process.cwd(), '..', 'mcp-router', 'cookies', userId, 'cookies.json'),
+            path.join(process.cwd(), '..', 'mcp-router', 'latest.json'),
+            path.join('/app', 'mcp-router', 'cookies', userId, 'cookies.json'),
+            path.join('/app', 'mcp-router', 'latest.json'),
+            path.join(process.cwd(), 'cookies', userId, 'cookies.json'),
+            path.join(process.cwd(), 'playwright-service', 'mcp-router', 'cookies', userId, 'cookies.json'),
+            path.join(process.cwd(), 'playwright-service', 'mcp-router', 'latest.json'),
+            '/app/data/cookies.json',
+            path.join(process.cwd(), 'data', `${userId}.json`) // User data file
+        ];
+        let deletedCount = 0;
+        for (const cookiePath of criticalCookiePaths) {
+            if (fs.existsSync(cookiePath)) {
+                try {
+                    fs.unlinkSync(cookiePath);
+                    deletedCount++;
+                }
+                catch (e) {
+                    console.warn(`Failed to delete ${cookiePath}`, e);
+                }
+            }
+        }
+        cleanedItems.push(`Raw cookie files (${deletedCount} deleted)`);
+    }
+    catch (error) {
+        console.warn(`[Cleanup] ⚠️  File system cleanup failed:`, error);
+    }
+    console.log(`[Cleanup] ✅ Comprehensive cleanup completed for ${userId}`);
+    return cleanedItems;
+}
 app.post('/agent/xiaohongshu/force-clear-cookies', async (req, res) => {
     try {
         const { userId } = req.body;
-        if (!userId) {
-            return res.status(400).json({
-                success: false,
-                error: 'userId is required',
-            });
-        }
-        console.log(`[Force Clear] 🧹 强制清除用户 ${userId} 的所有Cookie和状态`);
-        const cleanedItems = [];
-        // 1. 停止自动导入 (AutoCookieImporter)
-        try {
-            autoCookieImporter.notifyUserLogout(userId);
-            console.log(`[Force Clear] ✅ 已阻止 AutoCookieImporter 自动导入`);
-            cleanedItems.push('AutoCookieImporter 阻止');
-        }
-        catch (error) {
-            console.warn(`[Force Clear] ⚠️  阻止自动导入失败:`, error);
-        }
-        // 2. 激活全局退出保护 (GlobalLogoutState)
-        try {
-            const { globalLogoutState } = await import('./globalLogoutStateManager.js');
-            globalLogoutState.notifyUserLogout(userId);
-            console.log(`[Force Clear] ✅ 已激活全局退出保护`);
-            cleanedItems.push('全局退出保护激活');
-        }
-        catch (error) {
-            console.warn(`[Force Clear] ⚠️  激活全局保护失败:`, error);
-        }
-        // 3. 清理 CookieManager 加密存储
-        try {
-            const { CookieManager } = await import('./cookieManager.js');
-            const cookieManager = new CookieManager();
-            await cookieManager.deleteCookies(userId);
-            console.log(`[Force Clear] ✅ 已清除 CookieManager 加密存储`);
-            cleanedItems.push('CookieManager 加密存储');
-        }
-        catch (error) {
-            console.warn(`[Force Clear] ⚠️  清除 CookieManager 失败:`, error);
-        }
-        // 4. 清理 Playwright 会话 (FloatingLoginService)
-        try {
-            await playwrightLoginManager.forceCleanupAllSessions();
-            console.log(`[Force Clear] ✅ 已清理 Playwright 会话`);
-            cleanedItems.push('Playwright 会话');
-        }
-        catch (error) {
-            console.warn(`[Force Clear] ⚠️  清理 Playwright 失败:`, error);
-        }
-        // 5. 调用 MCP Router 强制清理端点 (清理符号链接、持久化卷、MCP进程)
+        if (!userId)
+            return res.status(400).json({ success: false, error: 'userId is required' });
+        console.log(`[Force Clear] 🧹 Processing force clear for ${userId}`);
+        // 1. Run local comprehensive cleanup
+        const cleanedItems = await performComprehensiveCleanup(userId);
+        // 2. Call MCP Router force-cleanup
         try {
             const axios = await import('axios');
-            const response = await axios.default.post(`${MCP_ROUTER_URL}/api/xiaohongshu/force-cleanup`, { userId }, { timeout: 10000 });
-            console.log(`[Force Clear] ✅ MCP Router 清理完成:`, response.data);
-            cleanedItems.push('MCP Router 完整清理');
+            await axios.default.post(`${MCP_ROUTER_URL}/api/xiaohongshu/force-cleanup`, { userId }, { timeout: 5000 });
+            cleanedItems.push('MCP Router force-cleanup called');
         }
         catch (error) {
-            console.warn(`[Force Clear] ⚠️  MCP Router 清理失败:`, error.message);
-            // 降级：尝试调用旧的 logout 端点
-            try {
-                const axios = await import('axios');
-                await axios.default.post(`${MCP_ROUTER_URL}/api/xiaohongshu/logout`, { userId }, { timeout: 5000 });
-                console.log(`[Force Clear] ✅ 已通过 logout 端点清理 MCP Router`);
-                cleanedItems.push('MCP Router logout');
-            }
-            catch (logoutError) {
-                console.warn(`[Force Clear] ⚠️  MCP Router logout 也失败:`, logoutError);
-            }
+            console.warn(`[Force Clear] ⚠️  MCP Router cleanup failed:`, error.message);
         }
-        // 6. 清除 AutoContentManager 数据 (Strategy, Plan, Status)
-        try {
-            autoContentManager.clearUserData(userId);
-            console.log(`[Force Clear] ✅ 已清除 AutoContentManager 数据 (Strategy, Plan, Status)`);
-            cleanedItems.push('AutoContentManager 数据');
-        }
-        catch (error) {
-            console.warn(`[Force Clear] ⚠️ 清除 AutoContentManager 数据失败:`, error);
-        }
-        // 7. 清理本地文件系统中的残留Cookie
-        try {
-            const cookiePaths = [
-                path.join(process.cwd(), 'cookies', userId, 'cookies.json'),
-                path.join(process.cwd(), '..', 'mcp-router', 'cookies', userId, 'cookies.json'),
-                path.join('/app/data/cookies', userId, 'cookies.json'),
-                path.join('/app/playwright-service/claude-agent-service/cookies', userId, 'cookies.json'),
-            ];
-            let filesCleaned = 0;
-            for (const cookiePath of cookiePaths) {
-                if (fs.existsSync(cookiePath)) {
-                    fs.writeFileSync(cookiePath, '[]', 'utf8');
-                    console.log(`[Force Clear] ✅ 已清空文件: ${cookiePath}`);
-                    filesCleaned++;
-                }
-            }
-            if (filesCleaned > 0) {
-                cleanedItems.push(`${filesCleaned} 个本地Cookie文件`);
-            }
-        }
-        catch (error) {
-            console.warn(`[Force Clear] ⚠️  清空本地文件失败:`, error);
-        }
-        // 8. 🔥 关键修复：清除 Supabase Cookie 数据库
-        try {
-            const { CookieDatabaseService } = await import('./cookieDatabaseService.js');
-            const dbService = new CookieDatabaseService();
-            await dbService.deleteCookies(userId);
-            console.log(`[Force Clear] ✅ 已清除 Supabase Cookie 数据库`);
-            cleanedItems.push('Supabase Cookie 数据库');
-        }
-        catch (error) {
-            console.warn(`[Force Clear] ⚠️  清除 Cookie 数据库失败:`, error);
-        }
-        res.json({
-            success: true,
-            message: '✅ 所有Cookie和状态已彻底清除',
-            userId,
-            cleaned: cleanedItems,
-            nextSteps: [
-                '1. 等待 60 秒（退出保护冷却期）',
-                '2. 访问 /login 页面重新扫码登录',
-                '3. 登录成功后即可正常使用'
-            ],
-            timestamp: new Date().toISOString()
-        });
+        res.json({ success: true, message: 'Force clear completed', data: { cleanedItems } });
     }
     catch (error) {
-        console.error('[Force Clear] ❌ 清除失败:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+        console.error('[Force Clear] ❌ Error:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 // 小红书登出API
 app.post('/agent/xiaohongshu/logout', async (req, res) => {
     try {
         const { userId } = req.body;
-        if (!userId) {
-            return res.status(400).json({
-                success: false,
-                error: 'userId is required',
-            });
-        }
-        console.log(`[XHS Logout] Processing logout request for user ${userId}`);
+        if (!userId)
+            return res.status(400).json({ success: false, error: 'userId is required' });
+        console.log(`[Logout] 🚪 Processing logout for ${userId}`);
+        // 1. Run local comprehensive cleanup
+        const cleanedItems = await performComprehensiveCleanup(userId);
+        // 2. Call MCP Router logout
         try {
-            // 调用 MCP Router 清除登录状态
             const axios = await import('axios');
-            const response = await axios.default.post(`${MCP_ROUTER_URL}/api/xiaohongshu/logout`, { userId }, {
-                timeout: 5000,
-                headers: { 'Content-Type': 'application/json' }
-            });
-            console.log(`[XHS Logout] MCP Router logout response:`, response.status);
-            // 🔥 关键修复：使用全局状态管理器阻止所有Cookie保存机制
-            try {
-                const { globalLogoutState } = await import('./globalLogoutStateManager.js');
-                globalLogoutState.notifyUserLogout(userId);
-                console.log(`[XHS Logout] ✅ 已启动全局退出保护机制，阻止所有Cookie保存机制为用户 ${userId} 重新保存`);
-                // 🔥 删除数据库中的Cookie
-                try {
-                    const { CookieDatabaseService } = await import('./cookieDatabaseService.js');
-                    const dbService = new CookieDatabaseService();
-                    await dbService.deleteCookies(userId);
-                    console.log(`[XHS Logout] ✅ 已删除数据库中的Cookie`);
-                }
-                catch (dbError) {
-                    console.error(`[XHS Logout] 删除数据库Cookie失败:`, dbError);
-                }
-                // 🔥 新增：强制清理PlaywrightLoginManager所有会话
-                await playwrightLoginManager.forceCleanupAllSessions();
-                console.log(`[XHS Logout] ✅ 已清理PlaywrightLoginManager所有会话，防止会话复用`);
-                // 🔥 FIX 3: 清理Playwright临时目录
-                // 问题：退出登录后，Playwright临时目录中的Cookie还在，导致弹出二维码时自动登录
-                const tempDirPattern = `/tmp/playwright-${userId}-*`;
-                const loginTempPattern = `/tmp/playwright-login-${userId}-*`;
-                console.log(`[XHS Logout] 🧹 清理Playwright临时目录: ${tempDirPattern} 和 ${loginTempPattern}`);
-                try {
-                    const { execSync } = require('child_process');
-                    execSync(`rm -rf ${tempDirPattern}`, { stdio: 'ignore' });
-                    execSync(`rm -rf ${loginTempPattern}`, { stdio: 'ignore' });
-                    console.log(`[XHS Logout] ✅ Playwright临时目录已清理`);
-                }
-                catch (cleanupError) {
-                    console.warn(`[XHS Logout] 清理Playwright临时目录失败:`, cleanupError);
-                }
-                // 🔥 FIX 4: 删除floatingLoginService保存的cookie文件
-                // 问题：floatingLoginService在登录时保存cookie到cookies/${userId}.json
-                // AutoCookieImporter每15秒检测到这个文件就会自动导入，导致自动重新登录
-                try {
-                    const path = await import('path');
-                    const fs = await import('fs');
-                    const cookiesDir = path.join(process.cwd(), 'cookies');
-                    // 删除特定用户的cookie文件
-                    const userCookieFile = path.join(cookiesDir, `${userId}.json`);
-                    if (fs.existsSync(userCookieFile)) {
-                        fs.unlinkSync(userCookieFile);
-                        console.log(`[XHS Logout] ✅ 已删除cookie文件: ${userCookieFile}`);
-                    }
-                    // 清理所有可能的cookie文件（包括auto_*开头的）
-                    if (fs.existsSync(cookiesDir)) {
-                        const files = fs.readdirSync(cookiesDir);
-                        for (const file of files) {
-                            if (file.endsWith('.json') && (file.startsWith(userId) || file.startsWith('auto_'))) {
-                                const filePath = path.join(cookiesDir, file);
-                                fs.unlinkSync(filePath);
-                                console.log(`[XHS Logout] ✅ 已删除cookie文件: ${filePath}`);
-                            }
-                        }
-                    }
-                    // 🔥 关键修复：删除login/status检查的所有7个cookie路径
-                    // 问题：login/status会检查7个路径，但之前logout只删除了1个，导致残留cookie自动登录
-                    console.log(`[XHS Logout] 🔍 开始清理login/status检查的所有7个cookie路径...`);
-                    const criticalCookiePaths = [
-                        // 路径1: ../mcp-router/cookies/{userId}/cookies.json
-                        path.join(process.cwd(), '..', 'mcp-router', 'cookies', userId, 'cookies.json'),
-                        // 路径2: ../mcp-router/latest.json (最危险 - 不包含userId)
-                        path.join(process.cwd(), '..', 'mcp-router', 'latest.json'),
-                        // 路径3: /app/mcp-router/cookies/{userId}/cookies.json
-                        path.join('/app', 'mcp-router', 'cookies', userId, 'cookies.json'),
-                        // 路径4: /app/mcp-router/latest.json (最危险 - 不包含userId)
-                        path.join('/app', 'mcp-router', 'latest.json'),
-                        // 路径5: cookies/{userId}/cookies.json (已在上面删除，但再次确保)
-                        path.join(process.cwd(), 'cookies', userId, 'cookies.json'),
-                        // 路径6: playwright-service/mcp-router/cookies/{userId}/cookies.json
-                        path.join(process.cwd(), 'playwright-service', 'mcp-router', 'cookies', userId, 'cookies.json'),
-                        // 路径7: playwright-service/mcp-router/latest.json (最危险 - 不包含userId)
-                        path.join(process.cwd(), 'playwright-service', 'mcp-router', 'latest.json'),
-                        // 额外：Go后端的cookie文件
-                        '/app/data/cookies.json'
-                    ];
-                    let deletedCount = 0;
-                    for (const cookiePath of criticalCookiePaths) {
-                        try {
-                            if (fs.existsSync(cookiePath)) {
-                                fs.unlinkSync(cookiePath);
-                                deletedCount++;
-                                console.log(`[XHS Logout] ✅ 已删除关键cookie文件: ${cookiePath}`);
-                            }
-                            else {
-                                console.log(`[XHS Logout] ⏭️  文件不存在（跳过）: ${cookiePath}`);
-                            }
-                        }
-                        catch (deleteError) {
-                            console.warn(`[XHS Logout] ⚠️  删除失败: ${cookiePath}`, deleteError);
-                        }
-                    }
-                    console.log(`[XHS Logout] 📊 清理完成：共删除 ${deletedCount}/${criticalCookiePaths.length} 个关键cookie文件`);
-                }
-                catch (cookieFileError) {
-                    console.warn(`[XHS Logout] 清理cookie文件失败:`, cookieFileError);
-                }
-                // 同时通知AutoCookieImporter（双重保护）
-                autoCookieImporter.notifyUserLogout(userId);
-                console.log(`[XHS Logout] ✅ 已通知AutoCookieImporter阻止用户 ${userId} 的自动重新导入`);
-            }
-            catch (notifyError) {
-                console.warn(`[XHS Logout] 通知全局退出保护失败: ${notifyError instanceof Error ? notifyError.message : String(notifyError)}`);
-            }
-            res.json({
-                success: true,
-                message: 'Logout successful',
-                data: response.data
-            });
+            await axios.default.post(`${MCP_ROUTER_URL}/api/xiaohongshu/logout`, { userId }, { timeout: 5000 });
+            cleanedItems.push('MCP Router logout called');
         }
-        catch (mcpError) {
-            console.warn(`[XHS Logout] MCP Router unavailable (${mcpError.message}), proceeding with local logout`);
-            // MCP Router不可用，清除本地数据
-            try {
-                // 导入Cookie管理器清除Cookie
-                const { CookieManager } = await import('./cookieManager.js');
-                const cookieManager = new CookieManager();
-                await cookieManager.deleteCookies(userId);
-                // 清除用户配置数据
-                const fs = await import('fs');
-                const path = await import('path');
-                const userDataPath = path.join(process.cwd(), 'data', `${userId}.json`);
-                if (fs.existsSync(userDataPath)) {
-                    await fs.promises.unlink(userDataPath);
-                    console.log(`[XHS Logout] Deleted user data file: ${userDataPath}`);
-                }
-            }
-            catch (localError) {
-                console.error(`[XHS Logout] Local cleanup error:`, localError.message);
-            }
-            // 🔥 关键修复：在本地清理模式下也启动全局退出保护
-            try {
-                const { globalLogoutState } = await import('./globalLogoutStateManager.js');
-                globalLogoutState.notifyUserLogout(userId);
-                console.log(`[XHS Logout] ✅ (本地模式) 已启动全局退出保护机制，阻止所有Cookie保存机制为用户 ${userId} 重新保存`);
-                // 🔥 删除数据库中的Cookie
-                try {
-                    const { CookieDatabaseService } = await import('./cookieDatabaseService.js');
-                    const dbService = new CookieDatabaseService();
-                    await dbService.deleteCookies(userId);
-                    console.log(`[XHS Logout] ✅ (本地模式) 已删除数据库中的Cookie`);
-                }
-                catch (dbError) {
-                    console.error(`[XHS Logout] (本地模式) 删除数据库Cookie失败:`, dbError);
-                }
-                // 🔥 新增：强制清理PlaywrightLoginManager所有会话
-                await playwrightLoginManager.forceCleanupAllSessions();
-                console.log(`[XHS Logout] ✅ (本地模式) 已清理PlaywrightLoginManager所有会话，防止会话复用`);
-                // 🔥 FIX 3: 清理Playwright临时目录（本地模式）
-                const tempDirPattern = `/tmp/playwright-${userId}-*`;
-                const loginTempPattern = `/tmp/playwright-login-${userId}-*`;
-                console.log(`[XHS Logout] 🧹 (本地模式) 清理Playwright临时目录: ${tempDirPattern} 和 ${loginTempPattern}`);
-                try {
-                    const { execSync } = require('child_process');
-                    execSync(`rm -rf ${tempDirPattern}`, { stdio: 'ignore' });
-                    execSync(`rm -rf ${loginTempPattern}`, { stdio: 'ignore' });
-                    console.log(`[XHS Logout] ✅ (本地模式) Playwright临时目录已清理`);
-                }
-                catch (cleanupError) {
-                    console.warn(`[XHS Logout] (本地模式) 清理Playwright临时目录失败:`, cleanupError);
-                }
-                // 🔥 FIX 4: 删除cookie文件（本地模式）
-                try {
-                    const path = await import('path');
-                    const fs = await import('fs');
-                    const cookiesDir = path.join(process.cwd(), 'cookies');
-                    const userCookieFile = path.join(cookiesDir, `${userId}.json`);
-                    if (fs.existsSync(userCookieFile)) {
-                        fs.unlinkSync(userCookieFile);
-                        console.log(`[XHS Logout] ✅ (本地模式) 已删除cookie文件: ${userCookieFile}`);
-                    }
-                    if (fs.existsSync(cookiesDir)) {
-                        const files = fs.readdirSync(cookiesDir);
-                        for (const file of files) {
-                            if (file.endsWith('.json') && (file.startsWith(userId) || file.startsWith('auto_'))) {
-                                const filePath = path.join(cookiesDir, file);
-                                fs.unlinkSync(filePath);
-                                console.log(`[XHS Logout] ✅ (本地模式) 已删除cookie文件: ${filePath}`);
-                            }
-                        }
-                    }
-                    // 🔥 关键修复：删除login/status检查的所有7个cookie路径（本地模式）
-                    console.log(`[XHS Logout] 🔍 (本地模式) 开始清理login/status检查的所有7个cookie路径...`);
-                    const criticalCookiePaths = [
-                        path.join(process.cwd(), '..', 'mcp-router', 'cookies', userId, 'cookies.json'),
-                        path.join(process.cwd(), '..', 'mcp-router', 'latest.json'),
-                        path.join('/app', 'mcp-router', 'cookies', userId, 'cookies.json'),
-                        path.join('/app', 'mcp-router', 'latest.json'),
-                        path.join(process.cwd(), 'cookies', userId, 'cookies.json'),
-                        path.join(process.cwd(), 'playwright-service', 'mcp-router', 'cookies', userId, 'cookies.json'),
-                        path.join(process.cwd(), 'playwright-service', 'mcp-router', 'latest.json'),
-                        '/app/data/cookies.json'
-                    ];
-                    let deletedCount = 0;
-                    for (const cookiePath of criticalCookiePaths) {
-                        try {
-                            if (fs.existsSync(cookiePath)) {
-                                fs.unlinkSync(cookiePath);
-                                deletedCount++;
-                                console.log(`[XHS Logout] ✅ (本地模式) 已删除关键cookie文件: ${cookiePath}`);
-                            }
-                            else {
-                                console.log(`[XHS Logout] ⏭️  (本地模式) 文件不存在（跳过）: ${cookiePath}`);
-                            }
-                        }
-                        catch (deleteError) {
-                            console.warn(`[XHS Logout] ⚠️  (本地模式) 删除失败: ${cookiePath}`, deleteError);
-                        }
-                    }
-                    console.log(`[XHS Logout] 📊 (本地模式) 清理完成：共删除 ${deletedCount}/${criticalCookiePaths.length} 个关键cookie文件`);
-                }
-                catch (cookieFileError) {
-                    console.warn(`[XHS Logout] (本地模式) 清理cookie文件失败:`, cookieFileError);
-                }
-                // 同时通知AutoCookieImporter（双重保护）
-                autoCookieImporter.notifyUserLogout(userId);
-                console.log(`[XHS Logout] ✅ (本地模式) 已通知AutoCookieImporter阻止用户 ${userId} 的自动重新导入`);
-            }
-            catch (notifyError) {
-                console.warn(`[XHS Logout] (本地模式) 通知全局退出保护失败: ${notifyError instanceof Error ? notifyError.message : String(notifyError)}`);
-            }
-            res.json({
-                success: true,
-                message: 'Local logout completed',
-                data: {
-                    logged_out: true,
-                    message: '本地登录状态已清除',
-                    user_id: userId
-                }
-            });
+        catch (error) {
+            console.warn(`[Logout] ⚠️  MCP Router logout failed:`, error.message);
         }
+        res.json({ success: true, message: 'Logout completed', data: { cleanedItems } });
     }
     catch (error) {
-        console.error('[XHS Logout] Error processing logout:', error.message);
-        res.status(500).json({
-            success: false,
-            error: error.message || 'Failed to logout',
-        });
+        console.error('[Logout] ❌ Error:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 // ============ 前端兼容性 API 端点 ============
@@ -2460,18 +2489,49 @@ app.get('/api/xiaohongshu/login/qrcode', async (req, res) => {
         if (!userId) {
             return res.status(400).json({ error: 'userId is required' });
         }
-        console.log(`[API Proxy] QR code request for user ${userId}`);
-        // 代理到 MCP Router - 仅真实模式
-        const axios = await import('axios');
-        const response = await axios.default.get(`${MCP_ROUTER_URL}/api/xiaohongshu/login/qrcode?userId=${userId}`, { timeout: 45000 } // 45秒超时：与auto-login保持一致
-        );
-        res.json(response.data);
+        console.log(`[API Proxy] QR code request for user ${userId} (Unified Logic)`);
+        // 1. Try MCP Router first
+        try {
+            const axios = await import('axios');
+            const qrResponse = await axios.default.get(`${MCP_ROUTER_URL}/api/xiaohongshu/login/qrcode?userId=${userId}`, { timeout: 5000 });
+            const qrCodeImage = qrResponse.data?.data?.img || qrResponse.data?.img || qrResponse.data?.qrcode_url;
+            if (qrCodeImage) {
+                console.log(`[API Proxy] Got QR from MCP Router`);
+                return res.json({
+                    success: true,
+                    data: {
+                        img: qrCodeImage,
+                        has_verification: false
+                    },
+                    qrcode_url: qrCodeImage,
+                    url: qrCodeImage,
+                    message: '请扫码登录'
+                });
+            }
+        }
+        catch (e) {
+            console.warn(`[API Proxy] MCP Router failed, trying fallback:`, e instanceof Error ? e.message : e);
+        }
+        // 2. Fallback to Playwright
+        console.log(`[API Proxy] Falling back to local Playwright...`);
+        const result = await playwrightLoginManager.startLogin(userId);
+        res.json({
+            success: true,
+            data: {
+                img: result.qrImage,
+                has_verification: false,
+            },
+            qrcode_url: result.qrImage,
+            url: result.qrImage,
+            expires_at: result.expiresAt,
+            message: '请扫码登录'
+        });
     }
     catch (error) {
         console.error('[API Proxy] QR code error:', error.message);
         res.status(500).json({
-            error: `MCP Router connection failed: ${error.message}`,
-            mcp_router_url: MCP_ROUTER_URL
+            error: `Login failed: ${error.message}`,
+            details: error.stack
         });
     }
 });
@@ -2482,14 +2542,42 @@ app.get('/api/xiaohongshu/login/status', async (req, res) => {
         if (!userId) {
             return res.status(400).json({ error: 'userId is required' });
         }
-        console.log(`[API Proxy] Login status check for user ${userId}`);
-        // 代理到 MCP Router - 仅真实模式
-        const axios = await import('axios');
-        const response = await axios.default.get(`${MCP_ROUTER_URL}/api/xiaohongshu/login/status?userId=${userId}`, { timeout: 10000 });
-        res.json(response.data);
+        console.log(`[API Proxy] Login status check for user ${userId} (Using Local CookieOrchestrator)`);
+        // 🔥 使用本地 CookieOrchestrator，绕过 MCP Router
+        const status = await cookieOrchestrator.getAuthStatus(userId);
+        res.json({
+            success: true,
+            data: {
+                isLoggedIn: status.isAuthenticated,
+                nickname: '未登录用户', // Placeholder as CookieOrchestrator doesn't provide this
+                avatar: '', // Placeholder
+                source: status.source
+            }
+        });
     }
     catch (error) {
         console.error('[API Proxy] Login status error:', error.message);
+        res.status(500).json({
+            error: `Status check failed: ${error.message}`,
+            details: error.stack
+        });
+    }
+});
+// 获取验证二维码 (预登录人机验证)
+app.get('/api/xiaohongshu/login/verification-qrcode', async (req, res) => {
+    try {
+        const userId = req.query.userId;
+        if (!userId) {
+            return res.status(400).json({ error: 'userId is required' });
+        }
+        console.log(`[API Proxy] Verification QR code request for user ${userId}`);
+        // 代理到 MCP Router
+        const axios = await import('axios');
+        const response = await axios.default.get(`${MCP_ROUTER_URL}/api/xiaohongshu/login/verification-qrcode?userId=${userId}`, { timeout: 10000 });
+        res.json(response.data);
+    }
+    catch (error) {
+        console.error('[API Proxy] Verification QR code error:', error.message);
         res.status(500).json({
             error: `MCP Router connection failed: ${error.message}`,
             mcp_router_url: MCP_ROUTER_URL
@@ -2950,6 +3038,37 @@ app.post('/agent/xiaohongshu/list-feeds', async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
+// Logout endpoint
+app.post('/agent/xiaohongshu/logout', async (req, res) => {
+    const { userId } = req.body;
+    console.log(`[Logout API] 📥 Received logout request for user: ${userId}`);
+    if (!userId) {
+        console.error('[Logout API] ❌ Missing userId in request body');
+        res.status(400).json({ success: false, error: 'User ID is required' });
+        return;
+    }
+    try {
+        console.log(`[Logout API] 🧹 Calling performComprehensiveCleanup for ${userId}...`);
+        const cleanedItems = await performComprehensiveCleanup(userId);
+        console.log(`[Logout API] ✅ Cleanup completed. Items cleaned:`, cleanedItems);
+        // 🔥 Explicitly close session again to be sure
+        console.log(`[Logout API] 🔒 Ensuring browser session is closed...`);
+        await browserSessionManager.closeSession(userId);
+        res.json({
+            success: true,
+            message: 'Logged out successfully',
+            cleanedItems
+        });
+        console.log(`[Logout API] 📤 Sent success response`);
+    }
+    catch (error) {
+        console.error('[Logout API] ❌ Logout failed:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Logout failed'
+        });
+    }
+});
 // 获取用户资料
 app.post('/agent/xiaohongshu/user-profile', async (req, res) => {
     try {
@@ -3122,6 +3241,22 @@ app.post('/agent/xiaohongshu/publish-video', async (req, res) => {
     catch (error) {
         console.error('[XHS Publish Video] Error:', error);
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+// 重置退出保护（允许立即再次登录）
+app.post('/agent/xiaohongshu/reset-logout-protection', async (req, res) => {
+    try {
+        const { userId } = req.body;
+        if (!userId) {
+            return res.status(400).json({ success: false, error: 'userId is required' });
+        }
+        const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+        globalLogoutState.forceResetUserLogoutState(userId);
+        globalLogoutState.forceResetGlobalLogoutState();
+        res.json({ success: true, message: 'Logout protection has been reset' });
+    }
+    catch (error) {
+        res.status(500).json({ success: false, error: error.message || 'Failed to reset logout protection' });
     }
 });
 //# sourceMappingURL=server.js.map

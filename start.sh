@@ -257,7 +257,7 @@ echo "🔑 Binary permissions: $(ls -la xiaohongshu-mcp 2>&1 | head -1 || echo '
 
 # 🔥 启动MCP Router进程（简化版本，避免PID问题）
 MCP_BINARY_PATH=./xiaohongshu-mcp HTTP_PORT="$MCP_HTTP_PORT" COOKIE_DIR=./cookies \
-  node dist/httpServer.js > /tmp/mcp-router.log 2>&1 &
+  BACKEND_URL=http://localhost:8080 BACKEND_URL=http://localhost:8080 node dist/httpServer.js > /tmp/mcp-router.log 2>&1 &
 MCP_PID=$!
 echo "📍 MCP Router started with PID: $MCP_PID"
 
@@ -288,15 +288,10 @@ for i in {1..10}; do
     fi
 done
 
-# 启动Claude Agent Service
-echo "🤖 Starting Claude Agent Service..."
+# 启动 Claude Agent Service (使用 ts-node 直接运行源码)
+echo "Starting Claude Agent Service (ts-node)..."
 cd playwright-service/claude-agent-service
-echo "📂 Current directory: $(pwd)"
-echo "📦 Server file exists: $(test -f dist/server.js && echo 'YES' || echo 'NO')"
-echo "🌐 MCP_ROUTER_URL: $MCP_ROUTER_URL_EFFECTIVE"
-echo "🔌 PORT: $APP_PORT"
-
-# 🔥 FIX: 传递所有必要的环境变量到 Claude Agent Service
+# 使用 npx ts-node 运行，确保使用项目依赖
 ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
 GEMINI_API_KEY="$GEMINI_API_KEY" \
 UNSPLASH_ACCESS_KEY="$UNSPLASH_ACCESS_KEY" \

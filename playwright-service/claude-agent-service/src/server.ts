@@ -1572,6 +1572,147 @@ app.post('/agent/auto/approve/:userId', async (req: Request, res: Response) => {
   }
 });
 
+// ============ 为浏览器插件提供发布数据（postMessage 方案）============
+
+/**
+ * 获取发布数据供浏览器插件使用
+ * 前端调用此端点获取完整的发布数据，然后通过 postMessage 发送给插件
+ */
+app.post('/agent/auto/approve-for-extension/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const { taskId } = req.body;
+
+    console.log(`🔌 [插件发布] 获取发布数据，user ${userId}, task ${taskId}`);
+
+    // 获取任务数据
+    const dailyTasks = autoContentManager.getDailyTasks(userId);
+
+    if (!dailyTasks || dailyTasks.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: '没有找到待发布的任务'
+      });
+    }
+
+    // 找到指定任务 (taskId 从 1 开始)
+    const taskIndex = taskId
+      ? parseInt(taskId) - 1
+      : dailyTasks.findIndex((t: any) => t.status === 'ready');
+
+    if (taskIndex < 0 || taskIndex >= dailyTasks.length) {
+      return res.status(404).json({
+        success: false,
+        error: `找不到任务 ${taskId}`
+      });
+    }
+
+    const task = dailyTasks[taskIndex];
+
+    // 构建发布数据（插件需要的格式）
+    const publishData = {
+      taskId: taskId || (taskIndex + 1).toString(),
+      title: task.title || '',
+      content: task.content || '',
+      images: task.imageUrls || (task as any).image_urls || [],
+      tags: task.hashtags || (task as any).tags || [],
+      video: (task as any).videoUrl || (task as any).video_url || null,
+      videos: (task as any).videoUrls || (task as any).video_urls || []
+    };
+
+    console.log(`✅ [插件发布] 返回发布数据:`, {
+      taskId: publishData.taskId,
+      title: publishData.title.substring(0, 30) + '...',
+      imageCount: publishData.images.length,
+      tagCount: publishData.tags.length
+    });
+
+    res.json({
+      success: true,
+      publishData,
+      message: '请在小红书发布页面完成发布'
+    });
+
+  } catch (error: any) {
+    console.error('❌ [插件发布] 获取数据失败:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || '获取发布数据失败'
+    });
+  }
+});
+
+/**
+ * 更新任务状态（插件发布完成后调用）
+ */
+app.post('/agent/auto/update-task-status/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const { taskId, status, message } = req.body;
+
+    console.log(`📝 [任务状态] 更新任务状态: user ${userId}, task ${taskId}, status ${status}`);
+
+    // 验证参数
+    if (!taskId || !status) {
+      return res.status(400).json({
+        success: false,
+        error: '缺少必要参数: taskId, status'
+      });
+    }
+
+    // 获取任务
+    const dailyTasks = autoContentManager.getDailyTasks(userId);
+
+    if (!dailyTasks || dailyTasks.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: '没有找到任务'
+      });
+    }
+
+    // 找到并更新任务
+    const taskIndex = parseInt(taskId) - 1;
+    if (taskIndex < 0 || taskIndex >= dailyTasks.length) {
+      return res.status(404).json({
+        success: false,
+        error: `找不到任务 ${taskId}`
+      });
+    }
+
+    // 更新任务状态
+    const task = dailyTasks[taskIndex];
+    task.status = status;
+
+    // 记录活动
+    if ((autoContentManager as any).addRealTimeActivity) {
+      (autoContentManager as any).addRealTimeActivity(
+        userId,
+        `📝 任务 "${task.title}" 状态更新为 ${status}${message ? `: ${message}` : ''}`,
+        'execution'
+      );
+    }
+
+    console.log(`✅ [任务状态] 更新成功: task ${taskId} -> ${status}`);
+
+    res.json({
+      success: true,
+      message: '状态已更新',
+      data: {
+        taskId,
+        newStatus: status,
+        taskTitle: task.title
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ [任务状态] 更新失败:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || '更新状态失败'
+    });
+  }
+});
+
 // 🚀 查询发布作业状态（轮询用）
 app.get('/agent/auto/publish-status/:jobId', async (req: Request, res: Response) => {
   try {

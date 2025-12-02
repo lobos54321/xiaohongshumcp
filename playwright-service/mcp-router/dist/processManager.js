@@ -6,6 +6,7 @@ import * as net from 'net';
 export class XiaohongshuMCPProcessManager {
     constructor(mcpBinaryPath, cookieDir) {
         this.processes = new Map();
+        this.skipDbCookieLoad = new Set();
         this.basePort = 18060;
         this.maxProcesses = 20; // 最多 20 个并发进程
         this.cleanupTimeout = 10 * 60 * 1000; // 10 分钟不活动自动清理
@@ -129,22 +130,89 @@ export class XiaohongshuMCPProcessManager {
         }
         // 🔥 优先从数据库加载Cookie（持久化存储）
         const cookiesFile = path.join(workDir, 'cookies.json');
-        if (!fs.existsSync(cookiesFile)) {
-            // Cookie文件不存在，尝试从数据库加载
+        // 🔥 关键改进：验证现有Cookie文件是否有效
+        let needLoadFromDb = false;
+        if (fs.existsSync(cookiesFile)) {
             try {
-                console.log(`[MCP-Router] Cookie文件不存在，尝试从数据库加载...`);
+                const fileContent = fs.readFileSync(cookiesFile, 'utf8');
+                const cookies = JSON.parse(fileContent);
+                // 验证Cookie内容
+                if (!Array.isArray(cookies) || cookies.length === 0) {
+                    console.log(`[ProcessManager] Cookie文件为空或无效，需要从数据库加载`);
+                    needLoadFromDb = true;
+                }
+                else {
+                    // 检查Cookie是否过期（如果有expiry字段）
+                    const now = Date.now() / 1000; // Unix timestamp in seconds
+                    const validCookies = cookies.filter((cookie) => {
+                        // 如果没有expiry字段，认为是有效的
+                        if (!cookie.expiry && !cookie.expires)
+                            return true;
+                        // 检查expiry字段（Unix timestamp）
+                        const expiry = cookie.expiry || cookie.expires;
+                        return expiry > now;
+                    });
+                    if (validCookies.length === 0) {
+                        console.log(`[ProcessManager] 所有Cookie都已过期，需要从数据库加载`);
+                        needLoadFromDb = true;
+                    }
+                    else if (validCookies.length < cookies.length) {
+                        console.log(`[ProcessManager] 部分Cookie已过期 (${cookies.length - validCookies.length}/${cookies.length})，但仍有有效Cookie`);
+                        // 保存过滤后的有效Cookie
+                        fs.writeFileSync(cookiesFile, JSON.stringify(validCookies, null, 2), 'utf8');
+                    }
+                    else {
+                        console.log(`[ProcessManager] Cookie文件有效: ${cookiesFile} (${validCookies.length} cookies)`);
+                    }
+                }
+            }
+            catch (parseError) {
+                console.warn(`[ProcessManager] Cookie文件解析失败，需要从数据库加载:`, parseError instanceof Error ? parseError.message : String(parseError));
+                needLoadFromDb = true;
+            }
+        }
+        else {
+            console.log(`[ProcessManager] Cookie文件不存在，需要从数据库加载`);
+            needLoadFromDb = true;
+        }
+        // 从数据库加载Cookie（如果需要）
+        if (this.skipDbCookieLoad.has(userId)) {
+            try {
+                if (!fs.existsSync(workDir)) {
+                    fs.mkdirSync(workDir, { recursive: true });
+                }
+                fs.writeFileSync(cookiesFile, '[]', 'utf8');
+                console.log(`[ProcessManager] 跳过数据库加载，创建空Cookie文件`);
+            }
+            catch { }
+        }
+        else if (needLoadFromDb) {
+            try {
+                console.log(`[ProcessManager] 尝试从数据库加载Cookie...`);
                 const axios = await import('axios');
                 // 🔥 FIX: 根据运行环境自动选择后端服务URL
-                // 生产环境：使用公网域名
-                // 开发环境：使用 localhost
                 const backendUrl = process.env.CLAUDE_AGENT_URL
                     || process.env.BACKEND_URL
                     || 'https://xiaohongshu-automation-ai.zeabur.app';
-                console.log(`[MCP-Router] 使用后端服务: ${backendUrl}`);
+                console.log(`[ProcessManager] 使用后端服务: ${backendUrl}`);
                 const response = await axios.default.post(`${backendUrl}/agent/xiaohongshu/load-cookies-from-db`, { userId }, { timeout: 10000, headers: { 'Content-Type': 'application/json' } });
                 if (response.data?.success && response.data?.cookies?.length > 0) {
-                    fs.writeFileSync(cookiesFile, JSON.stringify(response.data.cookies, null, 2), 'utf8');
-                    console.log(`[ProcessManager] ✅ 从数据库加载了 ${response.data.cookies.length} 个Cookie`);
+                    // 🔥 验证从数据库加载的Cookie是否有效
+                    const now = Date.now() / 1000;
+                    const validDbCookies = response.data.cookies.filter((cookie) => {
+                        if (!cookie.expiry && !cookie.expires)
+                            return true;
+                        const expiry = cookie.expiry || cookie.expires;
+                        return expiry > now;
+                    });
+                    if (validDbCookies.length > 0) {
+                        fs.writeFileSync(cookiesFile, JSON.stringify(validDbCookies, null, 2), 'utf8');
+                        console.log(`[ProcessManager] ✅ 从数据库加载了 ${validDbCookies.length} 个有效Cookie (总共 ${response.data.cookies.length} 个)`);
+                    }
+                    else {
+                        fs.writeFileSync(cookiesFile, '[]', 'utf8');
+                        console.log(`[ProcessManager] ⚠️  数据库中的Cookie都已过期，创建空文件`);
+                    }
                 }
                 else {
                     // 数据库也没有，创建空文件
@@ -157,20 +225,19 @@ export class XiaohongshuMCPProcessManager {
                 fs.writeFileSync(cookiesFile, '[]', 'utf8');
             }
         }
-        else {
-            console.log(`[ProcessManager] Cookie文件已存在: ${cookiesFile}`);
-        }
         console.log(`[ProcessManager] Starting MCP process for user ${userId} on port ${port}`);
         console.log(`[ProcessManager] Working directory: ${workDir}`);
         console.log(`[ProcessManager] Cookie file: ${cookiesFile}`);
         // Ensure Go binary reads global symlink path rather than legacy /tmp
-        process.env.COOKIES_PATH = '/app/data/cookies.json';
+        const dataDir = process.env.MCP_DATA_DIR || '/app/data';
+        const cookiesPath = path.join(dataDir, 'cookies.json');
+        process.env.COOKIES_PATH = cookiesPath;
         const childProcess = spawn(this.mcpBinary, ['-port', `:${port}`], {
             cwd: workDir, // 设置工作目录，确保Cookie文件隔离
             env: {
                 ...process.env,
                 USER_ID: userId,
-                COOKIES_PATH: '/app/data/cookies.json',
+                COOKIES_PATH: cookiesPath,
             },
             stdio: ['ignore', 'pipe', 'pipe'],
         });
@@ -294,6 +361,25 @@ export class XiaohongshuMCPProcessManager {
         managed = await this.startProcess(userId);
         return managed.port;
     }
+    setSkipDbCookieLoad(userId, enabled) {
+        if (enabled) {
+            this.skipDbCookieLoad.add(userId);
+        }
+        else {
+            this.skipDbCookieLoad.delete(userId);
+        }
+    }
+    async clearUserCookies(userId) {
+        const userCookieDir = path.join(this.cookieDir, userId);
+        const cookieFile = path.join(userCookieDir, 'cookies.json');
+        try {
+            if (!fs.existsSync(userCookieDir))
+                fs.mkdirSync(userCookieDir, { recursive: true });
+            fs.writeFileSync(cookieFile, '[]', 'utf8');
+        }
+        catch { }
+        await this.refreshUserCookies(userId, []);
+    }
     /**
      * 创建 MCP binary 所需的 cookies 符号链接
      * 🔥 每次调用前都需要创建，因为多个用户共享同一个符号链接路径
@@ -305,13 +391,13 @@ export class XiaohongshuMCPProcessManager {
      */
     ensureCookieSymlink(userId) {
         const userCookieFile = path.join(this.cookieDir, userId, 'cookies.json');
-        const mcpExpectedPath = '/app/data/cookies.json';
-        const mcpDataDir = '/app/data';
+        const mcpDataDir = process.env.MCP_DATA_DIR || '/app/data';
+        const mcpExpectedPath = path.join(mcpDataDir, 'cookies.json');
         try {
-            // 1. 确保 /app/data 目录存在
+            // 1. 确保数据目录存在
             if (!fs.existsSync(mcpDataDir)) {
                 fs.mkdirSync(mcpDataDir, { recursive: true });
-                console.log(`[ProcessManager] Created /app/data directory`);
+                console.log(`[ProcessManager] Created data directory: ${mcpDataDir}`);
             }
             // 2. 检查并清理现有文件/符号链接
             // 🔥 FIX: 使用 lstatSync 而不是 existsSync
@@ -368,7 +454,7 @@ export class XiaohongshuMCPProcessManager {
         // 发布操作涉及浏览器自动化、图片上传等，需要更长时间
         // 🔥 修复：与 mcpAuthClient 保持一致，都是 10 分钟
         const isPublishOperation = endpoint.includes('/publish');
-        const timeout = isPublishOperation ? 600000 : 120000; // 发布: 10分钟, 其他: 2分钟
+        const timeout = isPublishOperation ? 900000 : 120000;
         console.log(`[ProcessManager] Calling ${method} ${url} for user ${userId}`);
         console.log(`[ProcessManager] Timeout: ${timeout}ms (${timeout / 1000}s)`);
         // 🔥 DEBUG: 打印完整请求数据

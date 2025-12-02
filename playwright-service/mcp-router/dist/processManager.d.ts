@@ -1,5 +1,6 @@
 export declare class XiaohongshuMCPProcessManager {
     private processes;
+    private skipDbCookieLoad;
     private basePort;
     private maxProcesses;
     private cleanupTimeout;
@@ -39,6 +40,8 @@ export declare class XiaohongshuMCPProcessManager {
      * 获取或创建用户的 MCP 进程
      */
     getOrCreateProcess(userId: string): Promise<number>;
+    setSkipDbCookieLoad(userId: string, enabled: boolean): void;
+    clearUserCookies(userId: string): Promise<void>;
     /**
      * 创建 MCP binary 所需的 cookies 符号链接
      * 🔥 每次调用前都需要创建，因为多个用户共享同一个符号链接路径
