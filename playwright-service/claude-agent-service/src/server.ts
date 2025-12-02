@@ -856,11 +856,17 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   ];
 
   const origin = req.headers.origin;
+  console.log(`[CORS] Request from origin: ${origin}, path: ${req.path}`);
+
   if (origin && allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
+    console.log(`[CORS] ✅ Allowed origin: ${origin}`);
   } else if (!origin) {
     // 非浏览器请求（如 Postman）
     res.header('Access-Control-Allow-Origin', '*');
+    console.log(`[CORS] No origin header, allowing all`);
+  } else {
+    console.log(`[CORS] ❌ Blocked origin: ${origin}`);
   }
 
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -870,6 +876,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
   // 处理 OPTIONS 预检请求
   if (req.method === 'OPTIONS') {
+    console.log(`[CORS] OPTIONS preflight request for ${req.path}`);
     return res.status(200).end();
   }
 
