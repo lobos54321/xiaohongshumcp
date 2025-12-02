@@ -1713,6 +1713,74 @@ app.post('/agent/auto/update-task-status/:userId', async (req: Request, res: Res
   }
 });
 
+// ============ 保存发布结果（feedId 数据追踪）============
+
+/**
+ * 保存发布成功后的结果数据
+ * 插件发布成功后，前端调用此接口保存 feedId 和其他信息
+ */
+app.post('/agent/auto/update-publish-result/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const { taskId, feedId, xsecToken, publishedUrl, publishedAt, title, content, images, tags } = req.body;
+
+    console.log(`📝 [PUBLISH-RESULT] Saving for user ${userId}, feedId: ${feedId || 'N/A'}`);
+
+    // 更新任务状态
+    const dailyTasks = autoContentManager.getDailyTasks(userId);
+    if (dailyTasks) {
+      const taskIndex = taskId ? parseInt(taskId) - 1 : -1;
+      if (taskIndex >= 0 && taskIndex < dailyTasks.length) {
+        const task = dailyTasks[taskIndex];
+        task.status = 'published';
+        (task as any).publishedAt = publishedAt || new Date().toISOString();
+
+        // 保存 feedId 和相关信息（用于后续数据追踪）
+        if (feedId) {
+          (task as any).feedId = feedId;
+          (task as any).xsecToken = xsecToken;
+          (task as any).publishedUrl = publishedUrl;
+
+          console.log(`✅ [PUBLISH-RESULT] Task ${taskId} updated with feedId: ${feedId}`);
+        } else {
+          console.log(`⚠️ [PUBLISH-RESULT] Task ${taskId} updated but no feedId captured`);
+        }
+      }
+    }
+
+    // 记录活动
+    if ((autoContentManager as any).addRealTimeActivity) {
+      const activityMsg = feedId
+        ? `✅ 发布成功: ${title || '内容'} (feedId: ${feedId})`
+        : `⚠️ 发布已提交: ${title || '内容'} (未获取feedId)`;
+
+      (autoContentManager as any).addRealTimeActivity(
+        userId,
+        activityMsg,
+        'execution'
+      );
+    }
+
+    res.json({
+      success: true,
+      message: feedId ? 'Publish result saved successfully' : 'Publish result saved without feedId',
+      data: {
+        taskId,
+        feedId: feedId || null,
+        publishedUrl: publishedUrl || null,
+        status: feedId ? 'tracked' : 'untracked'
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ [PUBLISH-RESULT] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
 // 🚀 查询发布作业状态（轮询用）
 app.get('/agent/auto/publish-status/:jobId', async (req: Request, res: Response) => {
   try {
