@@ -3387,15 +3387,27 @@ app.post('/agent/xiaohongshu/delete-cookies-from-db', async (req: Request, res: 
   }
 });
 
-// ==================== AI 分析 API (Phase 3) ====================
+// ==========================================================================
+// AI 分析 API (Phase 3) ====================
 // Added by Phase 3 integration
 
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseClient = createClient(
-  process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || ''
-);
+// Supabase client for AI analysis (optional - only used if configured)
+let supabaseClient: any = null;
+try {
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+  const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || '';
+
+  if (supabaseUrl && supabaseKey) {
+    supabaseClient = createClient(supabaseUrl, supabaseKey);
+    console.log('[AI-ANALYSIS] Supabase client initialized for analytics');
+  } else {
+    console.warn('[AI-ANALYSIS] Supabase not configured, analysis results will not be saved to database');
+  }
+} catch (error) {
+  console.warn('[AI-ANALYSIS] Failed to initialize Supabase client:', error);
+}
 
 interface AnalysisRequest {
   userId: string;
@@ -3459,18 +3471,26 @@ app.post('/api/agent/auto/analyze-content-performance', async (req: Request, res
     }
     console.log(`[AI-ANALYSIS] Analyzing for user: ${userId}`);
     const aiResult = performLocalAnalysis(summary, topNotes);
-    try {
-      await supabaseClient.from('xhs_performance_summary').insert({
-        user_id: userId,
-        performance_score: aiResult.performanceScore,
-        performance_level: aiResult.performanceLevel,
-        strengths: aiResult.insights.slice(0, 2),
-        weaknesses: aiResult.insights.slice(2),
-        suggestions: aiResult.recommendations
-      });
-    } catch (dbError) {
-      console.warn('[AI-ANALYSIS] DB save failed:', dbError);
+
+    // Save to database if Supabase is configured
+    if (supabaseClient) {
+      try {
+        await supabaseClient.from('xhs_performance_summary').insert({
+          user_id: userId,
+          performance_score: aiResult.performanceScore,
+          performance_level: aiResult.performanceLevel,
+          strengths: aiResult.insights.slice(0, 2),
+          weaknesses: aiResult.insights.slice(2),
+          suggestions: aiResult.recommendations
+        });
+        console.log('[AI-ANALYSIS] Results saved to database');
+      } catch (dbError) {
+        console.warn('[AI-ANALYSIS] DB save failed:', dbError);
+      }
+    } else {
+      console.log('[AI-ANALYSIS] Skipping database save (Supabase not configured)');
     }
+
     res.json({ success: true, data: aiResult });
   } catch (error: any) {
     console.error('[AI-ANALYSIS] Error:', error);
