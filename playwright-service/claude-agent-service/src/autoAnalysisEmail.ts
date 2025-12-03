@@ -133,6 +133,18 @@ async function getUserAnalytics(userId: string): Promise<UserAnalytics | null> {
             .order('published_at', { ascending: false })
             .limit(20);
 
+        // Fetch user email
+        let userEmail = '';
+        const { data: profile } = await supabaseAdmin
+            .from('user_profiles')
+            .select('email')
+            .eq('user_id', userId)
+            .single();
+
+        if (profile?.email) {
+            userEmail = profile.email;
+        }
+
         const thisWeek = aggregateAnalytics(thisWeekData || []);
         const lastWeek = aggregateAnalytics(lastWeekData || []);
 
@@ -147,7 +159,7 @@ async function getUserAnalytics(userId: string): Promise<UserAnalytics | null> {
 
         return {
             userId,
-            email: '',
+            email: userEmail,
             totalNotes: notesData?.length || 0,
             totalImpressions: thisWeek.impressions,
             totalViews: thisWeek.views,
