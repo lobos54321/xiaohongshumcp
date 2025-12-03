@@ -18,6 +18,7 @@ import { AutoCookieImporter } from './autoCookieImporter.js';
 import type { StandardCookie } from './autoCookieImporter.js';
 import { MCPAuthClient } from './mcpAuthClient.js';
 import { BrowserSessionManager } from './browserSessionManager.js';
+import * as cron from 'node-cron';
 
 dotenv.config();
 
@@ -3497,6 +3498,61 @@ app.post('/api/agent/auto/analyze-content-performance', async (req: Request, res
     res.status(500).json({ success: false, message: error.message });
   }
 });
+
+// ==================== Auto AI Analysis & Email System ====================
+// Admin test endpoints for Phase 3.5
+
+/**
+ * Test email endpoint
+ * POST /api/admin/test-email
+ */
+app.post('/api/admin/test-email', async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email required' });
+    }
+
+    // TODO: Send test email using Resend
+    console.log('[TEST-EMAIL] Would send test email to:', email);
+    res.json({ success: true, message: 'Test email endpoint ready. Configure RESEND_API_KEY to enable.' });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * Trigger analysis endpoint
+ * POST /api/admin/trigger-analysis
+ */
+app.post('/api/admin/trigger-analysis', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.body;
+
+    // TODO: Implement actual analysis logic
+    console.log('[TRIGGER-ANALYSIS] Would analyze user:', userId || 'all users');
+    res.json({ success: true, message: 'Analysis endpoint ready. Full implementation pending.' });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Initialize cron jobs (placeholder)
+function initCronJobs() {
+  // Cron job: Every day at 9:00 AM Beijing time (1:00 AM UTC)
+  cron.schedule('0 1 * * *', async () => {
+    console.log('[CRON] Daily analysis job triggered (placeholder)');
+    // TODO: Implement runDailyAnalysis()
+  }, {
+    timezone: 'Asia/Shanghai'
+  });
+
+  console.log('[CRON] Daily analysis job scheduled for 9:00 AM (Asia/Shanghai)');
+}
+
+// Start cron jobs
+initCronJobs();
 
 // 启动服务器
 app.listen(PORT, '0.0.0.0', () => {
