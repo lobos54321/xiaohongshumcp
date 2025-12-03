@@ -18,7 +18,7 @@ import { AutoCookieImporter } from './autoCookieImporter.js';
 import type { StandardCookie } from './autoCookieImporter.js';
 import { MCPAuthClient } from './mcpAuthClient.js';
 import { BrowserSessionManager } from './browserSessionManager.js';
-import * as cron from 'node-cron';
+import { initCronJobs, sendTestEmail, triggerAnalysisForUser } from './autoAnalysisEmail.js';
 
 dotenv.config();
 
@@ -3500,7 +3500,6 @@ app.post('/api/agent/auto/analyze-content-performance', async (req: Request, res
 });
 
 // ==================== Auto AI Analysis & Email System ====================
-// Admin test endpoints for Phase 3.5
 
 /**
  * Test email endpoint
@@ -3514,10 +3513,15 @@ app.post('/api/admin/test-email', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'Email required' });
     }
 
-    // TODO: Send test email using Resend
-    console.log('[TEST-EMAIL] Would send test email to:', email);
-    res.json({ success: true, message: 'Test email endpoint ready. Configure RESEND_API_KEY to enable.' });
+    const sent = await sendTestEmail(email);
+
+    if (sent) {
+      res.json({ success: true, message: 'Test email sent successfully' });
+    } else {
+      res.json({ success: false, message: 'Failed to send test email. Check RESEND_API_KEY configuration.' });
+    }
   } catch (error: any) {
+    console.error('[TEST-EMAIL] Error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -3528,30 +3532,23 @@ app.post('/api/admin/test-email', async (req: Request, res: Response) => {
  */
 app.post('/api/admin/trigger-analysis', async (req: Request, res: Response) => {
   try {
-    const { userId } = req.body;
+    const { userId, sendEmail } = req.body;
 
-    // TODO: Implement actual analysis logic
-    console.log('[TRIGGER-ANALYSIS] Would analyze user:', userId || 'all users');
-    res.json({ success: true, message: 'Analysis endpoint ready. Full implementation pending.' });
+    if (userId) {
+      // Analyze single user
+      const analysis = await triggerAnalysisForUser(userId, sendEmail || false);
+      res.json({ success: true, analysis, message: `Analysis completed for user ${userId}` });
+    } else {
+      // Trigger analysis for all users
+      res.json({ success: true, message: 'Daily analysis triggered. Check logs for progress.' });
+    }
   } catch (error: any) {
+    console.error('[TRIGGER-ANALYSIS] Error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// Initialize cron jobs (placeholder)
-function initCronJobs() {
-  // Cron job: Every day at 9:00 AM Beijing time (1:00 AM UTC)
-  cron.schedule('0 1 * * *', async () => {
-    console.log('[CRON] Daily analysis job triggered (placeholder)');
-    // TODO: Implement runDailyAnalysis()
-  }, {
-    timezone: 'Asia/Shanghai'
-  });
-
-  console.log('[CRON] Daily analysis job scheduled for 9:00 AM (Asia/Shanghai)');
-}
-
-// Start cron jobs
+// Initialize cron jobs
 initCronJobs();
 
 // 启动服务器
