@@ -18,6 +18,7 @@ import { AutoCookieImporter } from './autoCookieImporter.js';
 import type { StandardCookie } from './autoCookieImporter.js';
 import { MCPAuthClient } from './mcpAuthClient.js';
 import { BrowserSessionManager } from './browserSessionManager.js';
+import { sendTestEmail, triggerAnalysisForUser, initCronJobs } from './autoAnalysisEmail.js';
 
 dotenv.config();
 
@@ -3512,13 +3513,14 @@ app.post('/api/admin/test-email', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'Email required' });
     }
 
-    console.log('[TEST-EMAIL] Request to send test email to:', email);
+    console.log('[TEST-EMAIL] Sending test email to:', email);
+    const sent = await sendTestEmail(email);
 
-    res.json({
-      success: true,
-      message: 'Test email endpoint is working. Module import will be fixed in next deploy.',
-      email: email
-    });
+    if (sent) {
+      res.json({ success: true, message: 'Test email sent successfully! Check your inbox.' });
+    } else {
+      res.json({ success: false, message: 'Failed to send email. Check RESEND_API_KEY configuration.' });
+    }
   } catch (error: any) {
     console.error('[TEST-EMAIL] Error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -3533,13 +3535,17 @@ app.post('/api/admin/trigger-analysis', async (req: Request, res: Response) => {
   try {
     const { userId, sendEmail } = req.body;
 
-    console.log('[TRIGGER-ANALYSIS] Request for userId:', userId || 'all users');
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'userId required' });
+    }
+
+    console.log('[TRIGGER-ANALYSIS] Analyzing user:', userId);
+    const analysis = await triggerAnalysisForUser(userId, sendEmail || false);
 
     res.json({
       success: true,
-      message: 'Analysis endpoint is working. Module import will be fixed in next deploy.',
-      userId: userId,
-      sendEmail: sendEmail
+      analysis: analysis,
+      message: `Analysis completed for user ${userId}`
     });
   } catch (error: any) {
     console.error('[TRIGGER-ANALYSIS] Error:', error);
@@ -3547,7 +3553,8 @@ app.post('/api/admin/trigger-analysis', async (req: Request, res: Response) => {
   }
 });
 
-console.log('[AUTO-ANALYSIS] Endpoints registered (placeholder - import fix needed)');
+// Initialize auto-analysis cron jobs
+initCronJobs();
 
 // 启动服务器
 app.listen(PORT, '0.0.0.0', () => {
