@@ -2960,6 +2960,67 @@ app.post('/agent/xiaohongshu/delete-cookies-from-db', async (req, res) => {
         });
     }
 });
+// ==================== AI 分析 API (Phase 3) ====================
+// Added by Phase 3 integration
+import { createClient } from '@supabase/supabase-js';
+const supabaseClient = createClient(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '', process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || '');
+function performLocalAnalysis(summary, topNotes) {
+    const { avgClickRate, avgEngagementRate, totalLikes, totalNotes } = summary;
+    let score = 50;
+    if (avgClickRate > 5)
+        score += 20;
+    else if (avgClickRate > 3)
+        score += 15;
+    else if (avgClickRate > 1)
+        score += 10;
+    if (avgEngagementRate > 10)
+        score += 20;
+    else if (avgEngagementRate > 5)
+        score += 15;
+    else if (avgEngagementRate > 2)
+        score += 10;
+    score = Math.min(100, Math.max(0, score));
+    const level = score >= 80 ? 'excellent' : score >= 60 ? 'good' : score >= 40 ? 'average' : 'poor';
+    return {
+        performanceScore: score,
+        performanceLevel: level,
+        insights: [`点击率 ${avgClickRate.toFixed(2)}%`, `互动率 ${avgEngagementRate.toFixed(2)}%`],
+        recommendations: ['优化封面', '增加互动引导', '保持发布频率'],
+        contentStrategy: {
+            titleSuggestions: ['使用数字开头', '使用疑问句'],
+            contentSuggestions: ['直接点题', '使用表情符号'],
+            publishTimeSuggestions: ['12:00-13:00', '18:00-21:00']
+        }
+    };
+}
+app.post('/api/agent/auto/analyze-content-performance', async (req, res) => {
+    try {
+        const { userId, summary, topNotes } = req.body;
+        if (!userId) {
+            return res.status(400).json({ success: false, message: 'userId is required' });
+        }
+        console.log(`[AI-ANALYSIS] Analyzing for user: ${userId}`);
+        const aiResult = performLocalAnalysis(summary, topNotes);
+        try {
+            await supabaseClient.from('xhs_performance_summary').insert({
+                user_id: userId,
+                performance_score: aiResult.performanceScore,
+                performance_level: aiResult.performanceLevel,
+                strengths: aiResult.insights.slice(0, 2),
+                weaknesses: aiResult.insights.slice(2),
+                suggestions: aiResult.recommendations
+            });
+        }
+        catch (dbError) {
+            console.warn('[AI-ANALYSIS] DB save failed:', dbError);
+        }
+        res.json({ success: true, data: aiResult });
+    }
+    catch (error) {
+        console.error('[AI-ANALYSIS] Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
 // 启动服务器
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`[Claude Agent Service] Server listening on 0.0.0.0:${PORT}`);

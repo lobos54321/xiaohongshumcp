@@ -3437,9 +3437,7 @@ function performLocalAnalysis(summary: any, topNotes: any[]): AIAnalysisResult {
   else if (avgEngagementRate > 5) score += 15;
   else if (avgEngagementRate > 2) score += 10;
   score = Math.min(100, Math.max(0, score));
-  const level = score >= 80 ? 'excellent' : score >= 60 ? 'good' : score >= 40 ? 'average' : '
-
-poor';
+  const level = score >= 80 ? 'excellent' : score >= 60 ? 'good' : score >= 40 ? 'average' : 'poor';
   return {
     performanceScore: score,
     performanceLevel: level as any,
