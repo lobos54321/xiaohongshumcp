@@ -3556,6 +3556,178 @@ app.post('/api/admin/trigger-analysis', async (req: Request, res: Response) => {
 // Initialize auto-analysis cron jobs
 initCronJobs();
 
+// ============================================
+// 🔥 FIX: Add missing API endpoints for extension
+// ============================================
+
+// API 1: GET Supabase configuration
+app.get('/api/v1/config/supabase', (req: Request, res: Response) => {
+  // CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  console.log('[CONFIG] Supabase config requested');
+
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    console.error('[CONFIG] Supabase not configured in environment');
+    return res.status(500).json({
+      success: false,
+      error: 'Supabase not configured on backend'
+    });
+  }
+
+  res.json({
+    success: true,
+    config: {
+      url: supabaseUrl,
+      key: supabaseKey
+    }
+  });
+});
+
+// API 2: POST analytics sync
+app.post('/api/v1/analytics/sync', async (req: Request, res: Response) => {
+  try {
+    const { userId, publishedNotes, analyticsData } = req.body;
+
+    console.log(`[SYNC] Received sync request for user ${userId}: ${publishedNotes?.length || 0} notes, ${analyticsData?.length || 0} analytics`);
+
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('[SYNC] Supabase not configured');
+      return res.status(500).json({
+        success: false,
+        error: 'Supabase not configured on backend'
+      });
+    }
+
+    let notesCount = 0;
+    let analyticsCount = 0;
+
+    // Save notes
+    if (publishedNotes && publishedNotes.length > 0) {
+      const notesWithUser = publishedNotes.map((note: any) => ({
+        user_id: userId,
+        feed_id: note.feedId || note.feed_id || null,
+        title_hash: note.titleHash || note.title_hash || null,
+        title: note.title,
+        cover_url: note.coverUrl || note.cover_url || null,
+        published_url: note.noteUrl || note.published_url || note.url || null,
+        published_at: note.publishedAt || note.published_at || new Date().toISOString(),
+        status: 'published'
+      }));
+
+      try {
+        const notesResponse = await fetch(`${supabaseUrl}/rest/v1/xhs_published_notes`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Prefer': 'return=representation'
+          },
+          body: JSON.stringify(notesWithUser)
+        });
+
+        if (notesResponse.ok) {
+          const saved = await notesResponse.json();
+          notesCount = Array.isArray(saved) ? saved.length : 0;
+          console.log(`[SYNC] Saved ${notesCount} notes`);
+        } else {
+          const error = await notesResponse.text();
+          console.error('[SYNC] Failed to save notes:', error);
+        }
+      } catch (notesError) {
+        console.error('[SYNC] Notes save error:', notesError);
+      }
+    }
+
+    // Save analytics
+    if (analyticsData && analyticsData.length > 0) {
+      const analyticsWithUser = analyticsData.map((data: any) => ({
+        user_id: userId,
+        feed_id: data.feedId || data.feed_id || null,
+        title_hash: data.titleHash || data.title_hash || null,
+        impressions: data.impressions || 0,
+        views: data.views || 0,
+        click_rate: data.clickRate || data.click_rate || 0,
+        likes: data.likes || 0,
+        comments: data.comments || 0,
+        collects: data.collects || 0,
+        engagement_rate: data.engagementRate || data.engagement_rate || 0,
+        collected_at: data.collectedAt || data.collected_at || new Date().toISOString(),
+        source: 'extension'
+      }));
+
+      try {
+        const analyticsResponse = await fetch(`${supabaseUrl}/rest/v1/xhs_note_analytics`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Prefer': 'return=representation'
+          },
+          body: JSON.stringify(analyticsWithUser)
+        });
+
+        if (analyticsResponse.ok) {
+          const saved = await analyticsResponse.json();
+          analyticsCount = Array.isArray(saved) ? saved.length : 0;
+          console.log(`[SYNC] Saved ${analyticsCount} analytics records`);
+        } else {
+          const error = await analyticsResponse.text();
+          console.error('[SYNC] Failed to save analytics:', error);
+        }
+      } catch (analyticsError) {
+        console.error('[SYNC] Analytics save error:', analyticsError);
+      }
+    }
+
+    // Log sync result
+    try {
+      await fetch(`${supabaseUrl}/rest/v1/xhs_sync_logs`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          sync_type: 'auto',
+          source: 'extension',
+          notes_synced: notesCount,
+          analytics_synced: analyticsCount,
+          success: true,
+          completed_at: new Date().toISOString()
+        })
+      });
+    } catch (logError) {
+      console.error('[SYNC] Failed to save sync log:', logError);
+    }
+
+    res.json({
+      success: true,
+      notesCount,
+      analyticsCount
+    });
+
+  } catch (error: any) {
+    console.error('[SYNC] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // 启动服务器
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[Claude Agent Service] Server listening on 0.0.0.0:${PORT}`);
