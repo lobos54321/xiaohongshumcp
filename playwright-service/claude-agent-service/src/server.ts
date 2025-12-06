@@ -207,7 +207,7 @@ class PlaywrightLoginManager {
 
   async startLogin(userId: string): Promise<{ qrImage: string; expiresAt: string }> {
     // 🔥 关键修复：检查全局退出状态，阻止PlaywrightLoginManager创建新会话
-    const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+    const { globalLogoutState } = await import('./modules/auth/globalLogoutStateManager.js');
     if (!globalLogoutState.canCreateNewLoginSession(userId)) {
       throw new Error('系统刚刚退出登录，请稍等片刻再重新登录');
     }
@@ -2222,7 +2222,7 @@ app.post('/agent/xiaohongshu/auto-login', async (req: Request, res: Response) =>
     console.log(`[XHS Auto Login] Starting popup QR code login for user ${userId}`);
 
     // 🔥 关键修复：检查全局退出状态，阻止新登录会话创建
-    const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+    const { globalLogoutState } = await import('./modules/auth/globalLogoutStateManager.js');
     if (!globalLogoutState.canCreateNewLoginSession(userId)) {
       return res.json({
         success: false,
@@ -2236,8 +2236,8 @@ app.post('/agent/xiaohongshu/auto-login', async (req: Request, res: Response) =>
     console.log(`[XHS Auto Login] ✅ 全局状态检查通过，允许创建新登录会话`);
 
     // 导入Cookie检测服务
-    const { AutoCookieDetector } = await import('./autoCookieDetector.js');
-    const { CookieManager } = await import('./cookieManager.js');
+    const { AutoCookieDetector } = await import('./modules/auth/autoCookieDetector.js');
+    const { CookieManager } = await import('./modules/auth/cookieManager.js');
 
     const cookieDetector = new AutoCookieDetector();
     const cookieManager = new CookieManager();
@@ -2634,7 +2634,7 @@ app.get('/agent/xiaohongshu/login/status', async (req: Request, res: Response) =
 
                 // 🔥 同步Cookie到数据库
                 try {
-                  const { CookieDatabaseService } = await import('./cookieDatabaseService.js');
+                  const { CookieDatabaseService } = await import('./modules/auth/cookieDatabaseService.js');
                   const dbService = new CookieDatabaseService();
                   await dbService.saveCookies(userId, cookies);
                   console.log(`[XHS Login] ✅ Cookie已同步到数据库`);
@@ -2704,7 +2704,7 @@ app.get('/agent/xiaohongshu/login/status', async (req: Request, res: Response) =
 // 检查全局退出状态API（供前端调用）
 app.get('/agent/xiaohongshu/logout-status', async (req: Request, res: Response) => {
   try {
-    const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+    const { globalLogoutState } = await import('./modules/auth/globalLogoutStateManager.js');
     const globalInfo = globalLogoutState.getGlobalLogoutInfo();
 
     res.json({
@@ -2743,7 +2743,7 @@ async function performComprehensiveCleanup(userId: string): Promise<string[]> {
 
   // 2. Activate GlobalLogoutState
   try {
-    const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+    const { globalLogoutState } = await import('./modules/auth/globalLogoutStateManager.js');
     globalLogoutState.notifyUserLogout(userId);
     cleanedItems.push('GlobalLogoutState activated');
   } catch (error) {
@@ -2752,7 +2752,7 @@ async function performComprehensiveCleanup(userId: string): Promise<string[]> {
 
   // 3. Clear CookieManager (Encrypted Storage)
   try {
-    const { CookieManager } = await import('./cookieManager.js');
+    const { CookieManager } = await import('./modules/auth/cookieManager.js');
     const cookieManager = new CookieManager();
     await cookieManager.deleteCookies(userId);
     cleanedItems.push('CookieManager storage cleared');
@@ -2762,7 +2762,7 @@ async function performComprehensiveCleanup(userId: string): Promise<string[]> {
 
   // 4. Clear CookieDatabaseService (DB Storage)
   try {
-    const { CookieDatabaseService } = await import('./cookieDatabaseService.js');
+    const { CookieDatabaseService } = await import('./modules/auth/cookieDatabaseService.js');
     const dbService = new CookieDatabaseService();
     await dbService.deleteCookies(userId);
     cleanedItems.push('CookieDatabaseService cleared');
@@ -3115,7 +3115,7 @@ app.post('/agent/xiaohongshu/sync-cookies', async (req: Request, res: Response) 
       console.log(`[Cookie Sync] Found ${cookieData.cookies.length} cookies, valid session detected`);
 
       // 导入Cookie管理器
-      const { CookieManager } = await import('./cookieManager.js');
+      const { CookieManager } = await import('./modules/auth/cookieManager.js');
       const cookieManager = new CookieManager();
 
       // 标准化Cookie格式
@@ -3192,7 +3192,7 @@ app.post('/agent/auto-import/manual', async (req: Request, res: Response) => {
 
     // 🔧 FIX: 检查全局退出保护状态
     // 防止退出登录后自动导入Cookie导致重新登录
-    const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+    const { globalLogoutState } = await import('./modules/auth/globalLogoutStateManager.js');
 
     // 检查全局退出状态
     if (globalLogoutState.isInGlobalLogoutState()) {
@@ -3345,7 +3345,7 @@ app.post('/agent/xiaohongshu/load-cookies-from-db', async (req: Request, res: Re
 
     console.log(`[CookieDB API] 加载Cookie: userId=${userId}`);
 
-    const { CookieDatabaseService } = await import('./cookieDatabaseService.js');
+    const { CookieDatabaseService } = await import('./modules/auth/cookieDatabaseService.js');
     const dbService = new CookieDatabaseService();
     const cookies = await dbService.loadCookies(userId);
 
@@ -3377,7 +3377,7 @@ app.post('/agent/xiaohongshu/delete-cookies-from-db', async (req: Request, res: 
 
     console.log(`[CookieDB API] 删除Cookie: userId=${userId}`);
 
-    const { CookieDatabaseService } = await import('./cookieDatabaseService.js');
+    const { CookieDatabaseService } = await import('./modules/auth/cookieDatabaseService.js');
     const dbService = new CookieDatabaseService();
     await dbService.deleteCookies(userId);
 
@@ -3754,7 +3754,7 @@ process.on('SIGTERM', () => { shutdown(); });
 
 async function persistUserCookies(userId: string, cookies: StandardCookie[], source = 'unknown'): Promise<{ mcpSynced: boolean; writtenPaths: string[] }> {
   // 🔥 关键修复：检查全局退出状态
-  const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+  const { globalLogoutState } = await import('./modules/auth/globalLogoutStateManager.js');
 
   if (!globalLogoutState.canSaveCookies(userId, source)) {
     console.log(`[Cookie Persist] 🚫 阻止 ${source} 为用户 ${userId} 保存Cookie - 用户在退出保护期内`);
@@ -3763,7 +3763,7 @@ async function persistUserCookies(userId: string, cookies: StandardCookie[], sou
 
   console.log(`[Cookie Persist] ✅ 允许 ${source} 为用户 ${userId} 保存Cookie`);
 
-  const { CookieManager } = await import('./cookieManager.js');
+  const { CookieManager } = await import('./modules/auth/cookieManager.js');
   const cookieManager = new CookieManager();
 
   // 🔥 关键修复：在直接保存Cookie前再次检查退出状态
@@ -4153,7 +4153,7 @@ app.post('/agent/xiaohongshu/reset-logout-protection', async (req: Request, res:
     if (!userId) {
       return res.status(400).json({ success: false, error: 'userId is required' });
     }
-    const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+    const { globalLogoutState } = await import('./modules/auth/globalLogoutStateManager.js');
     globalLogoutState.forceResetUserLogoutState(userId);
     globalLogoutState.forceResetGlobalLogoutState();
     res.json({ success: true, message: 'Logout protection has been reset' });
