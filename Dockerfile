@@ -1,11 +1,16 @@
 # ============================================================
 # Simplified Dockerfile - No MCP Binary Build
+# FORCE REBUILD 2025-12-06-v3
 # ============================================================
 FROM node:18-slim
 
+# Force cache bust - change this to trigger full rebuild
+ARG CACHEBUST=20251206v3
+RUN echo "Cache bust: $CACHEBUST - No MCP dependencies"
+
 # Image metadata
 LABEL "language"="nodejs"
-LABEL "version"="v18-no-mcp"
+LABEL "version"="v18-no-mcp-v3"
 
 # Install necessary system dependencies (including ALL Playwright browser dependencies + xvfb)
 RUN apt-get update && apt-get install -y \
