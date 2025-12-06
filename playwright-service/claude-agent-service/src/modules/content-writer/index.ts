@@ -4,7 +4,7 @@
 export { ClaudeAgentHTTP, AgentRequest } from './claudeAgentHTTP.js';
 export { default as AutoContentManager } from './autoContentManager.js';
 export { default as ImageGenerationService } from './imageGenerationService.js';
-export { default as ClaudeAgent } from './claudeAgent.js';
+export { ClaudeAgent } from './claudeAgent.js';
 export { CustomAnthropicClient } from './customAnthropicClient.js';
 export * from './playwrightPublisher.js';
 export * from './enhancedPublishService.js';
