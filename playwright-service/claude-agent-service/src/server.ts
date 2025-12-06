@@ -924,13 +924,18 @@ app.get('/api', (_req: Request, res: Response) => {
   });
 });
 
-// 提供前端静态文件（放在最后，避免覆盖API路由）
-const frontendPath = path.join(__dirname, '../../../frontend');
-app.use(express.static(frontendPath));
+// Note: Frontend is hosted separately (prome-platform) 
+// This service is API-only
 
-// 根路径明确指向index.html
+// 根路径返回API信息
 app.get('/', (_req: Request, res: Response) => {
-  res.sendFile(path.join(frontendPath, 'index.html'));
+  res.json({
+    service: 'Claude Agent Service',
+    version: '3.0.0',
+    status: 'running',
+    endpoints: '/help for full API documentation',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // 健康检查
@@ -3324,9 +3329,13 @@ app.get('*', (req: Request, res: Response) => {
     return;
   }
 
-  // 其他路径重定向到主页
-  console.log(`[Server] Serving index.html for path: ${req.path}`);
-  res.sendFile(path.join(frontendPath, 'index.html'));
+  // 其他路径返回404（前端由prome-platform单独托管）
+  console.log(`[Server] Unknown path: ${req.path}`);
+  res.status(404).json({
+    error: 'Not Found',
+    path: req.path,
+    message: 'This is an API-only service. Frontend is hosted at prome.live'
+  });
 });
 
 // ============ Cookie数据库同步API ============
