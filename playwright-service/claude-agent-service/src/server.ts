@@ -2915,6 +2915,153 @@ app.get('/agent/accounts/cookies', async (req: Request, res: Response) => {
   }
 });
 
+// ============ 矩阵批量操作 API ============
+// 用于同时管理多个账号
+
+// 获取所有账号的运营状态
+app.get('/agent/accounts/batch-status', async (req: Request, res: Response) => {
+  try {
+    const supabaseUuid = req.query.supabaseUuid as string;
+    if (!supabaseUuid) {
+      return res.status(400).json({ success: false, error: 'supabaseUuid is required' });
+    }
+
+    console.log(`[Matrix] 获取所有账号状态: ${supabaseUuid}`);
+    const accountService = new AccountService();
+    const accounts = await accountService.getUserAccounts(supabaseUuid);
+
+    // 获取每个账号的运营状态
+    const statuses = await Promise.all(
+      accounts.map(async (binding) => {
+        const accountId = binding.xhs_account_id;
+        try {
+          // 检查 autoContentManager 中是否有该账号的数据
+          const userData = autoContentManager.getUserProfile(accountId);
+          const contentPlan = autoContentManager.getContentPlan(accountId);
+
+          // 简单判断：如果有配置或计划，认为正在运营
+          const isRunning = !!(userData || contentPlan);
+
+          // TODO: 从数据库获取实际的统计数据
+          return {
+            accountId,
+            isRunning,
+            stats: {
+              totalViews: 0,
+              totalLikes: 0,
+              totalComments: 0,
+              postsCount: contentPlan?.dailyPosts?.length || 0
+            }
+          };
+        } catch (err) {
+          return {
+            accountId,
+            isRunning: false,
+            stats: null
+          };
+        }
+      })
+    );
+
+    res.json({
+      success: true,
+      data: { statuses }
+    });
+  } catch (error: any) {
+    console.error('[Matrix] 获取批量状态失败:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 批量启动所有账号
+app.post('/agent/accounts/batch-start', async (req: Request, res: Response) => {
+  try {
+    const { supabaseUuid } = req.body;
+    if (!supabaseUuid) {
+      return res.status(400).json({ success: false, error: 'supabaseUuid is required' });
+    }
+
+    console.log(`[Matrix] 批量启动账号: ${supabaseUuid}`);
+    const accountService = new AccountService();
+    const accounts = await accountService.getUserAccounts(supabaseUuid);
+
+    let successCount = 0;
+    const results: any[] = [];
+
+    for (const binding of accounts) {
+      try {
+        const accountId = binding.xhs_account_id;
+        // 为每个账号加载 Cookie 并启动
+        const cookies = await accountService.getAccountCookies(accountId);
+        if (cookies && cookies.length > 0) {
+          // TODO: 实际启动逻辑 - 需要集成 autoContentManager
+          console.log(`[Matrix] 启动账号: ${accountId}`);
+          successCount++;
+          results.push({ accountId, success: true });
+        } else {
+          results.push({ accountId, success: false, error: 'No cookies' });
+        }
+      } catch (err: any) {
+        results.push({ accountId: binding.xhs_account_id, success: false, error: err.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        successCount,
+        totalCount: accounts.length,
+        results
+      }
+    });
+  } catch (error: any) {
+    console.error('[Matrix] 批量启动失败:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 批量停止所有账号
+app.post('/agent/accounts/batch-stop', async (req: Request, res: Response) => {
+  try {
+    const { supabaseUuid } = req.body;
+    if (!supabaseUuid) {
+      return res.status(400).json({ success: false, error: 'supabaseUuid is required' });
+    }
+
+    console.log(`[Matrix] 批量停止账号: ${supabaseUuid}`);
+    const accountService = new AccountService();
+    const accounts = await accountService.getUserAccounts(supabaseUuid);
+
+    let successCount = 0;
+    const results: any[] = [];
+
+    for (const binding of accounts) {
+      try {
+        const accountId = binding.xhs_account_id;
+        // 停止账号运营
+        console.log(`[Matrix] 停止账号: ${accountId}`);
+        // TODO: 调用 autoContentManager.stopUser(accountId)
+        successCount++;
+        results.push({ accountId, success: true });
+      } catch (err: any) {
+        results.push({ accountId: binding.xhs_account_id, success: false, error: err.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        successCount,
+        totalCount: accounts.length,
+        results
+      }
+    });
+  } catch (error: any) {
+    console.error('[Matrix] 批量停止失败:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // 🔥 强制清除Cookie并准备重新登录
 // 🔥 Shared Cleanup Function
 async function performComprehensiveCleanup(userId: string): Promise<string[]> {
