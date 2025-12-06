@@ -8,9 +8,9 @@ import ImageGenerationService from './imageGenerationService.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { DatabaseService } from './databaseService.js';
+import { DatabaseService } from '../../databaseService.js';
 import { PlaywrightPublisher } from './playwrightPublisher.js';
-import { BrowserSessionManager } from './browserSessionManager.js';
+import { BrowserSessionManager } from '../auth/browserSessionManager.js';
 
 interface UserProfile {
   userId: string;

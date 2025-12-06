@@ -1,7 +1,7 @@
 
 import { chromium, BrowserContext, Page } from 'playwright';
-import { CookieManager } from './cookieManager.js';
-import { BrowserSessionManager } from './browserSessionManager.js';
+import { CookieManager } from '../auth/cookieManager.js';
+import { BrowserSessionManager } from '../auth/browserSessionManager.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
