@@ -8,13 +8,19 @@ import * as fs from 'fs';
 import { spawn } from 'child_process';
 import { chromium } from 'playwright';
 import { fileURLToPath } from 'url';
-import { ClaudeAgentHTTP } from './claudeAgentHTTP.js';
-import AutoContentManager from './autoContentManager.js';
-import ImageGenerationService from './imageGenerationService.js';
-import { CookieOrchestrator } from './cookieOrchestrator.js';
-import { AutoCookieImporter } from './autoCookieImporter.js';
+// Content Writer Module
+import { ClaudeAgentHTTP } from './modules/content-writer/claudeAgentHTTP.js';
+import AutoContentManager from './modules/content-writer/autoContentManager.js';
+import ImageGenerationService from './modules/content-writer/imageGenerationService.js';
+// Auth Module
+import { CookieOrchestrator } from './modules/auth/cookieOrchestrator.js';
+import { AutoCookieImporter } from './modules/auth/autoCookieImporter.js';
+import { BrowserSessionManager } from './modules/auth/browserSessionManager.js';
+import { AccountService } from './modules/auth/accountService.js';
+// Analytics Module
+import { sendTestEmail, triggerAnalysisForUser, initCronJobs } from './modules/analytics/autoAnalysisEmail.js';
+// Legacy - TODO: move to modules
 import { MCPAuthClient } from './mcpAuthClient.js';
-import { BrowserSessionManager } from './browserSessionManager.js';
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -150,7 +156,7 @@ class PlaywrightLoginManager {
     }
     async startLogin(userId) {
         // 🔥 关键修复：检查全局退出状态，阻止PlaywrightLoginManager创建新会话
-        const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+        const { globalLogoutState } = await import('./modules/auth/globalLogoutStateManager.js');
         if (!globalLogoutState.canCreateNewLoginSession(userId)) {
             throw new Error('系统刚刚退出登录，请稍等片刻再重新登录');
         }
@@ -808,12 +814,17 @@ app.get('/api', (_req, res) => {
         documentation: 'https://github.com/lobos54321/xiaohongshumcp',
     });
 });
-// 提供前端静态文件（放在最后，避免覆盖API路由）
-const frontendPath = path.join(__dirname, '../../../frontend');
-app.use(express.static(frontendPath));
-// 根路径明确指向index.html
+// Note: Frontend is hosted separately (prome-platform) 
+// This service is API-only
+// 根路径返回API信息
 app.get('/', (_req, res) => {
-    res.sendFile(path.join(frontendPath, 'index.html'));
+    res.json({
+        service: 'Claude Agent Service',
+        version: '3.0.0',
+        status: 'running',
+        endpoints: '/help for full API documentation',
+        timestamp: new Date().toISOString()
+    });
 });
 // 健康检查
 app.get('/health', (_req, res) => {
@@ -1933,7 +1944,7 @@ app.post('/agent/xiaohongshu/auto-login', async (req, res) => {
         }
         console.log(`[XHS Auto Login] Starting popup QR code login for user ${userId}`);
         // 🔥 关键修复：检查全局退出状态，阻止新登录会话创建
-        const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+        const { globalLogoutState } = await import('./modules/auth/globalLogoutStateManager.js');
         if (!globalLogoutState.canCreateNewLoginSession(userId)) {
             return res.json({
                 success: false,
@@ -1945,8 +1956,8 @@ app.post('/agent/xiaohongshu/auto-login', async (req, res) => {
         }
         console.log(`[XHS Auto Login] ✅ 全局状态检查通过，允许创建新登录会话`);
         // 导入Cookie检测服务
-        const { AutoCookieDetector } = await import('./autoCookieDetector.js');
-        const { CookieManager } = await import('./cookieManager.js');
+        const { AutoCookieDetector } = await import('./modules/auth/autoCookieDetector.js');
+        const { CookieManager } = await import('./modules/auth/cookieManager.js');
         const cookieDetector = new AutoCookieDetector();
         const cookieManager = new CookieManager();
         // 首先检查是否已有有效Cookie
@@ -2278,7 +2289,7 @@ app.get('/agent/xiaohongshu/login/status', async (req, res) => {
                                 console.log(`[XHS Login] Found valid cookies in ${cookieFile}`);
                                 // 🔥 同步Cookie到数据库
                                 try {
-                                    const { CookieDatabaseService } = await import('./cookieDatabaseService.js');
+                                    const { CookieDatabaseService } = await import('./modules/auth/cookieDatabaseService.js');
                                     const dbService = new CookieDatabaseService();
                                     await dbService.saveCookies(userId, cookies);
                                     console.log(`[XHS Login] ✅ Cookie已同步到数据库`);
@@ -2342,7 +2353,7 @@ app.get('/agent/xiaohongshu/login/status', async (req, res) => {
 // 检查全局退出状态API（供前端调用）
 app.get('/agent/xiaohongshu/logout-status', async (req, res) => {
     try {
-        const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+        const { globalLogoutState } = await import('./modules/auth/globalLogoutStateManager.js');
         const globalInfo = globalLogoutState.getGlobalLogoutInfo();
         res.json({
             success: true,
@@ -2364,6 +2375,300 @@ app.get('/agent/xiaohongshu/logout-status', async (req, res) => {
         });
     }
 });
+// ============ 矩阵账号管理 API ============
+// 支持一个用户绑定多个小红书账号
+// 获取用户的所有绑定账号
+app.get('/agent/accounts/list', async (req, res) => {
+    try {
+        const supabaseUuid = req.query.supabaseUuid;
+        if (!supabaseUuid) {
+            return res.status(400).json({ success: false, error: 'supabaseUuid is required' });
+        }
+        console.log(`[Accounts] 获取用户账号列表: ${supabaseUuid}`);
+        const accountService = new AccountService();
+        const accounts = await accountService.getUserAccounts(supabaseUuid);
+        res.json({
+            success: true,
+            data: {
+                accounts,
+                count: accounts.length,
+                maxAccounts: 10
+            }
+        });
+    }
+    catch (error) {
+        console.error('[Accounts] 获取账号列表失败:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+// 获取用户的默认账号
+app.get('/agent/accounts/default', async (req, res) => {
+    try {
+        const supabaseUuid = req.query.supabaseUuid;
+        if (!supabaseUuid) {
+            return res.status(400).json({ success: false, error: 'supabaseUuid is required' });
+        }
+        console.log(`[Accounts] 获取默认账号: ${supabaseUuid}`);
+        const accountService = new AccountService();
+        const account = await accountService.getDefaultAccount(supabaseUuid);
+        res.json({
+            success: true,
+            data: { account }
+        });
+    }
+    catch (error) {
+        console.error('[Accounts] 获取默认账号失败:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+// 绑定新账号（登录成功后调用）
+app.post('/agent/accounts/bind', async (req, res) => {
+    try {
+        const { supabaseUuid, cookies, accountInfo, alias, isDefault } = req.body;
+        if (!supabaseUuid || !cookies || !Array.isArray(cookies)) {
+            return res.status(400).json({
+                success: false,
+                error: 'supabaseUuid and cookies array are required'
+            });
+        }
+        console.log(`[Accounts] 绑定新账号: ${supabaseUuid}, cookies: ${cookies.length}`);
+        const accountService = new AccountService();
+        // 1. 获取或创建账号记录
+        const account = await accountService.getOrCreateAccount(cookies, accountInfo);
+        if (!account) {
+            return res.status(400).json({
+                success: false,
+                error: 'Failed to create account record. Ensure web_session cookie exists.'
+            });
+        }
+        // 2. 创建绑定关系
+        const bindSuccess = await accountService.bindAccountToUser(supabaseUuid, account.id, { alias, isDefault });
+        if (!bindSuccess) {
+            return res.status(400).json({
+                success: false,
+                error: 'Failed to bind account. You may have reached the 10-account limit.'
+            });
+        }
+        // 3. 保存 Cookie
+        await accountService.saveAccountCookies(account.id, cookies);
+        res.json({
+            success: true,
+            data: {
+                account,
+                message: '账号绑定成功'
+            }
+        });
+    }
+    catch (error) {
+        console.error('[Accounts] 绑定账号失败:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+// 设置默认账号
+app.post('/agent/accounts/set-default', async (req, res) => {
+    try {
+        const { supabaseUuid, xhsAccountId } = req.body;
+        if (!supabaseUuid || !xhsAccountId) {
+            return res.status(400).json({
+                success: false,
+                error: 'supabaseUuid and xhsAccountId are required'
+            });
+        }
+        console.log(`[Accounts] 设置默认账号: ${supabaseUuid} -> ${xhsAccountId}`);
+        const accountService = new AccountService();
+        const success = await accountService.setDefaultAccount(supabaseUuid, xhsAccountId);
+        res.json({
+            success,
+            message: success ? '默认账号设置成功' : '设置失败'
+        });
+    }
+    catch (error) {
+        console.error('[Accounts] 设置默认账号失败:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+// 解绑账号
+app.delete('/agent/accounts/unbind', async (req, res) => {
+    try {
+        const { supabaseUuid, xhsAccountId } = req.body;
+        if (!supabaseUuid || !xhsAccountId) {
+            return res.status(400).json({
+                success: false,
+                error: 'supabaseUuid and xhsAccountId are required'
+            });
+        }
+        console.log(`[Accounts] 解绑账号: ${supabaseUuid} -> ${xhsAccountId}`);
+        const accountService = new AccountService();
+        const success = await accountService.unbindAccount(supabaseUuid, xhsAccountId);
+        res.json({
+            success,
+            message: success ? '账号解绑成功' : '解绑失败'
+        });
+    }
+    catch (error) {
+        console.error('[Accounts] 解绑账号失败:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+// 获取账号的 Cookie（用于切换账号时恢复会话）
+app.get('/agent/accounts/cookies', async (req, res) => {
+    try {
+        const xhsAccountId = req.query.xhsAccountId;
+        if (!xhsAccountId) {
+            return res.status(400).json({ success: false, error: 'xhsAccountId is required' });
+        }
+        console.log(`[Accounts] 获取账号Cookie: ${xhsAccountId}`);
+        const accountService = new AccountService();
+        const cookies = await accountService.getAccountCookies(xhsAccountId);
+        res.json({
+            success: true,
+            data: {
+                cookies,
+                hasCookies: !!cookies && cookies.length > 0
+            }
+        });
+    }
+    catch (error) {
+        console.error('[Accounts] 获取Cookie失败:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+// ============ 矩阵批量操作 API ============
+// 用于同时管理多个账号
+// 获取所有账号的运营状态
+app.get('/agent/accounts/batch-status', async (req, res) => {
+    try {
+        const supabaseUuid = req.query.supabaseUuid;
+        if (!supabaseUuid) {
+            return res.status(400).json({ success: false, error: 'supabaseUuid is required' });
+        }
+        console.log(`[Matrix] 获取所有账号状态: ${supabaseUuid}`);
+        const accountService = new AccountService();
+        const accounts = await accountService.getUserAccounts(supabaseUuid);
+        // 获取每个账号的运营状态
+        const statuses = await Promise.all(accounts.map(async (binding) => {
+            const accountId = binding.xhs_account_id;
+            try {
+                // 检查 autoContentManager 中是否有该账号的数据
+                const strategy = autoContentManager.getStrategy(accountId);
+                const weeklyPlan = autoContentManager.getWeeklyPlan(accountId);
+                const dailyTasks = autoContentManager.getDailyTasks(accountId);
+                // 简单判断：如果有配置或计划，认为正在运营
+                const isRunning = !!(strategy || weeklyPlan);
+                // TODO: 从数据库获取实际的统计数据
+                return {
+                    accountId,
+                    isRunning,
+                    stats: {
+                        totalViews: 0,
+                        totalLikes: 0,
+                        totalComments: 0,
+                        postsCount: dailyTasks?.length || 0
+                    }
+                };
+            }
+            catch (err) {
+                return {
+                    accountId,
+                    isRunning: false,
+                    stats: null
+                };
+            }
+        }));
+        res.json({
+            success: true,
+            data: { statuses }
+        });
+    }
+    catch (error) {
+        console.error('[Matrix] 获取批量状态失败:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+// 批量启动所有账号
+app.post('/agent/accounts/batch-start', async (req, res) => {
+    try {
+        const { supabaseUuid } = req.body;
+        if (!supabaseUuid) {
+            return res.status(400).json({ success: false, error: 'supabaseUuid is required' });
+        }
+        console.log(`[Matrix] 批量启动账号: ${supabaseUuid}`);
+        const accountService = new AccountService();
+        const accounts = await accountService.getUserAccounts(supabaseUuid);
+        let successCount = 0;
+        const results = [];
+        for (const binding of accounts) {
+            try {
+                const accountId = binding.xhs_account_id;
+                // 为每个账号加载 Cookie 并启动
+                const cookies = await accountService.getAccountCookies(accountId);
+                if (cookies && cookies.length > 0) {
+                    // TODO: 实际启动逻辑 - 需要集成 autoContentManager
+                    console.log(`[Matrix] 启动账号: ${accountId}`);
+                    successCount++;
+                    results.push({ accountId, success: true });
+                }
+                else {
+                    results.push({ accountId, success: false, error: 'No cookies' });
+                }
+            }
+            catch (err) {
+                results.push({ accountId: binding.xhs_account_id, success: false, error: err.message });
+            }
+        }
+        res.json({
+            success: true,
+            data: {
+                successCount,
+                totalCount: accounts.length,
+                results
+            }
+        });
+    }
+    catch (error) {
+        console.error('[Matrix] 批量启动失败:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+// 批量停止所有账号
+app.post('/agent/accounts/batch-stop', async (req, res) => {
+    try {
+        const { supabaseUuid } = req.body;
+        if (!supabaseUuid) {
+            return res.status(400).json({ success: false, error: 'supabaseUuid is required' });
+        }
+        console.log(`[Matrix] 批量停止账号: ${supabaseUuid}`);
+        const accountService = new AccountService();
+        const accounts = await accountService.getUserAccounts(supabaseUuid);
+        let successCount = 0;
+        const results = [];
+        for (const binding of accounts) {
+            try {
+                const accountId = binding.xhs_account_id;
+                // 停止账号运营
+                console.log(`[Matrix] 停止账号: ${accountId}`);
+                // TODO: 调用 autoContentManager.stopUser(accountId)
+                successCount++;
+                results.push({ accountId, success: true });
+            }
+            catch (err) {
+                results.push({ accountId: binding.xhs_account_id, success: false, error: err.message });
+            }
+        }
+        res.json({
+            success: true,
+            data: {
+                successCount,
+                totalCount: accounts.length,
+                results
+            }
+        });
+    }
+    catch (error) {
+        console.error('[Matrix] 批量停止失败:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 // 🔥 强制清除Cookie并准备重新登录
 // 🔥 Shared Cleanup Function
 async function performComprehensiveCleanup(userId) {
@@ -2379,7 +2684,7 @@ async function performComprehensiveCleanup(userId) {
     }
     // 2. Activate GlobalLogoutState
     try {
-        const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+        const { globalLogoutState } = await import('./modules/auth/globalLogoutStateManager.js');
         globalLogoutState.notifyUserLogout(userId);
         cleanedItems.push('GlobalLogoutState activated');
     }
@@ -2388,7 +2693,7 @@ async function performComprehensiveCleanup(userId) {
     }
     // 3. Clear CookieManager (Encrypted Storage)
     try {
-        const { CookieManager } = await import('./cookieManager.js');
+        const { CookieManager } = await import('./modules/auth/cookieManager.js');
         const cookieManager = new CookieManager();
         await cookieManager.deleteCookies(userId);
         cleanedItems.push('CookieManager storage cleared');
@@ -2398,7 +2703,7 @@ async function performComprehensiveCleanup(userId) {
     }
     // 4. Clear CookieDatabaseService (DB Storage)
     try {
-        const { CookieDatabaseService } = await import('./cookieDatabaseService.js');
+        const { CookieDatabaseService } = await import('./modules/auth/cookieDatabaseService.js');
         const dbService = new CookieDatabaseService();
         await dbService.deleteCookies(userId);
         cleanedItems.push('CookieDatabaseService cleared');
@@ -2705,7 +3010,7 @@ app.post('/agent/xiaohongshu/sync-cookies', async (req, res) => {
             }
             console.log(`[Cookie Sync] Found ${cookieData.cookies.length} cookies, valid session detected`);
             // 导入Cookie管理器
-            const { CookieManager } = await import('./cookieManager.js');
+            const { CookieManager } = await import('./modules/auth/cookieManager.js');
             const cookieManager = new CookieManager();
             // 标准化Cookie格式
             const standardCookies = cookieData.cookies.map((cookie) => ({
@@ -2774,7 +3079,7 @@ app.post('/agent/auto-import/manual', async (req, res) => {
         console.log(`[Auto Import] Manual import triggered for userId: ${userId || 'auto'}`);
         // 🔧 FIX: 检查全局退出保护状态
         // 防止退出登录后自动导入Cookie导致重新登录
-        const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+        const { globalLogoutState } = await import('./modules/auth/globalLogoutStateManager.js');
         // 检查全局退出状态
         if (globalLogoutState.isInGlobalLogoutState()) {
             const globalInfo = globalLogoutState.getGlobalLogoutInfo();
@@ -2899,9 +3204,13 @@ app.get('*', (req, res) => {
         })();
         return;
     }
-    // 其他路径重定向到主页
-    console.log(`[Server] Serving index.html for path: ${req.path}`);
-    res.sendFile(path.join(frontendPath, 'index.html'));
+    // 其他路径返回404（前端由prome-platform单独托管）
+    console.log(`[Server] Unknown path: ${req.path}`);
+    res.status(404).json({
+        error: 'Not Found',
+        path: req.path,
+        message: 'This is an API-only service. Frontend is hosted at prome.live'
+    });
 });
 // ============ Cookie数据库同步API ============
 // 从数据库加载Cookie
@@ -2915,7 +3224,7 @@ app.post('/agent/xiaohongshu/load-cookies-from-db', async (req, res) => {
             });
         }
         console.log(`[CookieDB API] 加载Cookie: userId=${userId}`);
-        const { CookieDatabaseService } = await import('./cookieDatabaseService.js');
+        const { CookieDatabaseService } = await import('./modules/auth/cookieDatabaseService.js');
         const dbService = new CookieDatabaseService();
         const cookies = await dbService.loadCookies(userId);
         res.json({
@@ -2943,7 +3252,7 @@ app.post('/agent/xiaohongshu/delete-cookies-from-db', async (req, res) => {
             });
         }
         console.log(`[CookieDB API] 删除Cookie: userId=${userId}`);
-        const { CookieDatabaseService } = await import('./cookieDatabaseService.js');
+        const { CookieDatabaseService } = await import('./modules/auth/cookieDatabaseService.js');
         const dbService = new CookieDatabaseService();
         await dbService.deleteCookies(userId);
         res.json({
@@ -3044,6 +3353,214 @@ app.post('/api/agent/auto/analyze-content-performance', async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 });
+// ==================== Auto AI Analysis & Email System ====================
+/**
+ * Test email endpoint
+ * POST /api/admin/test-email
+ */
+app.post('/api/admin/test-email', async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) {
+            return res.status(400).json({ success: false, message: 'Email required' });
+        }
+        console.log('[TEST-EMAIL] Sending test email to:', email);
+        const sent = await sendTestEmail(email);
+        if (sent) {
+            res.json({ success: true, message: 'Test email sent successfully! Check your inbox.' });
+        }
+        else {
+            res.json({ success: false, message: 'Failed to send email. Check RESEND_API_KEY configuration.' });
+        }
+    }
+    catch (error) {
+        console.error('[TEST-EMAIL] Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+/**
+ * Trigger analysis endpoint
+ * POST /api/admin/trigger-analysis
+ */
+app.post('/api/admin/trigger-analysis', async (req, res) => {
+    try {
+        const { userId, sendEmail } = req.body;
+        if (!userId) {
+            return res.status(400).json({ success: false, message: 'userId required' });
+        }
+        console.log('[TRIGGER-ANALYSIS] Analyzing user:', userId);
+        const analysis = await triggerAnalysisForUser(userId, sendEmail || false);
+        res.json({
+            success: true,
+            analysis: analysis,
+            message: `Analysis completed for user ${userId}`
+        });
+    }
+    catch (error) {
+        console.error('[TRIGGER-ANALYSIS] Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+// Initialize auto-analysis cron jobs
+initCronJobs();
+// ============================================
+// 🔥 FIX: Add missing API endpoints for extension
+// ============================================
+// API 1: GET Supabase configuration
+app.get('/api/v1/config/supabase', (req, res) => {
+    // CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    console.log('[CONFIG] Supabase config requested');
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !supabaseKey) {
+        console.error('[CONFIG] Supabase not configured in environment');
+        return res.status(500).json({
+            success: false,
+            error: 'Supabase not configured on backend'
+        });
+    }
+    res.json({
+        success: true,
+        config: {
+            url: supabaseUrl,
+            key: supabaseKey
+        }
+    });
+});
+// API 2: POST analytics sync
+app.post('/api/v1/analytics/sync', async (req, res) => {
+    try {
+        const { userId, publishedNotes, analyticsData } = req.body;
+        console.log(`[SYNC] Received sync request for user ${userId}: ${publishedNotes?.length || 0} notes, ${analyticsData?.length || 0} analytics`);
+        const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+        const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+        if (!supabaseUrl || !supabaseKey) {
+            console.error('[SYNC] Supabase not configured');
+            return res.status(500).json({
+                success: false,
+                error: 'Supabase not configured on backend'
+            });
+        }
+        let notesCount = 0;
+        let analyticsCount = 0;
+        // Save notes
+        if (publishedNotes && publishedNotes.length > 0) {
+            const notesWithUser = publishedNotes.map((note) => ({
+                user_id: userId,
+                feed_id: note.feedId || note.feed_id || null,
+                title_hash: note.titleHash || note.title_hash || null,
+                title: note.title,
+                cover_url: note.coverUrl || note.cover_url || null,
+                published_url: note.noteUrl || note.published_url || note.url || null,
+                published_at: note.publishedAt || note.published_at || new Date().toISOString(),
+                status: 'published'
+            }));
+            try {
+                const notesResponse = await fetch(`${supabaseUrl}/rest/v1/xhs_published_notes`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': supabaseKey,
+                        'Authorization': `Bearer ${supabaseKey}`,
+                        'Prefer': 'return=representation'
+                    },
+                    body: JSON.stringify(notesWithUser)
+                });
+                if (notesResponse.ok) {
+                    const saved = await notesResponse.json();
+                    notesCount = Array.isArray(saved) ? saved.length : 0;
+                    console.log(`[SYNC] Saved ${notesCount} notes`);
+                }
+                else {
+                    const error = await notesResponse.text();
+                    console.error('[SYNC] Failed to save notes:', error);
+                }
+            }
+            catch (notesError) {
+                console.error('[SYNC] Notes save error:', notesError);
+            }
+        }
+        // Save analytics
+        if (analyticsData && analyticsData.length > 0) {
+            const analyticsWithUser = analyticsData.map((data) => ({
+                user_id: userId,
+                feed_id: data.feedId || data.feed_id || null,
+                title_hash: data.titleHash || data.title_hash || null,
+                impressions: data.impressions || 0,
+                views: data.views || 0,
+                click_rate: data.clickRate || data.click_rate || 0,
+                likes: data.likes || 0,
+                comments: data.comments || 0,
+                collects: data.collects || 0,
+                engagement_rate: data.engagementRate || data.engagement_rate || 0,
+                collected_at: data.collectedAt || data.collected_at || new Date().toISOString(),
+                source: 'extension'
+            }));
+            try {
+                const analyticsResponse = await fetch(`${supabaseUrl}/rest/v1/xhs_note_analytics`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': supabaseKey,
+                        'Authorization': `Bearer ${supabaseKey}`,
+                        'Prefer': 'return=representation'
+                    },
+                    body: JSON.stringify(analyticsWithUser)
+                });
+                if (analyticsResponse.ok) {
+                    const saved = await analyticsResponse.json();
+                    analyticsCount = Array.isArray(saved) ? saved.length : 0;
+                    console.log(`[SYNC] Saved ${analyticsCount} analytics records`);
+                }
+                else {
+                    const error = await analyticsResponse.text();
+                    console.error('[SYNC] Failed to save analytics:', error);
+                }
+            }
+            catch (analyticsError) {
+                console.error('[SYNC] Analytics save error:', analyticsError);
+            }
+        }
+        // Log sync result
+        try {
+            await fetch(`${supabaseUrl}/rest/v1/xhs_sync_logs`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': supabaseKey,
+                    'Authorization': `Bearer ${supabaseKey}`
+                },
+                body: JSON.stringify({
+                    user_id: userId,
+                    sync_type: 'auto',
+                    source: 'extension',
+                    notes_synced: notesCount,
+                    analytics_synced: analyticsCount,
+                    success: true,
+                    completed_at: new Date().toISOString()
+                })
+            });
+        }
+        catch (logError) {
+            console.error('[SYNC] Failed to save sync log:', logError);
+        }
+        res.json({
+            success: true,
+            notesCount,
+            analyticsCount
+        });
+    }
+    catch (error) {
+        console.error('[SYNC] Error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
 // 启动服务器
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`[Claude Agent Service] Server listening on 0.0.0.0:${PORT}`);
@@ -3060,13 +3577,13 @@ process.on('SIGINT', () => { shutdown(); });
 process.on('SIGTERM', () => { shutdown(); });
 async function persistUserCookies(userId, cookies, source = 'unknown') {
     // 🔥 关键修复：检查全局退出状态
-    const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+    const { globalLogoutState } = await import('./modules/auth/globalLogoutStateManager.js');
     if (!globalLogoutState.canSaveCookies(userId, source)) {
         console.log(`[Cookie Persist] 🚫 阻止 ${source} 为用户 ${userId} 保存Cookie - 用户在退出保护期内`);
         return { mcpSynced: false, writtenPaths: [] };
     }
     console.log(`[Cookie Persist] ✅ 允许 ${source} 为用户 ${userId} 保存Cookie`);
-    const { CookieManager } = await import('./cookieManager.js');
+    const { CookieManager } = await import('./modules/auth/cookieManager.js');
     const cookieManager = new CookieManager();
     // 🔥 关键修复：在直接保存Cookie前再次检查退出状态
     if (globalLogoutState.canSaveCookies(userId, `${source}-direct-save`)) {
@@ -3390,7 +3907,7 @@ app.post('/agent/xiaohongshu/reset-logout-protection', async (req, res) => {
         if (!userId) {
             return res.status(400).json({ success: false, error: 'userId is required' });
         }
-        const { globalLogoutState } = await import('./globalLogoutStateManager.js');
+        const { globalLogoutState } = await import('./modules/auth/globalLogoutStateManager.js');
         globalLogoutState.forceResetUserLogoutState(userId);
         globalLogoutState.forceResetGlobalLogoutState();
         res.json({ success: true, message: 'Logout protection has been reset' });

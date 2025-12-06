@@ -2936,11 +2936,12 @@ app.get('/agent/accounts/batch-status', async (req: Request, res: Response) => {
         const accountId = binding.xhs_account_id;
         try {
           // 检查 autoContentManager 中是否有该账号的数据
-          const userData = autoContentManager.getUserProfile(accountId);
-          const contentPlan = autoContentManager.getContentPlan(accountId);
+          const strategy = autoContentManager.getStrategy(accountId);
+          const weeklyPlan = autoContentManager.getWeeklyPlan(accountId);
+          const dailyTasks = autoContentManager.getDailyTasks(accountId);
 
           // 简单判断：如果有配置或计划，认为正在运营
-          const isRunning = !!(userData || contentPlan);
+          const isRunning = !!(strategy || weeklyPlan);
 
           // TODO: 从数据库获取实际的统计数据
           return {
@@ -2950,7 +2951,7 @@ app.get('/agent/accounts/batch-status', async (req: Request, res: Response) => {
               totalViews: 0,
               totalLikes: 0,
               totalComments: 0,
-              postsCount: contentPlan?.dailyPosts?.length || 0
+              postsCount: dailyTasks?.length || 0
             }
           };
         } catch (err) {
