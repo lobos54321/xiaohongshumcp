@@ -1,12 +1,13 @@
 // Auth Module
-// 负责登录、Cookie管理和浏览器会话
+// 负责用户认证、Cookie管理和浏览器会话
 
-export * from './cookieOrchestrator.js';
-export * from './cookieManager.js';
-export * from './autoCookieDetector.js';
-export * from './autoCookieImporter.js';
-export * from './cookieDatabaseService.js';
-export * from './floatingLoginService.js';
-export * from './browserSessionManager.js';
-export * from './globalLogoutStateManager.js';
-export * from './manualCookieHelper.js';
+export { CookieManager } from './cookieManager.js';
+export { CookieOrchestrator } from './cookieOrchestrator.js';
+export { AutoCookieDetector } from './autoCookieDetector.js';
+export { AutoCookieImporter } from './autoCookieImporter.js';
+export { CookieDatabaseService } from './cookieDatabaseService.js';
+export { FloatingLoginService } from './floatingLoginService.js';
+export { BrowserSessionManager } from './browserSessionManager.js';
+export { globalLogoutState } from './globalLogoutStateManager.js';
+export { ManualCookieHelper } from './manualCookieHelper.js';
+export { AccountService } from './accountService.js';
