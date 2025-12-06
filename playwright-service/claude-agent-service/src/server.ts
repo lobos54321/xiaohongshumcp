@@ -10,15 +10,22 @@ import * as fs from 'fs';
 import { spawn, SpawnOptions } from 'child_process';
 import { chromium, Browser, BrowserContext, Page, Cookie as PlaywrightCookie } from 'playwright';
 import { fileURLToPath } from 'url';
-import { ClaudeAgentHTTP, AgentRequest } from './claudeAgentHTTP.js';
-import AutoContentManager from './autoContentManager.js';
-import ImageGenerationService from './imageGenerationService.js';
-import { CookieOrchestrator } from './cookieOrchestrator.js';
-import { AutoCookieImporter } from './autoCookieImporter.js';
-import type { StandardCookie } from './autoCookieImporter.js';
+// Content Writer Module
+import { ClaudeAgentHTTP, AgentRequest } from './modules/content-writer/claudeAgentHTTP.js';
+import AutoContentManager from './modules/content-writer/autoContentManager.js';
+import ImageGenerationService from './modules/content-writer/imageGenerationService.js';
+
+// Auth Module
+import { CookieOrchestrator } from './modules/auth/cookieOrchestrator.js';
+import { AutoCookieImporter } from './modules/auth/autoCookieImporter.js';
+import type { StandardCookie } from './modules/auth/autoCookieImporter.js';
+import { BrowserSessionManager } from './modules/auth/browserSessionManager.js';
+
+// Analytics Module
+import { sendTestEmail, triggerAnalysisForUser, initCronJobs } from './modules/analytics/autoAnalysisEmail.js';
+
+// Legacy - TODO: move to modules
 import { MCPAuthClient } from './mcpAuthClient.js';
-import { BrowserSessionManager } from './browserSessionManager.js';
-import { sendTestEmail, triggerAnalysisForUser, initCronJobs } from './autoAnalysisEmail.js';
 
 dotenv.config();
 
