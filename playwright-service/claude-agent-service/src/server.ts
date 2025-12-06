@@ -20,6 +20,7 @@ import { CookieOrchestrator } from './modules/auth/cookieOrchestrator.js';
 import { AutoCookieImporter } from './modules/auth/autoCookieImporter.js';
 import type { StandardCookie } from './modules/auth/autoCookieImporter.js';
 import { BrowserSessionManager } from './modules/auth/browserSessionManager.js';
+import { AccountService } from './modules/auth/accountService.js';
 
 // Analytics Module
 import { sendTestEmail, triggerAnalysisForUser, initCronJobs } from './modules/analytics/autoAnalysisEmail.js';
@@ -2729,6 +2730,188 @@ app.get('/agent/xiaohongshu/logout-status', async (req: Request, res: Response) 
       success: false,
       error: error.message || 'Failed to get logout status'
     });
+  }
+});
+
+// ============ 矩阵账号管理 API ============
+// 支持一个用户绑定多个小红书账号
+
+// 获取用户的所有绑定账号
+app.get('/agent/accounts/list', async (req: Request, res: Response) => {
+  try {
+    const supabaseUuid = req.query.supabaseUuid as string;
+    if (!supabaseUuid) {
+      return res.status(400).json({ success: false, error: 'supabaseUuid is required' });
+    }
+
+    console.log(`[Accounts] 获取用户账号列表: ${supabaseUuid}`);
+    const accountService = new AccountService();
+    const accounts = await accountService.getUserAccounts(supabaseUuid);
+
+    res.json({
+      success: true,
+      data: {
+        accounts,
+        count: accounts.length,
+        maxAccounts: 10
+      }
+    });
+  } catch (error: any) {
+    console.error('[Accounts] 获取账号列表失败:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 获取用户的默认账号
+app.get('/agent/accounts/default', async (req: Request, res: Response) => {
+  try {
+    const supabaseUuid = req.query.supabaseUuid as string;
+    if (!supabaseUuid) {
+      return res.status(400).json({ success: false, error: 'supabaseUuid is required' });
+    }
+
+    console.log(`[Accounts] 获取默认账号: ${supabaseUuid}`);
+    const accountService = new AccountService();
+    const account = await accountService.getDefaultAccount(supabaseUuid);
+
+    res.json({
+      success: true,
+      data: { account }
+    });
+  } catch (error: any) {
+    console.error('[Accounts] 获取默认账号失败:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 绑定新账号（登录成功后调用）
+app.post('/agent/accounts/bind', async (req: Request, res: Response) => {
+  try {
+    const { supabaseUuid, cookies, accountInfo, alias, isDefault } = req.body;
+
+    if (!supabaseUuid || !cookies || !Array.isArray(cookies)) {
+      return res.status(400).json({
+        success: false,
+        error: 'supabaseUuid and cookies array are required'
+      });
+    }
+
+    console.log(`[Accounts] 绑定新账号: ${supabaseUuid}, cookies: ${cookies.length}`);
+    const accountService = new AccountService();
+
+    // 1. 获取或创建账号记录
+    const account = await accountService.getOrCreateAccount(cookies, accountInfo);
+    if (!account) {
+      return res.status(400).json({
+        success: false,
+        error: 'Failed to create account record. Ensure web_session cookie exists.'
+      });
+    }
+
+    // 2. 创建绑定关系
+    const bindSuccess = await accountService.bindAccountToUser(
+      supabaseUuid,
+      account.id,
+      { alias, isDefault }
+    );
+
+    if (!bindSuccess) {
+      return res.status(400).json({
+        success: false,
+        error: 'Failed to bind account. You may have reached the 10-account limit.'
+      });
+    }
+
+    // 3. 保存 Cookie
+    await accountService.saveAccountCookies(account.id, cookies);
+
+    res.json({
+      success: true,
+      data: {
+        account,
+        message: '账号绑定成功'
+      }
+    });
+  } catch (error: any) {
+    console.error('[Accounts] 绑定账号失败:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 设置默认账号
+app.post('/agent/accounts/set-default', async (req: Request, res: Response) => {
+  try {
+    const { supabaseUuid, xhsAccountId } = req.body;
+
+    if (!supabaseUuid || !xhsAccountId) {
+      return res.status(400).json({
+        success: false,
+        error: 'supabaseUuid and xhsAccountId are required'
+      });
+    }
+
+    console.log(`[Accounts] 设置默认账号: ${supabaseUuid} -> ${xhsAccountId}`);
+    const accountService = new AccountService();
+    const success = await accountService.setDefaultAccount(supabaseUuid, xhsAccountId);
+
+    res.json({
+      success,
+      message: success ? '默认账号设置成功' : '设置失败'
+    });
+  } catch (error: any) {
+    console.error('[Accounts] 设置默认账号失败:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 解绑账号
+app.delete('/agent/accounts/unbind', async (req: Request, res: Response) => {
+  try {
+    const { supabaseUuid, xhsAccountId } = req.body;
+
+    if (!supabaseUuid || !xhsAccountId) {
+      return res.status(400).json({
+        success: false,
+        error: 'supabaseUuid and xhsAccountId are required'
+      });
+    }
+
+    console.log(`[Accounts] 解绑账号: ${supabaseUuid} -> ${xhsAccountId}`);
+    const accountService = new AccountService();
+    const success = await accountService.unbindAccount(supabaseUuid, xhsAccountId);
+
+    res.json({
+      success,
+      message: success ? '账号解绑成功' : '解绑失败'
+    });
+  } catch (error: any) {
+    console.error('[Accounts] 解绑账号失败:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 获取账号的 Cookie（用于切换账号时恢复会话）
+app.get('/agent/accounts/cookies', async (req: Request, res: Response) => {
+  try {
+    const xhsAccountId = req.query.xhsAccountId as string;
+    if (!xhsAccountId) {
+      return res.status(400).json({ success: false, error: 'xhsAccountId is required' });
+    }
+
+    console.log(`[Accounts] 获取账号Cookie: ${xhsAccountId}`);
+    const accountService = new AccountService();
+    const cookies = await accountService.getAccountCookies(xhsAccountId);
+
+    res.json({
+      success: true,
+      data: {
+        cookies,
+        hasCookies: !!cookies && cookies.length > 0
+      }
+    });
+  } catch (error: any) {
+    console.error('[Accounts] 获取Cookie失败:', error.message);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
