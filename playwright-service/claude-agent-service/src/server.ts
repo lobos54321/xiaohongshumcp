@@ -2556,7 +2556,104 @@ app.post('/agent/xiaohongshu/manual-cookies', async (req: Request, res: Response
   }
 });
 
-// 辅助方法：导入Cookie到MCP Router的cookies.json
+// 扩展插件保存Cookie（前端从扩展获取Cookie后发送到这里）
+// 这是 manual-cookies 的别名，专门用于扩展插件的 Cookie 同步
+app.post('/agent/xiaohongshu/save-cookies', async (req: Request, res: Response) => {
+  try {
+    const { userId, cookies, source } = req.body as { userId?: string; cookies?: Array<any>; source?: string };
+
+    console.log(`[Save Cookies] 收到扩展的Cookie保存请求: userId=${userId}, source=${source || 'extension'}, cookieCount=${cookies?.length || 0}`);
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required'
+      });
+    }
+
+    if (!cookies || !Array.isArray(cookies) || cookies.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'cookies array is required'
+      });
+    }
+
+    const normalizedCookies = cookies
+      .filter(cookie => cookie && typeof cookie.name === 'string' && typeof cookie.value === 'string')
+      .map(cookie => {
+        const name = cookie.name.trim();
+        const value = cookie.value.trim();
+
+        const allowedSameSite: Array<'Lax' | 'Strict' | 'None'> = ['Lax', 'Strict', 'None'];
+        const rawSameSite = typeof cookie.sameSite === 'string' ? cookie.sameSite : '';
+        const sameSite = allowedSameSite.includes(rawSameSite as 'Lax' | 'Strict' | 'None')
+          ? (rawSameSite as 'Lax' | 'Strict' | 'None')
+          : 'Lax';
+
+        return {
+          name,
+          value,
+          domain: (cookie.domain && typeof cookie.domain === 'string' && cookie.domain.trim().length > 0)
+            ? cookie.domain.trim()
+            : '.xiaohongshu.com',
+          path: (cookie.path && typeof cookie.path === 'string' && cookie.path.trim().length > 0)
+            ? cookie.path.trim()
+            : '/',
+          secure: cookie.secure !== false,
+          httpOnly: typeof cookie.httpOnly === 'boolean' ? cookie.httpOnly : ['web_session', 'a1'].includes(name),
+          sameSite
+        } as {
+          name: string;
+          value: string;
+          domain: string;
+          path: string;
+          secure: boolean;
+          httpOnly: boolean;
+          sameSite: 'Lax' | 'Strict' | 'None';
+        };
+      })
+      .filter(cookie => cookie.name && cookie.value);
+
+    if (normalizedCookies.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No valid cookies provided'
+      });
+    }
+
+    // 检查关键 Cookie（web_session 或 a1）
+    const hasWebSession = normalizedCookies.some(cookie => cookie.name === 'web_session');
+    const hasA1 = normalizedCookies.some(cookie => cookie.name === 'a1');
+
+    if (!hasWebSession && !hasA1) {
+      return res.status(400).json({
+        success: false,
+        error: '缺少必要的Cookie: web_session 或 a1。请确保已在小红书网站登录。'
+      });
+    }
+
+    const persistResult = await persistUserCookies(userId, normalizedCookies, source || 'extension');
+
+    console.log(`[Save Cookies] ✅ Cookie保存成功: userId=${userId}, count=${normalizedCookies.length}`);
+
+    res.json({
+      success: true,
+      message: 'Cookie已成功保存',
+      data: {
+        userId,
+        cookieCount: normalizedCookies.length,
+        mcpSynced: persistResult.mcpSynced,
+        source: source || 'extension'
+      }
+    });
+  } catch (error: any) {
+    console.error('[Save Cookies] Error saving cookies:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to save cookies'
+    });
+  }
+});
 async function importCookiesToMCPRouter(userId: string, cookies: any[]) {
   try {
     const axios = await import('axios');
