@@ -4215,27 +4215,76 @@ ${contextInfo ? `## 产品背景\n${contextInfo}\n` : ''}
       }
     }
 
-    // 处理文档
+    // 处理文档 (使用 FileManager 上传，支持 PDF/CSV 等)
     if (documents && documents.length > 0) {
+      console.log('[Material Analysis] Processing', documents.length, 'documents...');
       parts.push({ text: `\n\n## 产品文档\n` });
+
       for (let i = 0; i < documents.length; i++) {
         const docUrl = documents[i];
-        const fileName = docUrl.split('/').pop() || `文档${i + 1}`;
+        const fileName = docUrl.split('/').pop() || `doc_${i + 1}`;
 
         try {
-          if (docUrl.endsWith('.txt')) {
-            const docResponse = await fetch(docUrl);
-            if (docResponse.ok) {
-              const textContent = await docResponse.text();
-              parts.push({ text: `\n[文档 ${i + 1}: ${fileName}]\n内容:\n${textContent.substring(0, 2000)}...\n` });
-              continue;
-            }
-          }
-        } catch (docErr) {
-          console.warn(`[Material Analysis] Error reading document ${i + 1}`);
-        }
+          console.log(`[Material Analysis] Downloading document ${i + 1}:`, docUrl.substring(0, 60) + '...');
+          const docResponse = await fetch(docUrl);
 
-        parts.push({ text: `\n[文档 ${i + 1}: ${fileName}]\n` });
+          if (!docResponse.ok) {
+            console.warn(`[Material Analysis] Failed to download document ${i + 1}`);
+            continue;
+          }
+
+          const contentType = docResponse.headers.get('content-type') || 'application/pdf'; // Default to PDF if unknown
+          console.log(`[Material Analysis] Document ${i + 1} type: ${contentType}`);
+
+          // ---------------------------------------------------------
+          // 📄 文档处理流程：下载临时文件 -> Upload -> Poll -> Generate
+          // ---------------------------------------------------------
+          const tempDir = os.tmpdir();
+          // 简单的扩展名推断
+          let ext = 'pdf';
+          if (contentType.includes('text/plain')) ext = 'txt';
+          else if (contentType.includes('csv')) ext = 'csv';
+          else if (docUrl.endsWith('.pdf')) ext = 'pdf';
+
+          const tempFilePath = path.join(tempDir, `gemini_doc_${Date.now()}_${i}.${ext}`);
+
+          if (!docResponse.body) throw new Error('No response body');
+          await pipeline(docResponse.body as any, fs.createWriteStream(tempFilePath));
+          tempFiles.push(tempFilePath);
+
+          // 上传到 Gemini
+          const uploadResult = await fileManager.uploadFile(tempFilePath, {
+            mimeType: contentType,
+            displayName: fileName,
+          });
+
+          // 等待处理 (虽然文档通常很快，但为了保险起见保持轮询)
+          let file = await fileManager.getFile(uploadResult.file.name);
+          let attempts = 0;
+          while (file.state === FileState.PROCESSING && attempts < 20) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            file = await fileManager.getFile(uploadResult.file.name);
+            attempts++;
+          }
+
+          if (file.state === FileState.FAILED) {
+            console.warn(`[Material Analysis] Document processing failed for ${fileName}`);
+            parts.push({ text: `\n[文档 ${i + 1}: ${fileName}]: 解析失败\n` });
+          } else {
+            console.log(`[Material Analysis] Document ready: ${file.uri}`);
+            parts.push({
+              fileData: {
+                mimeType: file.mimeType,
+                fileUri: file.uri
+              }
+            });
+            parts.push({ text: `\n[文档 ${i + 1}: ${fileName}]: 已上传分析\n` });
+          }
+
+        } catch (docErr) {
+          console.warn(`[Material Analysis] Error processing document ${i + 1}:`, docErr);
+          parts.push({ text: `\n[文档 ${i + 1}: ${fileName}]: 无法加载\n` });
+        }
       }
     }
 
