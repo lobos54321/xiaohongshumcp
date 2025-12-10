@@ -4063,16 +4063,15 @@ app.post('/api/materials/analyze', async (req: Request, res: Response) => {
 
     // DEBUG: List available models to help verify what is actually supported
     // mechanism to auto-discover models
-    /*
     try {
-      const modelList = await genAI.getGenerativeModelFactory().listModels();
-      console.log('[DEBUG] Available Gemini Models:', JSON.stringify(modelList));
+      // Uncomment to debug model availability
+      // const modelList = await genAI.getGenerativeModelFactory().listModels();
+      // console.log('[DEBUG] Available Gemini Models:', JSON.stringify(modelList));
     } catch (e) {
       console.log('[DEBUG] Could not list models:', e);
     }
-    */
 
-    const modelId = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
+    const modelId = process.env.GEMINI_MODEL || 'gemini-3-pro-preview';
     const model = genAI.getGenerativeModel({
       model: modelId
     });
