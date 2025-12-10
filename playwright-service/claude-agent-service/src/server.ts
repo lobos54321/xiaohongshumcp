@@ -4061,10 +4061,10 @@ app.post('/api/materials/analyze', async (req: Request, res: Response) => {
   try {
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({
-      model: process.env.GEMINI_MODEL || 'gemini-1.5-pro'
+      model: process.env.GEMINI_MODEL || 'gemini-3.0-pro'
     });
 
-    console.log('[Material Analysis] Using Gemini model:', process.env.GEMINI_MODEL || 'gemini-1.5-pro');
+    console.log('[Material Analysis] Using Gemini model:', process.env.GEMINI_MODEL || 'gemini-3.0-pro');
 
     // 准备多模态内容 - 使用 any[] 避免 TypeScript 兼容性问题
     const parts: any[] = [];
@@ -4181,7 +4181,7 @@ ${contextInfo ? `## 产品背景\n${contextInfo}\n` : ''}
       success: true,
       analysis: analysis,
       provider: 'gemini',
-      model: process.env.GEMINI_MODEL || 'gemini-1.5-pro'
+      model: process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp'
     });
 
   } catch (error) {
