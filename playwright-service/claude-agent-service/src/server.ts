@@ -4060,11 +4060,24 @@ app.post('/api/materials/analyze', async (req: Request, res: Response) => {
 
   try {
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+
+    // DEBUG: List available models to help verify what is actually supported
+    // mechanism to auto-discover models
+    /*
+    try {
+      const modelList = await genAI.getGenerativeModelFactory().listModels();
+      console.log('[DEBUG] Available Gemini Models:', JSON.stringify(modelList));
+    } catch (e) {
+      console.log('[DEBUG] Could not list models:', e);
+    }
+    */
+
+    const modelId = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
     const model = genAI.getGenerativeModel({
-      model: process.env.GEMINI_MODEL || 'gemini-3.0-pro'
+      model: modelId
     });
 
-    console.log('[Material Analysis] Using Gemini model:', process.env.GEMINI_MODEL || 'gemini-3.0-pro');
+    console.log('[Material Analysis] Using Gemini model:', modelId);
 
     // 准备多模态内容 - 使用 any[] 避免 TypeScript 兼容性问题
     const parts: any[] = [];
