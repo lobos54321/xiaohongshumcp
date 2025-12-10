@@ -4037,6 +4037,11 @@ app.get('/api/v1/config/supabase', (req: Request, res: Response) => {
 // 🔮 Gemini 多模态素材分析 API
 // ============================================
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleAIFileManager, FileState } from '@google/generative-ai/server';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { pipeline } from 'stream/promises';
 
 app.post('/api/materials/analyze', async (req: Request, res: Response) => {
   const { supabaseUuid, images, documents, productName, targetAudience } = req.body;
@@ -4058,13 +4063,15 @@ app.post('/api/materials/analyze', async (req: Request, res: Response) => {
     });
   }
 
+  // 临时文件清理列表
+  const tempFiles: string[] = [];
+
   try {
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const fileManager = new GoogleAIFileManager(GEMINI_API_KEY);
 
     // DEBUG: List available models to help verify what is actually supported
-    // mechanism to auto-discover models
     try {
-      // Uncomment to debug model availability
       // const modelList = await genAI.getGenerativeModelFactory().listModels();
       // console.log('[DEBUG] Available Gemini Models:', JSON.stringify(modelList));
     } catch (e) {
@@ -4078,7 +4085,7 @@ app.post('/api/materials/analyze', async (req: Request, res: Response) => {
 
     console.log('[Material Analysis] Using Gemini model:', modelId);
 
-    // 准备多模态内容 - 使用 any[] 避免 TypeScript 兼容性问题
+    // 准备多模态内容
     const parts: any[] = [];
 
     // 添加分析提示词
@@ -4116,42 +4123,96 @@ ${contextInfo ? `## 产品背景\n${contextInfo}\n` : ''}
 `
     });
 
-    // 处理图片 - 下载并转换为 base64
+    // 处理图片和视频
     if (images && images.length > 0) {
-      console.log('[Material Analysis] Processing', images.length, 'images...');
+      console.log('[Material Analysis] Processing', images.length, 'visual assets...');
 
       for (let i = 0; i < Math.min(images.length, 5); i++) {
-        const imageUrl = images[i];
-        try {
-          console.log(`[Material Analysis] Downloading image ${i + 1}:`, imageUrl.substring(0, 60) + '...');
+        const fileUrl = images[i];
 
-          const imageResponse = await fetch(imageUrl);
-          if (!imageResponse.ok) {
-            console.warn(`[Material Analysis] Failed to download image ${i + 1}`);
+        try {
+          console.log(`[Material Analysis] Downloading asset ${i + 1}:`, fileUrl.substring(0, 60) + '...');
+          const response = await fetch(fileUrl);
+
+          if (!response.ok) {
+            console.warn(`[Material Analysis] Failed to download asset ${i + 1}`);
             continue;
           }
 
-          const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
-          const arrayBuffer = await imageResponse.arrayBuffer();
-          const base64 = Buffer.from(arrayBuffer).toString('base64');
+          const contentType = response.headers.get('content-type') || 'application/octet-stream';
+          const isVideo = contentType.startsWith('video/');
 
-          if (contentType.startsWith('video/')) {
-            parts.push({ text: `\n[视频 ${i + 1}]: 视频文件，请基于可用信息分析\n` });
+          if (isVideo) {
+            // ---------------------------------------------------------
+            // 📹 视频处理流程：下载临时文件 -> Upload -> Poll -> Generate
+            // ---------------------------------------------------------
+            console.log(`[Material Analysis] Detected VIDEO asset (${contentType}). Uploading to Gemini...`);
+
+            // 1. 创建临时文件
+            const tempDir = os.tmpdir();
+            const ext = contentType.split('/')[1] || 'mp4';
+            const tempFilePath = path.join(tempDir, `gemini_upload_${Date.now()}_${i}.${ext}`);
+
+            // 2. 将流写入临时文件
+            if (!response.body) throw new Error('No response body');
+            await pipeline(response.body as any, fs.createWriteStream(tempFilePath));
+            tempFiles.push(tempFilePath); // 标记以便后续清理
+
+            // 3. 上传到 Gemini
+            const uploadResult = await fileManager.uploadFile(tempFilePath, {
+              mimeType: contentType,
+              displayName: `Product Material Video ${i + 1}`,
+            });
+
+            const fileUri = uploadResult.file.uri;
+            console.log(`[Material Analysis] Video uploaded. URI: ${fileUri}. Waiting for processing...`);
+
+            // 4. 轮询等待文件处理完成 (State: ACTIVE)
+            let file = await fileManager.getFile(uploadResult.file.name);
+            let attempts = 0;
+            while (file.state === FileState.PROCESSING && attempts < 20) {
+              // 等待 2 秒
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              file = await fileManager.getFile(uploadResult.file.name);
+              attempts++;
+              if (attempts % 5 === 0) console.log(`[Material Analysis] Still processing video... (${attempts * 2}s)`);
+            }
+
+            if (file.state === FileState.FAILED) {
+              throw new Error('Video processing failed by Gemini.');
+            }
+
+            console.log(`[Material Analysis] Video ready! State: ${file.state}`);
+
+            // 5. 添加到 Prompt
+            parts.push({
+              fileData: {
+                mimeType: file.mimeType,
+                fileUri: file.uri
+              }
+            });
+            parts.push({ text: `\n[视频 ${i + 1}]: 已上传分析\n` });
+
           } else {
+            // ---------------------------------------------------------
+            // 🖼️ 图片处理流程 (Base64 is fine for images)
+            // ---------------------------------------------------------
+            const arrayBuffer = await response.arrayBuffer();
+            const base64 = Buffer.from(arrayBuffer).toString('base64');
+
             parts.push({
               inlineData: {
-                mimeType: contentType,
+                mimeType: contentType.startsWith('image/') ? contentType : 'image/jpeg',
                 data: base64
               }
             });
             parts.push({ text: `\n[图片 ${i + 1}]\n` });
+            console.log(`[Material Analysis] Image ${i + 1} processed, size: ${(arrayBuffer.byteLength / 1024).toFixed(1)}KB`);
           }
 
-          console.log(`[Material Analysis] Image ${i + 1} processed, size: ${(arrayBuffer.byteLength / 1024).toFixed(1)}KB`);
-
-        } catch (imgErr) {
-          console.warn(`[Material Analysis] Error processing image ${i + 1}:`, imgErr instanceof Error ? imgErr.message : imgErr);
-          parts.push({ text: `\n[图片 ${i + 1}]: 无法加载\n` });
+        } catch (assetErr) {
+          console.warn(`[Material Analysis] Error processing asset ${i + 1}:`, assetErr instanceof Error ? assetErr.message : assetErr);
+          parts.push({ text: `\n[素材 ${i + 1}]: 无法加载 (Error: ${assetErr instanceof Error ? assetErr.message : 'Unknown'})\n` });
         }
       }
     }
@@ -4202,6 +4263,21 @@ ${contextInfo ? `## 产品背景\n${contextInfo}\n` : ''}
       success: false,
       error: error instanceof Error ? error.message : '素材分析失败，请稍后重试'
     });
+  } finally {
+    // 🧹 清理所有临时文件
+    if (tempFiles.length > 0) {
+      console.log(`[Material Analysis] Cleaning up ${tempFiles.length} temp files...`);
+      for (const file of tempFiles) {
+        try {
+          if (fs.existsSync(file)) {
+            fs.unlinkSync(file);
+            console.log(`[Material Analysis] Deleted temp file: ${file}`);
+          }
+        } catch (cleanupErr) {
+          console.error(`[Material Analysis] Error deleting temp file ${file}:`, cleanupErr);
+        }
+      }
+    }
   }
 });
 
