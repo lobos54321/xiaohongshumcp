@@ -4038,9 +4038,7 @@ app.get('/api/v1/config/supabase', (req: Request, res: Response) => {
 // ============================================
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { GoogleAIFileManager, FileState } from '@google/generative-ai/server';
-import fs from 'fs';
 import os from 'os';
-import path from 'path';
 import { pipeline } from 'stream/promises';
 
 app.post('/api/materials/analyze', async (req: Request, res: Response) => {
