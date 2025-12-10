@@ -2221,7 +2221,85 @@ app.post('/agent/xiaohongshu/manual-cookies', async (req, res) => {
         });
     }
 });
-// 辅助方法：导入Cookie到MCP Router的cookies.json
+// 扩展插件保存Cookie（前端从扩展获取Cookie后发送到这里）
+// 这是 manual-cookies 的别名，专门用于扩展插件的 Cookie 同步
+app.post('/agent/xiaohongshu/save-cookies', async (req, res) => {
+    try {
+        const { userId, cookies, source } = req.body;
+        console.log(`[Save Cookies] 收到扩展的Cookie保存请求: userId=${userId}, source=${source || 'extension'}, cookieCount=${cookies?.length || 0}`);
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                error: 'userId is required'
+            });
+        }
+        if (!cookies || !Array.isArray(cookies) || cookies.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'cookies array is required'
+            });
+        }
+        const normalizedCookies = cookies
+            .filter(cookie => cookie && typeof cookie.name === 'string' && typeof cookie.value === 'string')
+            .map(cookie => {
+            const name = cookie.name.trim();
+            const value = cookie.value.trim();
+            const allowedSameSite = ['Lax', 'Strict', 'None'];
+            const rawSameSite = typeof cookie.sameSite === 'string' ? cookie.sameSite : '';
+            const sameSite = allowedSameSite.includes(rawSameSite)
+                ? rawSameSite
+                : 'Lax';
+            return {
+                name,
+                value,
+                domain: (cookie.domain && typeof cookie.domain === 'string' && cookie.domain.trim().length > 0)
+                    ? cookie.domain.trim()
+                    : '.xiaohongshu.com',
+                path: (cookie.path && typeof cookie.path === 'string' && cookie.path.trim().length > 0)
+                    ? cookie.path.trim()
+                    : '/',
+                secure: cookie.secure !== false,
+                httpOnly: typeof cookie.httpOnly === 'boolean' ? cookie.httpOnly : ['web_session', 'a1'].includes(name),
+                sameSite
+            };
+        })
+            .filter(cookie => cookie.name && cookie.value);
+        if (normalizedCookies.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'No valid cookies provided'
+            });
+        }
+        // 检查关键 Cookie（web_session 或 a1）
+        const hasWebSession = normalizedCookies.some(cookie => cookie.name === 'web_session');
+        const hasA1 = normalizedCookies.some(cookie => cookie.name === 'a1');
+        if (!hasWebSession && !hasA1) {
+            return res.status(400).json({
+                success: false,
+                error: '缺少必要的Cookie: web_session 或 a1。请确保已在小红书网站登录。'
+            });
+        }
+        const persistResult = await persistUserCookies(userId, normalizedCookies, source || 'extension');
+        console.log(`[Save Cookies] ✅ Cookie保存成功: userId=${userId}, count=${normalizedCookies.length}`);
+        res.json({
+            success: true,
+            message: 'Cookie已成功保存',
+            data: {
+                userId,
+                cookieCount: normalizedCookies.length,
+                mcpSynced: persistResult.mcpSynced,
+                source: source || 'extension'
+            }
+        });
+    }
+    catch (error) {
+        console.error('[Save Cookies] Error saving cookies:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Failed to save cookies'
+        });
+    }
+});
 async function importCookiesToMCPRouter(userId, cookies) {
     try {
         const axios = await import('axios');
@@ -3429,6 +3507,147 @@ app.get('/api/v1/config/supabase', (req, res) => {
             key: supabaseKey
         }
     });
+});
+// ============================================
+// 🔮 Gemini 多模态素材分析 API
+// ============================================
+import { GoogleGenerativeAI } from '@google/generative-ai';
+app.post('/api/materials/analyze', async (req, res) => {
+    const { supabaseUuid, images, documents, productName, targetAudience } = req.body;
+    console.log('[Material Analysis] Processing request:', {
+        supabaseUuid,
+        imageCount: images?.length || 0,
+        documentCount: documents?.length || 0,
+        productName: productName?.substring(0, 30) || 'N/A'
+    });
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+    if (!GEMINI_API_KEY) {
+        console.error('[Material Analysis] GEMINI_API_KEY not configured');
+        return res.status(500).json({
+            success: false,
+            error: 'AI service not configured. Please set GEMINI_API_KEY.'
+        });
+    }
+    try {
+        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({
+            model: process.env.GEMINI_MODEL || 'gemini-1.5-pro'
+        });
+        console.log('[Material Analysis] Using Gemini model:', process.env.GEMINI_MODEL || 'gemini-1.5-pro');
+        // 准备多模态内容 - 使用 any[] 避免 TypeScript 兼容性问题
+        const parts = [];
+        // 添加分析提示词
+        let contextInfo = '';
+        if (productName)
+            contextInfo += `产品名称: ${productName}\n`;
+        if (targetAudience)
+            contextInfo += `目标受众: ${targetAudience}\n`;
+        parts.push({
+            text: `你是一位专业的产品营销分析师。请仔细分析以下产品素材（图片/视频/文档），并提供详细的营销建议。
+
+${contextInfo ? `## 产品背景\n${contextInfo}\n` : ''}
+请提供以下分析结果：
+
+## 1. 产品概述
+基于素材识别产品类型和核心功能
+
+## 2. 产品主要特点 (3-5个)
+- 列出从素材中识别到的产品特点
+
+## 3. 核心卖点
+- 最吸引人的卖点是什么
+
+## 4. 推荐目标人群
+- 适合哪些用户群体
+
+## 5. 营销角度建议
+- 适合在社交媒体上从哪些角度推广
+
+## 6. 小红书内容创作建议
+- 推荐的标题风格
+- 内容框架建议
+- 爆款元素
+
+以下是产品素材：
+`
+        });
+        // 处理图片 - 下载并转换为 base64
+        if (images && images.length > 0) {
+            console.log('[Material Analysis] Processing', images.length, 'images...');
+            for (let i = 0; i < Math.min(images.length, 5); i++) {
+                const imageUrl = images[i];
+                try {
+                    console.log(`[Material Analysis] Downloading image ${i + 1}:`, imageUrl.substring(0, 60) + '...');
+                    const imageResponse = await fetch(imageUrl);
+                    if (!imageResponse.ok) {
+                        console.warn(`[Material Analysis] Failed to download image ${i + 1}`);
+                        continue;
+                    }
+                    const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
+                    const arrayBuffer = await imageResponse.arrayBuffer();
+                    const base64 = Buffer.from(arrayBuffer).toString('base64');
+                    if (contentType.startsWith('video/')) {
+                        parts.push({ text: `\n[视频 ${i + 1}]: 视频文件，请基于可用信息分析\n` });
+                    }
+                    else {
+                        parts.push({
+                            inlineData: {
+                                mimeType: contentType,
+                                data: base64
+                            }
+                        });
+                        parts.push({ text: `\n[图片 ${i + 1}]\n` });
+                    }
+                    console.log(`[Material Analysis] Image ${i + 1} processed, size: ${(arrayBuffer.byteLength / 1024).toFixed(1)}KB`);
+                }
+                catch (imgErr) {
+                    console.warn(`[Material Analysis] Error processing image ${i + 1}:`, imgErr instanceof Error ? imgErr.message : imgErr);
+                    parts.push({ text: `\n[图片 ${i + 1}]: 无法加载\n` });
+                }
+            }
+        }
+        // 处理文档
+        if (documents && documents.length > 0) {
+            parts.push({ text: `\n\n## 产品文档\n` });
+            for (let i = 0; i < documents.length; i++) {
+                const docUrl = documents[i];
+                const fileName = docUrl.split('/').pop() || `文档${i + 1}`;
+                try {
+                    if (docUrl.endsWith('.txt')) {
+                        const docResponse = await fetch(docUrl);
+                        if (docResponse.ok) {
+                            const textContent = await docResponse.text();
+                            parts.push({ text: `\n[文档 ${i + 1}: ${fileName}]\n内容:\n${textContent.substring(0, 2000)}...\n` });
+                            continue;
+                        }
+                    }
+                }
+                catch (docErr) {
+                    console.warn(`[Material Analysis] Error reading document ${i + 1}`);
+                }
+                parts.push({ text: `\n[文档 ${i + 1}: ${fileName}]\n` });
+            }
+        }
+        // 调用 Gemini API
+        console.log('[Material Analysis] Calling Gemini API with', parts.length, 'parts...');
+        const result = await model.generateContent(parts);
+        const response = await result.response;
+        const analysis = response.text();
+        console.log('[Material Analysis] Gemini analysis completed, length:', analysis.length);
+        res.json({
+            success: true,
+            analysis: analysis,
+            provider: 'gemini',
+            model: process.env.GEMINI_MODEL || 'gemini-1.5-pro'
+        });
+    }
+    catch (error) {
+        console.error('[Material Analysis] Gemini Error:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : '素材分析失败，请稍后重试'
+        });
+    }
 });
 // API 2: POST analytics sync
 app.post('/api/v1/analytics/sync', async (req, res) => {

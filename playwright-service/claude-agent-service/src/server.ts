@@ -4033,6 +4033,166 @@ app.get('/api/v1/config/supabase', (req: Request, res: Response) => {
   });
 });
 
+// ============================================
+// 🔮 Gemini 多模态素材分析 API
+// ============================================
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+app.post('/api/materials/analyze', async (req: Request, res: Response) => {
+  const { supabaseUuid, images, documents, productName, targetAudience } = req.body;
+
+  console.log('[Material Analysis] Processing request:', {
+    supabaseUuid,
+    imageCount: images?.length || 0,
+    documentCount: documents?.length || 0,
+    productName: productName?.substring(0, 30) || 'N/A'
+  });
+
+  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+  if (!GEMINI_API_KEY) {
+    console.error('[Material Analysis] GEMINI_API_KEY not configured');
+    return res.status(500).json({
+      success: false,
+      error: 'AI service not configured. Please set GEMINI_API_KEY.'
+    });
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({
+      model: process.env.GEMINI_MODEL || 'gemini-1.5-pro'
+    });
+
+    console.log('[Material Analysis] Using Gemini model:', process.env.GEMINI_MODEL || 'gemini-1.5-pro');
+
+    // 准备多模态内容 - 使用 any[] 避免 TypeScript 兼容性问题
+    const parts: any[] = [];
+
+    // 添加分析提示词
+    let contextInfo = '';
+    if (productName) contextInfo += `产品名称: ${productName}\n`;
+    if (targetAudience) contextInfo += `目标受众: ${targetAudience}\n`;
+
+    parts.push({
+      text: `你是一位专业的产品营销分析师。请仔细分析以下产品素材（图片/视频/文档），并提供详细的营销建议。
+
+${contextInfo ? `## 产品背景\n${contextInfo}\n` : ''}
+请提供以下分析结果：
+
+## 1. 产品概述
+基于素材识别产品类型和核心功能
+
+## 2. 产品主要特点 (3-5个)
+- 列出从素材中识别到的产品特点
+
+## 3. 核心卖点
+- 最吸引人的卖点是什么
+
+## 4. 推荐目标人群
+- 适合哪些用户群体
+
+## 5. 营销角度建议
+- 适合在社交媒体上从哪些角度推广
+
+## 6. 小红书内容创作建议
+- 推荐的标题风格
+- 内容框架建议
+- 爆款元素
+
+以下是产品素材：
+`
+    });
+
+    // 处理图片 - 下载并转换为 base64
+    if (images && images.length > 0) {
+      console.log('[Material Analysis] Processing', images.length, 'images...');
+
+      for (let i = 0; i < Math.min(images.length, 5); i++) {
+        const imageUrl = images[i];
+        try {
+          console.log(`[Material Analysis] Downloading image ${i + 1}:`, imageUrl.substring(0, 60) + '...');
+
+          const imageResponse = await fetch(imageUrl);
+          if (!imageResponse.ok) {
+            console.warn(`[Material Analysis] Failed to download image ${i + 1}`);
+            continue;
+          }
+
+          const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
+          const arrayBuffer = await imageResponse.arrayBuffer();
+          const base64 = Buffer.from(arrayBuffer).toString('base64');
+
+          if (contentType.startsWith('video/')) {
+            parts.push({ text: `\n[视频 ${i + 1}]: 视频文件，请基于可用信息分析\n` });
+          } else {
+            parts.push({
+              inlineData: {
+                mimeType: contentType,
+                data: base64
+              }
+            });
+            parts.push({ text: `\n[图片 ${i + 1}]\n` });
+          }
+
+          console.log(`[Material Analysis] Image ${i + 1} processed, size: ${(arrayBuffer.byteLength / 1024).toFixed(1)}KB`);
+
+        } catch (imgErr) {
+          console.warn(`[Material Analysis] Error processing image ${i + 1}:`, imgErr instanceof Error ? imgErr.message : imgErr);
+          parts.push({ text: `\n[图片 ${i + 1}]: 无法加载\n` });
+        }
+      }
+    }
+
+    // 处理文档
+    if (documents && documents.length > 0) {
+      parts.push({ text: `\n\n## 产品文档\n` });
+      for (let i = 0; i < documents.length; i++) {
+        const docUrl = documents[i];
+        const fileName = docUrl.split('/').pop() || `文档${i + 1}`;
+
+        try {
+          if (docUrl.endsWith('.txt')) {
+            const docResponse = await fetch(docUrl);
+            if (docResponse.ok) {
+              const textContent = await docResponse.text();
+              parts.push({ text: `\n[文档 ${i + 1}: ${fileName}]\n内容:\n${textContent.substring(0, 2000)}...\n` });
+              continue;
+            }
+          }
+        } catch (docErr) {
+          console.warn(`[Material Analysis] Error reading document ${i + 1}`);
+        }
+
+        parts.push({ text: `\n[文档 ${i + 1}: ${fileName}]\n` });
+      }
+    }
+
+    // 调用 Gemini API
+    console.log('[Material Analysis] Calling Gemini API with', parts.length, 'parts...');
+
+    const result = await model.generateContent(parts);
+    const response = await result.response;
+    const analysis = response.text();
+
+    console.log('[Material Analysis] Gemini analysis completed, length:', analysis.length);
+
+    res.json({
+      success: true,
+      analysis: analysis,
+      provider: 'gemini',
+      model: process.env.GEMINI_MODEL || 'gemini-1.5-pro'
+    });
+
+  } catch (error) {
+    console.error('[Material Analysis] Gemini Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : '素材分析失败，请稍后重试'
+    });
+  }
+});
+
 // API 2: POST analytics sync
 app.post('/api/v1/analytics/sync', async (req: Request, res: Response) => {
   try {
