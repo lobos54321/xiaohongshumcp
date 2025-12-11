@@ -1279,11 +1279,9 @@ ${schedule ? `发布计划：${schedule}` : '请立即全部发布'}`;
     console.error('[Server] Error batch publishing:', error);
     res.status(500).json({
       success: false,
-      res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
+      error: error.message,
+    });
+  }
 });
 
 // 自动运营模式API
