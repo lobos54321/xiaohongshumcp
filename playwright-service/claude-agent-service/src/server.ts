@@ -66,6 +66,7 @@ const mcpAuthClient = new MCPAuthClient(MCP_ROUTER_URL);
 
 // 🔥 Initialize BrowserSessionManager (30min session timeout)
 const browserSessionManager = new BrowserSessionManager(30 * 60 * 1000);
+const accountService = new AccountService();
 
 // 创建自动内容管理器
 const autoContentManager = new AutoContentManager({
@@ -1280,6 +1281,98 @@ ${schedule ? `发布计划：${schedule}` : '请立即全部发布'}`;
     res.status(500).json({
       success: false,
       error: error.message,
+    });
+  }
+});
+
+// 获取用户资料并同步到数据库
+app.get('/agent/xiaohongshu/profile', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required'
+      });
+    }
+
+    const xhsUserId = userId as string;
+    console.log(`[Profile] Syncing profile for user ${xhsUserId}...`);
+
+    // 1. 获取Cookie
+    const cookies = await accountService.getAccountCookies(xhsUserId);
+    if (!cookies || cookies.length === 0) {
+      console.warn(`[Profile] No cookies found for ${xhsUserId}`);
+      return res.status(401).json({
+        success: false,
+        error: 'Please login first (no cookies found)'
+      });
+    }
+
+    // 2. 调用小红书API获取个人信息
+    const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+
+    // 使用 fetch 调用小红书接口 (模拟浏览器)
+    const profileResponse = await fetch('https://edith.xiaohongshu.com/api/sns/web/v1/user/selfinfo', {
+      method: 'GET',
+      headers: {
+        'Cookie': cookieStr,
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://www.xiaohongshu.com/',
+        'Origin': 'https://www.xiaohongshu.com',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+      }
+    });
+
+    if (!profileResponse.ok) {
+      console.warn(`[Profile] XHS API error: ${profileResponse.status}`);
+      return res.status(profileResponse.status).json({
+        success: false,
+        error: `XHS API returned ${profileResponse.status}`
+      });
+    }
+
+    const profileData = await profileResponse.json();
+
+    if (profileData.success && profileData.data) {
+      const info = profileData.data;
+      console.log(`[Profile] Got profile from XHS: ${info.nickname}`);
+
+      // 3. 更新数据库中的账号信息
+      // 注意：getOrCreateAccount 会自动更新现有账号信息
+      await accountService.getOrCreateAccount(cookies, {
+        nickname: info.nickname,
+        avatarUrl: info.images?.split('?')[0], // 清理URL参数
+        redId: info.red_id, // 小红书号
+        // realUserId: info.user_id // 如果有的话
+      });
+
+      // 4. 返回成功
+      return res.json({
+        success: true,
+        data: {
+          nickname: info.nickname,
+          avatar: info.images?.split('?')[0],
+          red_id: info.red_id,
+          desc: info.desc
+        }
+      });
+    } else {
+      console.warn(`[Profile] Failed to get profile data:`, profileData);
+      return res.status(400).json({
+        success: false,
+        error: 'Failed to retrieve profile data from XHS response',
+        details: profileData
+      });
+    }
+
+  } catch (error: any) {
+    console.error('[Profile] Error fetching profile:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
