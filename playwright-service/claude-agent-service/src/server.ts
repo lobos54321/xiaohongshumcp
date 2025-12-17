@@ -25,6 +25,10 @@ import { AccountService } from './modules/auth/accountService.js';
 // Analytics Module
 import { sendTestEmail, triggerAnalysisForUser, initCronJobs } from './modules/analytics/autoAnalysisEmail.js';
 
+// Orchestrator Module (Phase 1)
+import { controlCenter } from './orchestrator/index.js';
+import { skyvernExecutor } from './orchestrator/executors/SkyvernExecutor.js';
+
 // Legacy - TODO: move to modules
 import { MCPAuthClient } from './mcpAuthClient.js';
 
@@ -4891,5 +4895,187 @@ app.post('/agent/xiaohongshu/reset-logout-protection', async (req: Request, res:
     res.json({ success: true, message: 'Logout protection has been reset' });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message || 'Failed to reset logout protection' });
+  }
+});
+
+// ============================================================
+// Orchestrator Routes (Phase 1 - AI Control Center)
+// ============================================================
+
+/**
+ * POST /agent/orchestrator/start
+ * 
+ * 创建 Task + Steps（Phase 1 最小实现）
+ * 
+ * Request Body:
+ * - xhs_account_id: string (required)
+ * - theme?: string
+ * - title?: string
+ * - content?: string
+ */
+app.post('/agent/orchestrator/start', async (req: Request, res: Response) => {
+  try {
+    console.log('[Orchestrator] POST /agent/orchestrator/start', req.body);
+
+    const { xhs_account_id, theme, title, content } = req.body;
+
+    if (!xhs_account_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'xhs_account_id is required',
+      });
+    }
+
+    // 初始化（首次调用时）
+    await controlCenter.initialize();
+
+    // 执行
+    const result = await controlCenter.start({
+      xhs_account_id,
+      theme,
+      title,
+      content,
+    });
+
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    res.json(result);
+  } catch (error: any) {
+    console.error('[Orchestrator] Start error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal server error',
+    });
+  }
+});
+
+/**
+ * POST /agent/orchestrator/maintenance/tick
+ * 
+ * 执行维护 tick：
+ * - 恢复超时 steps
+ * - 应用视频降级
+ * - 刷新 task 状态
+ */
+app.post('/agent/orchestrator/maintenance/tick', async (req: Request, res: Response) => {
+  try {
+    console.log('[Orchestrator] POST /agent/orchestrator/maintenance/tick');
+
+    // 初始化（首次调用时）
+    await controlCenter.initialize();
+
+    const result = await controlCenter.maintenanceTick();
+
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error: any) {
+    console.error('[Orchestrator] Maintenance tick error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal server error',
+    });
+  }
+});
+
+/**
+ * GET /agent/orchestrator/status
+ * 
+ * 获取 Orchestrator 运行状态
+ * 
+ * Query Params:
+ * - orchestrator_run_id?: string
+ */
+app.get('/agent/orchestrator/status', async (req: Request, res: Response) => {
+  try {
+    const { orchestrator_run_id } = req.query;
+
+    // 初始化（首次调用时）
+    await controlCenter.initialize();
+
+    const status = await controlCenter.getStatus(orchestrator_run_id as string);
+
+    res.json({
+      success: true,
+      data: status,
+    });
+  } catch (error: any) {
+    console.error('[Orchestrator] Status error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal server error',
+    });
+  }
+});
+
+// ==================== Skyvern Matrix Executor ====================
+
+/**
+ * POST /agent/skyvern/start
+ * 
+ * 启动 Skyvern Executor（矩阵执行器）
+ */
+app.post('/agent/skyvern/start', async (req: Request, res: Response) => {
+  try {
+    await skyvernExecutor.start();
+    res.json({
+      success: true,
+      message: 'Skyvern Executor started',
+    });
+  } catch (error: any) {
+    console.error('[Skyvern] Start error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to start Skyvern Executor',
+    });
+  }
+});
+
+/**
+ * POST /agent/skyvern/stop
+ * 
+ * 停止 Skyvern Executor
+ */
+app.post('/agent/skyvern/stop', async (req: Request, res: Response) => {
+  try {
+    skyvernExecutor.stop();
+    res.json({
+      success: true,
+      message: 'Skyvern Executor stopped',
+    });
+  } catch (error: any) {
+    console.error('[Skyvern] Stop error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to stop Skyvern Executor',
+    });
+  }
+});
+
+/**
+ * GET /agent/skyvern/status
+ * 
+ * 获取 Skyvern Executor 状态
+ */
+app.get('/agent/skyvern/status', async (req: Request, res: Response) => {
+  try {
+    // TODO: 添加更详细的状态信息
+    res.json({
+      success: true,
+      data: {
+        enabled: process.env.SKYVERN_API_URL ? true : false,
+        api_url: process.env.SKYVERN_API_URL || 'not configured',
+        // 不暴露敏感信息
+      },
+    });
+  } catch (error: any) {
+    console.error('[Skyvern] Status error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to get Skyvern status',
+    });
   }
 });

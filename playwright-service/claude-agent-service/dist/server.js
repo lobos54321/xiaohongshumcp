@@ -19,6 +19,9 @@ import { BrowserSessionManager } from './modules/auth/browserSessionManager.js';
 import { AccountService } from './modules/auth/accountService.js';
 // Analytics Module
 import { sendTestEmail, triggerAnalysisForUser, initCronJobs } from './modules/analytics/autoAnalysisEmail.js';
+// Orchestrator Module (Phase 1)
+import { controlCenter } from './orchestrator/index.js';
+import { skyvernExecutor } from './orchestrator/executors/SkyvernExecutor.js';
 // Legacy - TODO: move to modules
 import { MCPAuthClient } from './mcpAuthClient.js';
 dotenv.config();
@@ -3512,6 +3515,9 @@ app.get('/api/v1/config/supabase', (req, res) => {
 // 🔮 Gemini 多模态素材分析 API
 // ============================================
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleAIFileManager, FileState } from '@google/generative-ai/server';
+import os from 'os';
+import { pipeline } from 'stream/promises';
 app.post('/api/materials/analyze', async (req, res) => {
     const { supabaseUuid, images, documents, productName, targetAudience } = req.body;
     console.log('[Material Analysis] Processing request:', {
@@ -3528,13 +3534,25 @@ app.post('/api/materials/analyze', async (req, res) => {
             error: 'AI service not configured. Please set GEMINI_API_KEY.'
         });
     }
+    // 临时文件清理列表
+    const tempFiles = [];
     try {
         const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+        const fileManager = new GoogleAIFileManager(GEMINI_API_KEY);
+        // DEBUG: List available models to help verify what is actually supported
+        try {
+            // const modelList = await genAI.getGenerativeModelFactory().listModels();
+            // console.log('[DEBUG] Available Gemini Models:', JSON.stringify(modelList));
+        }
+        catch (e) {
+            console.log('[DEBUG] Could not list models:', e);
+        }
+        const modelId = process.env.GEMINI_MODEL || 'gemini-3-pro-preview';
         const model = genAI.getGenerativeModel({
-            model: process.env.GEMINI_MODEL || 'gemini-1.5-pro'
+            model: modelId
         });
-        console.log('[Material Analysis] Using Gemini model:', process.env.GEMINI_MODEL || 'gemini-1.5-pro');
-        // 准备多模态内容 - 使用 any[] 避免 TypeScript 兼容性问题
+        console.log('[Material Analysis] Using Gemini model:', modelId);
+        // 准备多模态内容
         const parts = [];
         // 添加分析提示词
         let contextInfo = '';
@@ -3571,61 +3589,152 @@ ${contextInfo ? `## 产品背景\n${contextInfo}\n` : ''}
 以下是产品素材：
 `
         });
-        // 处理图片 - 下载并转换为 base64
+        // 处理图片和视频
         if (images && images.length > 0) {
-            console.log('[Material Analysis] Processing', images.length, 'images...');
+            console.log('[Material Analysis] Processing', images.length, 'visual assets...');
             for (let i = 0; i < Math.min(images.length, 5); i++) {
-                const imageUrl = images[i];
+                const fileUrl = images[i];
                 try {
-                    console.log(`[Material Analysis] Downloading image ${i + 1}:`, imageUrl.substring(0, 60) + '...');
-                    const imageResponse = await fetch(imageUrl);
-                    if (!imageResponse.ok) {
-                        console.warn(`[Material Analysis] Failed to download image ${i + 1}`);
+                    console.log(`[Material Analysis] Downloading asset ${i + 1}:`, fileUrl.substring(0, 60) + '...');
+                    const response = await fetch(fileUrl);
+                    if (!response.ok) {
+                        console.warn(`[Material Analysis] Failed to download asset ${i + 1}`);
                         continue;
                     }
-                    const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
-                    const arrayBuffer = await imageResponse.arrayBuffer();
-                    const base64 = Buffer.from(arrayBuffer).toString('base64');
-                    if (contentType.startsWith('video/')) {
-                        parts.push({ text: `\n[视频 ${i + 1}]: 视频文件，请基于可用信息分析\n` });
+                    const contentType = response.headers.get('content-type') || 'application/octet-stream';
+                    const isVideo = contentType.startsWith('video/');
+                    if (isVideo) {
+                        // ---------------------------------------------------------
+                        // 📹 视频处理流程：下载临时文件 -> Upload -> Poll -> Generate
+                        // ---------------------------------------------------------
+                        console.log(`[Material Analysis] Detected VIDEO asset (${contentType}). Uploading to Gemini...`);
+                        // 1. 创建临时文件
+                        const tempDir = os.tmpdir();
+                        const ext = contentType.split('/')[1] || 'mp4';
+                        const tempFilePath = path.join(tempDir, `gemini_upload_${Date.now()}_${i}.${ext}`);
+                        // 2. 将流写入临时文件
+                        if (!response.body)
+                            throw new Error('No response body');
+                        await pipeline(response.body, fs.createWriteStream(tempFilePath));
+                        tempFiles.push(tempFilePath); // 标记以便后续清理
+                        // 3. 上传到 Gemini
+                        const uploadResult = await fileManager.uploadFile(tempFilePath, {
+                            mimeType: contentType,
+                            displayName: `Product Material Video ${i + 1}`,
+                        });
+                        const fileUri = uploadResult.file.uri;
+                        console.log(`[Material Analysis] Video uploaded. URI: ${fileUri}. Waiting for processing...`);
+                        // 4. 轮询等待文件处理完成 (State: ACTIVE)
+                        let file = await fileManager.getFile(uploadResult.file.name);
+                        let attempts = 0;
+                        while (file.state === FileState.PROCESSING && attempts < 20) {
+                            // 等待 2 秒
+                            await new Promise(resolve => setTimeout(resolve, 2000));
+                            file = await fileManager.getFile(uploadResult.file.name);
+                            attempts++;
+                            if (attempts % 5 === 0)
+                                console.log(`[Material Analysis] Still processing video... (${attempts * 2}s)`);
+                        }
+                        if (file.state === FileState.FAILED) {
+                            throw new Error('Video processing failed by Gemini.');
+                        }
+                        console.log(`[Material Analysis] Video ready! State: ${file.state}`);
+                        // 5. 添加到 Prompt
+                        parts.push({
+                            fileData: {
+                                mimeType: file.mimeType,
+                                fileUri: file.uri
+                            }
+                        });
+                        parts.push({ text: `\n[视频 ${i + 1}]: 已上传分析\n` });
                     }
                     else {
+                        // ---------------------------------------------------------
+                        // 🖼️ 图片处理流程 (Base64 is fine for images)
+                        // ---------------------------------------------------------
+                        const arrayBuffer = await response.arrayBuffer();
+                        const base64 = Buffer.from(arrayBuffer).toString('base64');
                         parts.push({
                             inlineData: {
-                                mimeType: contentType,
+                                mimeType: contentType.startsWith('image/') ? contentType : 'image/jpeg',
                                 data: base64
                             }
                         });
                         parts.push({ text: `\n[图片 ${i + 1}]\n` });
+                        console.log(`[Material Analysis] Image ${i + 1} processed, size: ${(arrayBuffer.byteLength / 1024).toFixed(1)}KB`);
                     }
-                    console.log(`[Material Analysis] Image ${i + 1} processed, size: ${(arrayBuffer.byteLength / 1024).toFixed(1)}KB`);
                 }
-                catch (imgErr) {
-                    console.warn(`[Material Analysis] Error processing image ${i + 1}:`, imgErr instanceof Error ? imgErr.message : imgErr);
-                    parts.push({ text: `\n[图片 ${i + 1}]: 无法加载\n` });
+                catch (assetErr) {
+                    console.warn(`[Material Analysis] Error processing asset ${i + 1}:`, assetErr instanceof Error ? assetErr.message : assetErr);
+                    parts.push({ text: `\n[素材 ${i + 1}]: 无法加载 (Error: ${assetErr instanceof Error ? assetErr.message : 'Unknown'})\n` });
                 }
             }
         }
-        // 处理文档
+        // 处理文档 (使用 FileManager 上传，支持 PDF/CSV 等)
         if (documents && documents.length > 0) {
+            console.log('[Material Analysis] Processing', documents.length, 'documents...');
             parts.push({ text: `\n\n## 产品文档\n` });
             for (let i = 0; i < documents.length; i++) {
                 const docUrl = documents[i];
-                const fileName = docUrl.split('/').pop() || `文档${i + 1}`;
+                const fileName = docUrl.split('/').pop() || `doc_${i + 1}`;
                 try {
-                    if (docUrl.endsWith('.txt')) {
-                        const docResponse = await fetch(docUrl);
-                        if (docResponse.ok) {
-                            const textContent = await docResponse.text();
-                            parts.push({ text: `\n[文档 ${i + 1}: ${fileName}]\n内容:\n${textContent.substring(0, 2000)}...\n` });
-                            continue;
-                        }
+                    console.log(`[Material Analysis] Downloading document ${i + 1}:`, docUrl.substring(0, 60) + '...');
+                    const docResponse = await fetch(docUrl);
+                    if (!docResponse.ok) {
+                        console.warn(`[Material Analysis] Failed to download document ${i + 1}`);
+                        continue;
+                    }
+                    const contentType = docResponse.headers.get('content-type') || 'application/pdf'; // Default to PDF if unknown
+                    console.log(`[Material Analysis] Document ${i + 1} type: ${contentType}`);
+                    // ---------------------------------------------------------
+                    // 📄 文档处理流程：下载临时文件 -> Upload -> Poll -> Generate
+                    // ---------------------------------------------------------
+                    const tempDir = os.tmpdir();
+                    // 简单的扩展名推断
+                    let ext = 'pdf';
+                    if (contentType.includes('text/plain'))
+                        ext = 'txt';
+                    else if (contentType.includes('csv'))
+                        ext = 'csv';
+                    else if (docUrl.endsWith('.pdf'))
+                        ext = 'pdf';
+                    const tempFilePath = path.join(tempDir, `gemini_doc_${Date.now()}_${i}.${ext}`);
+                    if (!docResponse.body)
+                        throw new Error('No response body');
+                    await pipeline(docResponse.body, fs.createWriteStream(tempFilePath));
+                    tempFiles.push(tempFilePath);
+                    // 上传到 Gemini
+                    const uploadResult = await fileManager.uploadFile(tempFilePath, {
+                        mimeType: contentType,
+                        displayName: fileName,
+                    });
+                    // 等待处理 (虽然文档通常很快，但为了保险起见保持轮询)
+                    let file = await fileManager.getFile(uploadResult.file.name);
+                    let attempts = 0;
+                    while (file.state === FileState.PROCESSING && attempts < 20) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        file = await fileManager.getFile(uploadResult.file.name);
+                        attempts++;
+                    }
+                    if (file.state === FileState.FAILED) {
+                        console.warn(`[Material Analysis] Document processing failed for ${fileName}`);
+                        parts.push({ text: `\n[文档 ${i + 1}: ${fileName}]: 解析失败\n` });
+                    }
+                    else {
+                        console.log(`[Material Analysis] Document ready: ${file.uri}`);
+                        parts.push({
+                            fileData: {
+                                mimeType: file.mimeType,
+                                fileUri: file.uri
+                            }
+                        });
+                        parts.push({ text: `\n[文档 ${i + 1}: ${fileName}]: 已上传分析\n` });
                     }
                 }
                 catch (docErr) {
-                    console.warn(`[Material Analysis] Error reading document ${i + 1}`);
+                    console.warn(`[Material Analysis] Error processing document ${i + 1}:`, docErr);
+                    parts.push({ text: `\n[文档 ${i + 1}: ${fileName}]: 无法加载\n` });
                 }
-                parts.push({ text: `\n[文档 ${i + 1}: ${fileName}]\n` });
             }
         }
         // 调用 Gemini API
@@ -3638,7 +3747,7 @@ ${contextInfo ? `## 产品背景\n${contextInfo}\n` : ''}
             success: true,
             analysis: analysis,
             provider: 'gemini',
-            model: process.env.GEMINI_MODEL || 'gemini-1.5-pro'
+            model: process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp'
         });
     }
     catch (error) {
@@ -3647,6 +3756,23 @@ ${contextInfo ? `## 产品背景\n${contextInfo}\n` : ''}
             success: false,
             error: error instanceof Error ? error.message : '素材分析失败，请稍后重试'
         });
+    }
+    finally {
+        // 🧹 清理所有临时文件
+        if (tempFiles.length > 0) {
+            console.log(`[Material Analysis] Cleaning up ${tempFiles.length} temp files...`);
+            for (const file of tempFiles) {
+                try {
+                    if (fs.existsSync(file)) {
+                        fs.unlinkSync(file);
+                        console.log(`[Material Analysis] Deleted temp file: ${file}`);
+                    }
+                }
+                catch (cleanupErr) {
+                    console.error(`[Material Analysis] Error deleting temp file ${file}:`, cleanupErr);
+                }
+            }
+        }
     }
 });
 // API 2: POST analytics sync
@@ -4133,6 +4259,174 @@ app.post('/agent/xiaohongshu/reset-logout-protection', async (req, res) => {
     }
     catch (error) {
         res.status(500).json({ success: false, error: error.message || 'Failed to reset logout protection' });
+    }
+});
+// ============================================================
+// Orchestrator Routes (Phase 1 - AI Control Center)
+// ============================================================
+/**
+ * POST /agent/orchestrator/start
+ *
+ * 创建 Task + Steps（Phase 1 最小实现）
+ *
+ * Request Body:
+ * - xhs_account_id: string (required)
+ * - theme?: string
+ * - title?: string
+ * - content?: string
+ */
+app.post('/agent/orchestrator/start', async (req, res) => {
+    try {
+        console.log('[Orchestrator] POST /agent/orchestrator/start', req.body);
+        const { xhs_account_id, theme, title, content } = req.body;
+        if (!xhs_account_id) {
+            return res.status(400).json({
+                success: false,
+                error: 'xhs_account_id is required',
+            });
+        }
+        // 初始化（首次调用时）
+        await controlCenter.initialize();
+        // 执行
+        const result = await controlCenter.start({
+            xhs_account_id,
+            theme,
+            title,
+            content,
+        });
+        if (!result.success) {
+            return res.status(400).json(result);
+        }
+        res.json(result);
+    }
+    catch (error) {
+        console.error('[Orchestrator] Start error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Internal server error',
+        });
+    }
+});
+/**
+ * POST /agent/orchestrator/maintenance/tick
+ *
+ * 执行维护 tick：
+ * - 恢复超时 steps
+ * - 应用视频降级
+ * - 刷新 task 状态
+ */
+app.post('/agent/orchestrator/maintenance/tick', async (req, res) => {
+    try {
+        console.log('[Orchestrator] POST /agent/orchestrator/maintenance/tick');
+        // 初始化（首次调用时）
+        await controlCenter.initialize();
+        const result = await controlCenter.maintenanceTick();
+        res.json({
+            success: true,
+            ...result,
+        });
+    }
+    catch (error) {
+        console.error('[Orchestrator] Maintenance tick error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Internal server error',
+        });
+    }
+});
+/**
+ * GET /agent/orchestrator/status
+ *
+ * 获取 Orchestrator 运行状态
+ *
+ * Query Params:
+ * - orchestrator_run_id?: string
+ */
+app.get('/agent/orchestrator/status', async (req, res) => {
+    try {
+        const { orchestrator_run_id } = req.query;
+        // 初始化（首次调用时）
+        await controlCenter.initialize();
+        const status = await controlCenter.getStatus(orchestrator_run_id);
+        res.json({
+            success: true,
+            data: status,
+        });
+    }
+    catch (error) {
+        console.error('[Orchestrator] Status error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Internal server error',
+        });
+    }
+});
+// ==================== Skyvern Matrix Executor ====================
+/**
+ * POST /agent/skyvern/start
+ *
+ * 启动 Skyvern Executor（矩阵执行器）
+ */
+app.post('/agent/skyvern/start', async (req, res) => {
+    try {
+        await skyvernExecutor.start();
+        res.json({
+            success: true,
+            message: 'Skyvern Executor started',
+        });
+    }
+    catch (error) {
+        console.error('[Skyvern] Start error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Failed to start Skyvern Executor',
+        });
+    }
+});
+/**
+ * POST /agent/skyvern/stop
+ *
+ * 停止 Skyvern Executor
+ */
+app.post('/agent/skyvern/stop', async (req, res) => {
+    try {
+        skyvernExecutor.stop();
+        res.json({
+            success: true,
+            message: 'Skyvern Executor stopped',
+        });
+    }
+    catch (error) {
+        console.error('[Skyvern] Stop error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Failed to stop Skyvern Executor',
+        });
+    }
+});
+/**
+ * GET /agent/skyvern/status
+ *
+ * 获取 Skyvern Executor 状态
+ */
+app.get('/agent/skyvern/status', async (req, res) => {
+    try {
+        // TODO: 添加更详细的状态信息
+        res.json({
+            success: true,
+            data: {
+                enabled: process.env.SKYVERN_API_URL ? true : false,
+                api_url: process.env.SKYVERN_API_URL || 'not configured',
+                // 不暴露敏感信息
+            },
+        });
+    }
+    catch (error) {
+        console.error('[Skyvern] Status error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Failed to get Skyvern status',
+        });
     }
 });
 //# sourceMappingURL=server.js.map
