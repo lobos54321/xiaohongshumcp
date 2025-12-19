@@ -20,6 +20,9 @@ import {
     ContentMode,
     TaskMetadata,
 } from './types/contracts.js';
+import { bettaFishClient, SentimentBrief } from '../services/BettaFishClient.js';
+import { userProfileService, UserProfile, ExtractedKeywords } from '../services/UserProfileService.js';
+import { contentModeSelector, ContentModeDecision } from '../services/ContentModeSelector.js';
 
 export class ControlCenter {
     private initialized = false;
@@ -117,16 +120,87 @@ export class ControlCenter {
                 };
             }
 
-            // 4. 构建 metadata
+            // 4. 获取用户配置并提取关键词
+            let userProfile: UserProfile | null = null;
+            let extractedKeywords: ExtractedKeywords | null = null;
+            try {
+                userProfile = await userProfileService.getProfile(account.supabase_uuid);
+                if (userProfile) {
+                    extractedKeywords = userProfileService.extractKeywordsFromAnalysis(userProfile);
+                    console.log('[ControlCenter] Keywords extracted:', extractedKeywords.searchQuery);
+                }
+            } catch (profileError) {
+                console.warn('[ControlCenter] Profile fetch failed (non-blocking):', profileError);
+            }
+
+            // 5. 获取舆情数据（使用提取的关键词）
+            let sentimentBrief: SentimentBrief | null = null;
+            try {
+                // 优先使用从 AI 分析提取的关键词，否则使用请求中的 theme
+                const searchQuery = extractedKeywords?.searchQuery || req.theme || '小红书热门';
+                console.log('[ControlCenter] Fetching sentiment for:', searchQuery);
+
+                const searchResult = await bettaFishClient.search(searchQuery);
+                if (searchResult.success) {
+                    sentimentBrief = bettaFishClient.extractSentimentBrief(searchResult);
+                    console.log('[ControlCenter] Sentiment brief extracted:', {
+                        topics: sentimentBrief.topics.slice(0, 3),
+                        keywords: sentimentBrief.keywords.slice(0, 5),
+                    });
+
+                    // 存入 xhs_sentiment_briefs 表
+                    await supabaseAdmin.from('xhs_sentiment_briefs').insert({
+                        supabase_uuid: account.supabase_uuid,
+                        brief_data: sentimentBrief,
+                        source: 'bettafish',
+                    });
+                }
+            } catch (sentimentError) {
+                console.warn('[ControlCenter] Sentiment fetch failed (non-blocking):', sentimentError);
+            }
+
+            // 6. 决策内容形式
+            let contentModeDecision: ContentModeDecision | null = null;
+            let selectedContentMode: ContentMode = 'IMAGE_TEXT';  // 默认图文
+
+            if (userProfile && extractedKeywords) {
+                // 检查是否有数字人/语音素材
+                const hasDigitalHumanAsset = await contentModeSelector.checkDigitalHumanAsset(account.supabase_uuid);
+                const hasVoiceAsset = await contentModeSelector.checkVoiceAsset(account.supabase_uuid);
+
+                // 获取用户偏好设置
+                const { modes: userPreferredModes, autoMode } = await contentModeSelector.getUserPreferredModes(account.supabase_uuid);
+
+                contentModeDecision = contentModeSelector.selectMode({
+                    profile: userProfile,
+                    keywords: extractedKeywords,
+                    sentiment: sentimentBrief,
+                    hasDigitalHumanAsset,
+                    hasVoiceAsset,
+                    userPreferredModes,
+                    autoMode
+                });
+
+                selectedContentMode = contentModeDecision.selectedMode;
+                console.log('[ControlCenter] Content mode selected:', selectedContentMode, '-', contentModeDecision.reasoning);
+                console.log('[ControlCenter] Available modes:', contentModeDecision.availableModes);
+            }
+
+            // 7. 构建 metadata
             const metadata: TaskMetadata = {
-                review_mode: 'manual_confirm',  // Phase 1 默认手动确认
+                review_mode: userProfile?.review_mode === 'auto' ? 'auto_publish' : 'manual_confirm',
                 trace: {
-                    sentiment_brief_id: `brief_${orchestrator_run_id}`,
-                    material_analysis_id: `material_${orchestrator_run_id}`,
+                    sentiment_brief_id: sentimentBrief ? `brief_${orchestrator_run_id}` : 'none',
+                    material_analysis_id: userProfile?.material_analysis ? `material_${orchestrator_run_id}` : 'none',
                 },
+                sentiment: sentimentBrief ? {
+                    topics: sentimentBrief.topics,
+                    keywords: sentimentBrief.keywords,
+                    fetchedAt: sentimentBrief.fetchedAt,
+                } : null,
             };
 
-            // 5. 创建 Task
+            // 8. 创建 Task（使用决策者选择的内容形式）
             const task = await createTask({
                 supabase_uuid: account.supabase_uuid,
                 xhs_account_id: account.id,
@@ -136,13 +210,13 @@ export class ControlCenter {
                 strategy_version: 1,  // Phase 1 固定为 1
                 plan_version: 1,      // Phase 1 固定为 1
                 scheduled_time: new Date(Date.now() + 60 * 60 * 1000),  // 1 小时后
-                content_mode: 'IMAGE_TEXT' as ContentMode,
+                content_mode: selectedContentMode,
                 title: req.title,
                 content: req.content,
                 metadata,
             });
 
-            // 6. 创建 Steps (使用账号配置的执行器)
+            // 9. 创建 Steps (使用账号配置的执行器)
             const steps = await createStepsForTask(task, {
                 topic: req.theme,
                 provider: account.execution_provider || 'chrome_extension',

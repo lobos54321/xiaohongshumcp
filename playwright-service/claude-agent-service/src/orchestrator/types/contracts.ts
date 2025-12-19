@@ -27,6 +27,11 @@ export interface TaskMetadata {
     effective_mode?: ContentMode;
     fallback_applied?: boolean;
     failure_reason?: string;
+    sentiment?: {
+        topics: string[];
+        keywords: string[];
+        fetchedAt: string;
+    } | null;
 }
 
 export interface CreateTaskInput {
