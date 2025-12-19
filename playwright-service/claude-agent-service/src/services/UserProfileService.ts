@@ -19,6 +19,12 @@ export interface UserProfile {
     material_images: string[] | null;
     material_documents: string[] | null;
     material_analysis: string | null;
+    // 内容生成相关字段
+    product_info?: string;           // 产品详细信息（用于 Dify 工作流）
+    target_words?: number;           // 目标字数
+    avatar_photo_url?: string;       // 数字人照片 URL
+    voice_sample_url?: string;       // 语音样本 URL
+    content_modes?: string[];        // 用户选择的内容模式
 }
 
 export interface ExtractedKeywords {

@@ -32,6 +32,25 @@ export interface TaskMetadata {
         keywords: string[];
         fetchedAt: string;
     } | null;
+    // 内容生成配置 (用于 Step 执行器异步生成)
+    content_generation?: {
+        product_info: string;
+        target_audience: string;
+        marketing_goal: string;
+        target_words: number;
+        avatar_photo_url?: string;
+        voice_sample_url?: string;
+        content_mode: ContentMode;
+    };
+    // 生成的内容结果 (由 content generation step 填充)
+    generated_content?: {
+        title: string;
+        text: string;
+        emotion: string;
+        hashtags: string[];
+        video_url?: string;
+        audio_url?: string;
+    };
 }
 
 export interface CreateTaskInput {

@@ -23,6 +23,8 @@ import {
 import { bettaFishClient, SentimentBrief } from '../services/BettaFishClient.js';
 import { userProfileService, UserProfile, ExtractedKeywords } from '../services/UserProfileService.js';
 import { contentModeSelector, ContentModeDecision } from '../services/ContentModeSelector.js';
+import { contentPipelineService, ContentPipelineResult } from '../services/ContentPipelineService.js';
+
 
 export class ControlCenter {
     private initialized = false;
@@ -186,7 +188,7 @@ export class ControlCenter {
                 console.log('[ControlCenter] Available modes:', contentModeDecision.availableModes);
             }
 
-            // 7. 构建 metadata
+            // 7. 构建 metadata（包含内容生成所需的配置）
             const metadata: TaskMetadata = {
                 review_mode: userProfile?.review_mode === 'auto' ? 'auto_publish' : 'manual_confirm',
                 trace: {
@@ -198,6 +200,16 @@ export class ControlCenter {
                     keywords: sentimentBrief.keywords,
                     fetchedAt: sentimentBrief.fetchedAt,
                 } : null,
+                // 内容生成配置 (用于 Step 执行器异步生成)
+                content_generation: {
+                    product_info: userProfile?.product_info || req.theme || '',
+                    target_audience: userProfile?.target_audience || '',
+                    marketing_goal: userProfile?.marketing_goal || '',
+                    target_words: userProfile?.target_words || 800,
+                    avatar_photo_url: userProfile?.avatar_photo_url,
+                    voice_sample_url: userProfile?.voice_sample_url,
+                    content_mode: selectedContentMode,
+                },
             };
 
             // 8. 创建 Task（使用决策者选择的内容形式）
