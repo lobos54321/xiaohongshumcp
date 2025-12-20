@@ -50,6 +50,12 @@ export interface TaskMetadata {
         hashtags: string[];
         video_url?: string;
         audio_url?: string;
+        // IMAGE_TEXT 模式额外字段
+        image_urls?: string[];           // finalImages - 最终使用的图片 URLs
+        golden_quotes?: string[];         // 金句列表
+        copy_strategy?: 'variant' | 'split';  // 文案策略
+        copy_variants?: object;           // 变体或拆分数据
+        image_decision_summary?: string;  // 图片决策摘要
     };
 }
 

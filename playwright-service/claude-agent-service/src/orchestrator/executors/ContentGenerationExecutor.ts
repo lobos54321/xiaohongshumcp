@@ -193,13 +193,19 @@ class ContentGenerationExecutor {
             }
 
             // 4. 更新 Task metadata with generated content
-            const generatedContent = {
+            const generatedContent: TaskMetadata['generated_content'] = {
                 title: result.content?.title || '',
                 text: result.content?.text || '',
                 emotion: result.content?.emotion || '',
                 hashtags: result.content?.hashtags || [],
                 video_url: result.video?.videoUrl,
                 audio_url: result.video?.audioUrl,
+                // IMAGE_TEXT 模式额外字段
+                image_urls: result.finalImages || [],
+                golden_quotes: result.copyAnalysis?.goldenQuotes || [],
+                copy_strategy: result.copyAnalysis?.strategy,
+                copy_variants: result.copyVariants,
+                image_decision_summary: result.imageDecision?.summary,
             };
 
             await this.updateTaskWithGeneratedContent(task.id, generatedContent);
@@ -283,13 +289,14 @@ class ContentGenerationExecutor {
             generated_content: generatedContent,
         };
 
-        // 更新
+        // 更新任务 (包括 image_urls 供 Chrome Extension 读取)
         const { error: updateError } = await this.supabase
             .from('xhs_daily_tasks')
             .update({
                 metadata: updatedMetadata,
-                title: generatedContent?.title,
-                content: generatedContent?.text,
+                title: generatedContent?.title || null,
+                content: generatedContent?.text || null,
+                image_urls: generatedContent?.image_urls || [],  // IMAGE_TEXT 的最终图片
                 status: 'copy_ready',  // 标记为文案就绪
             })
             .eq('id', taskId);
@@ -297,7 +304,10 @@ class ContentGenerationExecutor {
         if (updateError) {
             console.error('[ContentGenerationExecutor] Update task error:', updateError);
         } else {
-            console.log(`[ContentGenerationExecutor] Task ${taskId} updated with generated content`);
+            console.log(`[ContentGenerationExecutor] Task ${taskId} updated with generated content`, {
+                title: generatedContent?.title?.substring(0, 30),
+                imageCount: generatedContent?.image_urls?.length || 0,
+            });
         }
     }
 
