@@ -29,6 +29,9 @@ import { sendTestEmail, triggerAnalysisForUser, initCronJobs } from './modules/a
 import { controlCenter } from './orchestrator/index.js';
 import { skyvernExecutor } from './orchestrator/executors/SkyvernExecutor.js';
 
+// Workflow Progress Module
+import { WorkflowProgressService } from './services/WorkflowProgressService.js';
+
 // Legacy - TODO: move to modules
 import { MCPAuthClient } from './mcpAuthClient.js';
 
@@ -3858,6 +3861,13 @@ try {
   console.warn('[AI-ANALYSIS] Failed to initialize Supabase client:', error);
 }
 
+// Initialize WorkflowProgressService (for Agent Progress Tree UI)
+let workflowProgressService: WorkflowProgressService | null = null;
+if (supabaseClient) {
+  workflowProgressService = new WorkflowProgressService(supabaseClient);
+  console.log('[WorkflowProgress] Service initialized');
+}
+
 interface AnalysisRequest {
   userId: string;
   summary: {
@@ -5133,6 +5143,102 @@ app.get('/agent/skyvern/status', async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to get Skyvern status',
+    });
+  }
+});
+
+// ============================================================================
+// Workflow Progress API (for Agent Progress Tree UI)
+// ============================================================================
+
+/**
+ * GET /api/workflow/status/:taskId
+ * 
+ * 获取任务的工作流步骤状态
+ */
+app.get('/api/workflow/status/:taskId', async (req: Request, res: Response) => {
+  try {
+    const { taskId } = req.params;
+
+    if (!workflowProgressService) {
+      return res.status(503).json({
+        success: false,
+        error: 'WorkflowProgressService not initialized',
+      });
+    }
+
+    const status = await workflowProgressService.getWorkflowStatus(taskId);
+
+    // Transform to frontend format
+    const nodes = status.steps.map(step => ({
+      id: step.step_key,
+      title: step.step_title,
+      agent: step.agent_name,
+      desc: '',
+      status: step.status,
+      details: {
+        progress: step.progress,
+        currentAction: step.current_action,
+        eta: step.eta,
+        timeTaken: step.time_taken,
+        output: step.output ? JSON.stringify(step.output).slice(0, 500) : undefined,
+        error: step.error,
+      },
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        taskId,
+        overallStatus: status.overallStatus,
+        overallProgress: status.overallProgress,
+        nodes,
+      },
+    });
+  } catch (error: any) {
+    console.error('[Workflow] Status error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to get workflow status',
+    });
+  }
+});
+
+/**
+ * POST /api/workflow/initialize/:taskId
+ * 
+ * 为任务初始化工作流步骤
+ */
+app.post('/api/workflow/initialize/:taskId', async (req: Request, res: Response) => {
+  try {
+    const { taskId } = req.params;
+    const { contentMode } = req.body;
+
+    if (!contentMode) {
+      return res.status(400).json({
+        success: false,
+        error: 'contentMode is required',
+      });
+    }
+
+    if (!workflowProgressService) {
+      return res.status(503).json({
+        success: false,
+        error: 'WorkflowProgressService not initialized',
+      });
+    }
+
+    await workflowProgressService.initializeSteps(taskId, contentMode);
+
+    res.json({
+      success: true,
+      message: `Workflow steps initialized for ${contentMode}`,
+    });
+  } catch (error: any) {
+    console.error('[Workflow] Initialize error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to initialize workflow',
     });
   }
 });
