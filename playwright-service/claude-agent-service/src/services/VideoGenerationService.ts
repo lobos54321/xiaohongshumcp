@@ -8,13 +8,14 @@
  * 2. 数字人照片 + 语音 → RunningHub 数字人 → 视频
  * 
  * UGC_VIDEO 流程:
- * 1. 文案 → Index TTS (RunningHub) → 语音音频
- * 2. 产品图片 + 语音 → N8n 工作流 → UGC 视频
+ * 1. 产品图片 + 描述 → N8n 工作流 → UGC 视频 (含 Veo3 AI 语音)
  */
 
 import { runningHubClient, RunningHubClient } from './RunningHubClient.js';
+import { n8nUgcClient } from './N8nUgcClient.js';
 import { supabaseAdmin } from '../orchestrator/db/supabase.js';
 import { ContentMode } from '../orchestrator/types/contracts.js';
+
 
 export interface VideoGenerationRequest {
     supabaseUuid: string;
@@ -177,64 +178,58 @@ export class VideoGenerationService {
      * 生成 UGC 视频 (UGC_VIDEO)
      * 
      * 流程：
-     * 1. 文案 + 语音样本 → Index TTS → 语音音频
-     * 2. 产品图片 + 语音 → N8n 工作流 → UGC 视频
+     * 产品图片 + 描述 → N8n 工作流 → UGC 视频 (含 Veo3 AI 语音)
+     * 
+     * N8n 工作流内部处理:
+     * 1. Nano Banana 将产品放入 UGC 场景
+     * 2. Veo3 生成视频片段（含 AI 语音）
+     * 3. FFmpeg 合并视频
      */
     private async generateUgcVideo(request: VideoGenerationRequest): Promise<VideoGenerationResult> {
-        const { supabaseUuid, script, voiceSampleUrl, emotion = '', productImages } = request;
+        const { taskId, script, productImages, ugcParams } = request;
 
-        // 检查是否有语音样本
-        if (!voiceSampleUrl) {
-            // 没有语音样本，暂不支持 UGC 视频
+        // 检查是否有产品图片
+        if (!productImages || productImages.length === 0) {
             return {
                 success: false,
-                error: 'UGC 视频需要语音样本，请先上传语音样本'
+                error: 'UGC 视频需要至少一张产品图片'
             };
         }
 
-        // 1. 使用 Index TTS 生成语音
-        console.log('[VideoGenerationService] Generating UGC TTS using Index TTS...');
-        const ttsTaskResponse = await this.runningHub.createVoiceCloneTask({
-            cloneAudioUrl: voiceSampleUrl,
-            text: script,
-            emotion: emotion
+        // 使用第一张产品图片作为主图
+        const primaryImage = productImages[0];
+
+        console.log('[VideoGenerationService] Calling N8n UGC workflow:', {
+            taskId,
+            imageUrl: primaryImage,
+            gender: ugcParams?.gender || 'female',
+            duration: ugcParams?.duration || 16,
+            language: ugcParams?.language || 'zh-CN',
         });
 
-        if (ttsTaskResponse.code !== 0) {
-            throw new Error(`Index TTS task creation failed: ${ttsTaskResponse.msg}`);
+        // 调用 N8n UGC 工作流
+        const result = await n8nUgcClient.generateUgcVideo({
+            taskId,
+            productDescription: script,
+            productImageUrl: primaryImage,
+            gender: ugcParams?.gender || 'female',
+            duration: ugcParams?.duration || 16,
+            language: (ugcParams?.language as 'zh-CN' | 'en-US' | 'ja-JP') || 'zh-CN',
+        });
+
+        if (!result.success) {
+            return {
+                success: false,
+                error: result.error || 'N8n UGC 工作流执行失败',
+            };
         }
 
-        // 等待 TTS 任务完成
-        const ttsResult = await this.runningHub.waitForTaskCompletion(
-            ttsTaskResponse.data.taskId,
-            { maxWaitMs: 5 * 60 * 1000 }
-        );
-
-        // 提取生成的音频 URL
-        const audioOutput = ttsResult.data?.outputs?.find(o =>
-            o.fileType === 'audio' || o.fileName.endsWith('.mp3') || o.fileName.endsWith('.wav')
-        );
-
-        if (!audioOutput?.fileUrl) {
-            throw new Error('No audio output from Index TTS');
-        }
-
-        const audioUrl = audioOutput.fileUrl;
-        const estimatedDuration = Math.ceil(script.replace(/\s/g, '').length / 4);
-
-        console.log('[VideoGenerationService] UGC TTS audio generated:', audioUrl);
-
-        // 2. TODO: 调用 N8n 工作流生成 UGC 视频
-        // 目前先返回音频，视频生成需要对接 N8n
-        console.log('[VideoGenerationService] UGC video generation pending N8n integration');
+        console.log('[VideoGenerationService] UGC video generated:', result.videoUrl);
 
         return {
             success: true,
-            audioUrl: audioUrl,
-            audioDuration: estimatedDuration,
-            taskId: ttsTaskResponse.data.taskId,
-            // videoUrl 需要 N8n 对接后返回
-            error: 'UGC 视频生成需要对接 N8n 工作流'
+            videoUrl: result.videoUrl,
+            taskId: result.sessionId,
         };
     }
 
