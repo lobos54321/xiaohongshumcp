@@ -4045,6 +4045,63 @@ import { GoogleAIFileManager, FileState } from '@google/generative-ai/server';
 import os from 'os';
 import { pipeline } from 'stream/promises';
 
+// N8n UGC Client import
+import { n8nUgcClient } from './services/N8nUgcClient.js';
+
+// ============================================
+// 📹 N8n UGC 视频回调 API
+// ============================================
+
+/**
+ * 接收 N8n UGC 工作流的视频完成回调
+ * 
+ * N8n 工作流完成后会调用此 API 回传视频 URL
+ */
+app.post('/api/ugc-video-callback', async (req: Request, res: Response) => {
+  console.log('[UGC Callback] Received callback from N8n:', req.body);
+
+  try {
+    const { sessionId, finalvideourl, callbackUrl } = req.body;
+
+    if (!sessionId) {
+      res.status(400).json({
+        success: false,
+        error: 'Missing sessionId',
+      });
+      return;
+    }
+
+    if (!finalvideourl) {
+      res.status(400).json({
+        success: false,
+        error: 'Missing finalvideourl',
+      });
+      return;
+    }
+
+    // 使用 N8nUgcClient 处理回调
+    await n8nUgcClient.handleCallback({
+      sessionId,
+      finalvideourl,
+    });
+
+    console.log('[UGC Callback] Successfully processed callback for session:', sessionId);
+
+    res.json({
+      success: true,
+      message: 'Callback received and processed',
+      sessionId,
+    });
+
+  } catch (error) {
+    console.error('[UGC Callback] Error processing callback:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 app.post('/api/materials/analyze', async (req: Request, res: Response) => {
   const { supabaseUuid, images, documents, productName, targetAudience } = req.body;
 
