@@ -4399,6 +4399,131 @@ ${contextInfo ? `## 产品背景\n${contextInfo}\n` : ''}
   }
 });
 
+// 🔧 新增：单素材分析端点 - 分析单个图片/文档并返回结构化结果
+app.post('/api/material/analyze-single', async (req: Request, res: Response) => {
+  const { supabaseUuid, fileUrl, fileType, fileName } = req.body;
+
+  console.log('[Single Material Analysis] Request:', {
+    supabaseUuid,
+    fileUrl: fileUrl?.substring(0, 60) + '...',
+    fileType,
+    fileName
+  });
+
+  if (!fileUrl) {
+    return res.status(400).json({
+      success: false,
+      error: 'fileUrl is required'
+    });
+  }
+
+  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+  if (!GEMINI_API_KEY) {
+    // 回退到基础描述
+    return res.json({
+      success: true,
+      analysis: {
+        ai_description: `${fileType === 'image' ? '产品图片' : '产品文档'}: ${fileName || '未命名'}`,
+        ai_tags: [fileType === 'image' ? '图片' : '文档'],
+        ai_category: fileType === 'image' ? 'product_photo' : 'document'
+      },
+      provider: 'fallback'
+    });
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const modelId = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const model = genAI.getGenerativeModel({ model: modelId });
+
+    const parts: any[] = [];
+
+    // 分析提示词
+    parts.push({
+      text: `你是产品素材分析专家。请分析这个${fileType === 'image' ? '图片' : '文档'}并返回JSON格式结果。
+
+请识别并输出：
+1. ai_description: 详细描述（100字以内），说明素材内容、产品特征、视觉亮点
+2. ai_tags: 标签数组（3-5个），如["产品", "白色", "简约", "咖啡杯"]
+3. ai_category: 分类，只能是以下之一:
+   - product_photo (产品主图)
+   - packaging (包装图)
+   - usage_scene (使用场景)
+   - document (文档资料)
+   - certificate (证书/资质)
+   - other (其他)
+
+直接返回JSON，不要任何解释：
+{"ai_description": "...", "ai_tags": [...], "ai_category": "..."}`
+    });
+
+    if (fileType === 'image') {
+      // 下载图片并转为 base64
+      const response = await fetch(fileUrl);
+      if (!response.ok) throw new Error('Failed to download image');
+
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const base64 = buffer.toString('base64');
+      const contentType = response.headers.get('content-type') || 'image/jpeg';
+
+      parts.push({
+        inlineData: {
+          mimeType: contentType,
+          data: base64
+        }
+      });
+    } else {
+      // 文档暂时只返回基础信息
+      parts.push({
+        text: `文档URL: ${fileUrl}\n文件名: ${fileName || '未知'}`
+      });
+    }
+
+    const result = await model.generateContent({ contents: [{ role: 'user', parts }] });
+    const responseText = result.response.text();
+
+    console.log('[Single Material Analysis] Raw response:', responseText.substring(0, 200));
+
+    // 解析 JSON 结果
+    let analysis;
+    try {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        analysis = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('No JSON found');
+      }
+    } catch (parseErr) {
+      analysis = {
+        ai_description: responseText.substring(0, 200),
+        ai_tags: [fileType === 'image' ? '图片' : '文档'],
+        ai_category: fileType === 'image' ? 'product_photo' : 'document'
+      };
+    }
+
+    console.log('[Single Material Analysis] Success:', analysis.ai_category);
+
+    res.json({
+      success: true,
+      analysis,
+      provider: 'gemini'
+    });
+
+  } catch (error) {
+    console.error('[Single Material Analysis] Error:', error);
+    res.json({
+      success: true,
+      analysis: {
+        ai_description: `${fileType === 'image' ? '产品图片' : '产品文档'}: ${fileName || '未命名'}`,
+        ai_tags: [fileType === 'image' ? '图片' : '文档'],
+        ai_category: fileType === 'image' ? 'product_photo' : 'document'
+      },
+      provider: 'fallback'
+    });
+  }
+});
+
 // API 2: POST analytics sync
 app.post('/api/v1/analytics/sync', async (req: Request, res: Response) => {
   try {
