@@ -81,6 +81,7 @@ const taskConnections = new Map<string, Set<WebSocket>>();
 
 // 内存中的步骤状态缓存（支持离线运行/容错）
 const stepsCache = new Map<string, Map<string, WorkflowStep>>();
+const taskModes = new Map<string, string>();
 
 export class WorkflowProgressService {
     private supabase: SupabaseClient;
@@ -99,6 +100,7 @@ export class WorkflowProgressService {
             return;
         }
 
+        taskModes.set(taskId, contentMode);
         const memSteps: Map<string, WorkflowStep> = new Map();
 
         for (const step of steps) {
@@ -291,7 +293,8 @@ export class WorkflowProgressService {
         }
 
         if (steps.length === 0) {
-            return { overallStatus: 'pending', overallProgress: 0, steps: [], mode: 'IMAGE_TEXT' };
+            const mode = taskModes.get(taskId) || 'IMAGE_TEXT';
+            return { overallStatus: 'pending', overallProgress: 0, steps: [], mode };
         }
 
         // 计算整体进度
@@ -308,7 +311,8 @@ export class WorkflowProgressService {
             overallStatus = 'processing';
         }
 
-        return { overallStatus, overallProgress, steps, mode: 'IMAGE_TEXT' };
+        const mode = taskModes.get(taskId) || 'IMAGE_TEXT';
+        return { overallStatus, overallProgress, steps, mode };
     }
 
     /**
@@ -387,6 +391,7 @@ export class WorkflowProgressService {
             taskId,
             data: {
                 taskId,
+                mode: status.mode,
                 overallStatus: status.overallStatus,
                 overallProgress: status.overallProgress,
                 nodes: status.steps.map(s => ({
