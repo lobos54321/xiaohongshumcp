@@ -1732,7 +1732,21 @@ export class AutoContentManager {
           await this.saveData(profile.userId);
 
           if (isFirstTask && workflowProgressService && taskId) {
-            await workflowProgressService.completeStep(taskId, 'task-save', { status: 'success' });
+            const resultData = {
+              title: task.title,
+              text: task.content,
+              imageUrls: task.imageUrls,
+              hashtags: task.hashtags,
+              scheduledTime: task.scheduledTime.toISOString()
+            };
+
+            await workflowProgressService.completeStep(taskId, 'task-save', {
+              status: 'success',
+              result: resultData
+            });
+
+            // 发送最终完成消息
+            await workflowProgressService.completeWorkflow(taskId, resultData);
           }
 
           console.log(`✅ [任务生成] 任务 ${successCount} 生成成功并已保存 (总进度: ${successCount}/${successCount + failCount})`);

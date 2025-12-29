@@ -362,7 +362,7 @@ export class WorkflowProgressService {
                     currentAction: step.current_action,
                     eta: step.eta,
                     timeTaken: step.time_taken,
-                    output: step.output ? JSON.stringify(step.output).slice(0, 500) : undefined,
+                    output: step.output ? JSON.stringify(step.output).slice(0, 5000) : undefined,
                     error: step.error,
                 },
             },
@@ -404,7 +404,7 @@ export class WorkflowProgressService {
                         currentAction: s.current_action,
                         eta: s.eta,
                         timeTaken: s.time_taken,
-                        output: s.output ? JSON.stringify(s.output).slice(0, 200) : undefined,
+                        output: s.output, // 不截断，给状态更新完整的
                         error: s.error,
                     },
                 })),
@@ -416,5 +416,34 @@ export class WorkflowProgressService {
                 ws.send(message);
             }
         }
+    }
+
+    /**
+     * 标记工作流完成并发送结果
+     */
+    async completeWorkflow(taskId: string, result: any): Promise<void> {
+        const connections = taskConnections.get(taskId);
+        if (!connections || connections.size === 0) return;
+
+        const status = await this.getWorkflowStatus(taskId);
+
+        const message = JSON.stringify({
+            type: 'completed',
+            taskId,
+            data: {
+                ...status,
+                overallStatus: 'completed',
+                overallProgress: 100,
+                result // 最终产物
+            },
+        });
+
+        for (const ws of connections) {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(message);
+            }
+        }
+
+        console.log(`[WorkflowProgressService] ✅ Workflow ${taskId} marked as completed with results`);
     }
 }
