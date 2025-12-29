@@ -79,6 +79,9 @@ export const MODE_STEPS: Record<string, StepDefinition[]> = {
 // WebSocket 连接管理
 const taskConnections = new Map<string, Set<WebSocket>>();
 
+// 内存中的步骤状态缓存（支持离线运行/容错）
+const stepsCache = new Map<string, Map<string, WorkflowStep>>();
+
 export class WorkflowProgressService {
     private supabase: SupabaseClient;
 
@@ -96,8 +99,22 @@ export class WorkflowProgressService {
             return;
         }
 
+        const memSteps: Map<string, WorkflowStep> = new Map();
+
         for (const step of steps) {
-            await this.supabase
+            const newStep: WorkflowStep = {
+                id: `${taskId}_${step.step_key}`,
+                task_id: taskId,
+                step_key: step.step_key,
+                step_title: step.step_title,
+                agent_name: step.agent_name,
+                status: 'pending',
+                progress: 0,
+            };
+            memSteps.set(step.step_key, newStep);
+
+            // 异步保存到数据库，不阻塞初始化
+            this.supabase
                 .from('xhs_workflow_steps')
                 .upsert({
                     task_id: taskId,
@@ -106,10 +123,14 @@ export class WorkflowProgressService {
                     agent_name: step.agent_name,
                     status: 'pending',
                     progress: 0,
-                }, { onConflict: 'task_id,step_key' });
+                }, { onConflict: 'task_id,step_key' })
+                .then(({ error }) => {
+                    if (error) console.error(`[WorkflowProgressService] DB Upsert Error (non-fatal):`, error.message);
+                });
         }
 
-        console.log(`[WorkflowProgressService] Initialized ${steps.length} steps for task ${taskId}`);
+        stepsCache.set(taskId, memSteps);
+        console.log(`[WorkflowProgressService] ✅ Initialized ${steps.length} steps in-memory for task ${taskId}`);
     }
 
     /**
@@ -128,7 +149,7 @@ export class WorkflowProgressService {
             time_taken: string;
         }>
     ): Promise<void> {
-        const updateData: Record<string, unknown> = { ...updates };
+        const updateData: Record<string, any> = { ...updates };
 
         // 自动设置时间戳
         if (updates.status === 'processing' && !updateData.started_at) {
@@ -138,19 +159,38 @@ export class WorkflowProgressService {
             updateData.completed_at = new Date().toISOString();
         }
 
-        const { error } = await this.supabase
+        // 1. 更新内存缓存 (保证实时性)
+        let memSteps = stepsCache.get(taskId);
+        if (!memSteps) {
+            console.warn(`[WorkflowProgressService] Cache missing for task ${taskId}, attempting to recover...`);
+            memSteps = new Map();
+            stepsCache.set(taskId, memSteps);
+        }
+
+        const currentStep = memSteps.get(stepKey) || {
+            task_id: taskId,
+            step_key: stepKey,
+            step_title: stepKey,
+            agent_name: 'Prome AI',
+            status: 'pending',
+            progress: 0
+        } as WorkflowStep;
+
+        const updatedStep = { ...currentStep, ...updateData } as WorkflowStep;
+        memSteps.set(stepKey, updatedStep);
+
+        // 2. 异步更新数据库 (持久化)
+        this.supabase
             .from('xhs_workflow_steps')
             .update(updateData)
             .eq('task_id', taskId)
-            .eq('step_key', stepKey);
+            .eq('step_key', stepKey)
+            .then(({ error }) => {
+                if (error) console.error(`[WorkflowProgressService] DB Update Error (non-fatal):`, error.message);
+            });
 
-        if (error) {
-            console.error(`[WorkflowProgressService] Update step error:`, error);
-            return;
-        }
-
-        // 推送 WebSocket 更新
-        await this.broadcastStepUpdate(taskId, stepKey);
+        // 3. 立即推送 WebSocket 更新 (无视数据库延迟)
+        this.broadcastStepUpdate(taskId, updatedStep);
     }
 
     /**
@@ -236,15 +276,26 @@ export class WorkflowProgressService {
         overallStatus: StepStatus;
         overallProgress: number;
         steps: WorkflowStep[];
+        mode: string;
     }> {
-        const steps = await this.getSteps(taskId);
+        // 优先从内存获取
+        let steps: WorkflowStep[] = [];
+        const memMap = stepsCache.get(taskId);
+
+        if (memMap) {
+            steps = Array.from(memMap.values());
+        } else {
+            // 缓存没命中，尝试从数据库恢复
+            console.log(`[WorkflowProgressService] Cache miss for status ${taskId}, fetching from DB...`);
+            steps = await this.getSteps(taskId);
+        }
 
         if (steps.length === 0) {
-            return { overallStatus: 'pending', overallProgress: 0, steps: [] };
+            return { overallStatus: 'pending', overallProgress: 0, steps: [], mode: 'IMAGE_TEXT' };
         }
 
         // 计算整体进度
-        const totalProgress = steps.reduce((sum, s) => sum + s.progress, 0);
+        const totalProgress = steps.reduce((sum, s) => sum + (s.progress || 0), 0);
         const overallProgress = Math.round(totalProgress / steps.length);
 
         // 确定整体状态
@@ -257,7 +308,7 @@ export class WorkflowProgressService {
             overallStatus = 'processing';
         }
 
-        return { overallStatus, overallProgress, steps };
+        return { overallStatus, overallProgress, steps, mode: 'IMAGE_TEXT' };
     }
 
     /**
@@ -287,18 +338,12 @@ export class WorkflowProgressService {
     /**
      * 广播步骤更新
      */
-    private async broadcastStepUpdate(taskId: string, stepKey: string): Promise<void> {
+    private broadcastStepUpdate(taskId: string, step: WorkflowStep): void {
         const connections = taskConnections.get(taskId);
-        if (!connections || connections.size === 0) return;
-
-        const { data: step } = await this.supabase
-            .from('xhs_workflow_steps')
-            .select('*')
-            .eq('task_id', taskId)
-            .eq('step_key', stepKey)
-            .single();
-
-        if (!step) return;
+        if (!connections || connections.size === 0) {
+            console.log(`[WorkflowProgressService] No connections for task ${taskId}, update not broadcasted`);
+            return;
+        }
 
         const message = JSON.stringify({
             type: 'node_update',
@@ -313,11 +358,13 @@ export class WorkflowProgressService {
                     currentAction: step.current_action,
                     eta: step.eta,
                     timeTaken: step.time_taken,
-                    output: step.output ? JSON.stringify(step.output).slice(0, 200) : undefined,
+                    output: step.output ? JSON.stringify(step.output).slice(0, 500) : undefined,
                     error: step.error,
                 },
             },
         });
+
+        console.log(`[WorkflowProgressService] Broadcasting node_update to ${connections.size} clients: ${step.step_key} -> ${step.status}`);
 
         for (const ws of connections) {
             if (ws.readyState === WebSocket.OPEN) {

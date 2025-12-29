@@ -1344,23 +1344,26 @@ app.post('/agent/auto/start', async (req: Request, res: Response) => {
       reviewMode: reviewMode || 'auto'
     };
 
-    console.log(`[Auto Mode] Starting auto mode for user ${userId} with task: ${taskId}`);
+    console.log(`[Auto Mode] Starting auto mode for user ${userId} with task: ${taskId}, mode: ${contentModePreference}`);
 
-    // 🔥 初始化工作流进度
+    // 🔥 初始化工作流进度 - 修改为 await 确保顺序
     if (workflowProgressService && taskId) {
       const mode = contentModePreference || 'IMAGE_TEXT';
-      workflowProgressService.initializeSteps(taskId, mode)
-        .then(() => console.log(`[WorkflowProgress] Initialized steps for ${taskId}`))
-        .catch(err => console.error(`[WorkflowProgress] Failed to initialize steps:`, err));
+      try {
+        await workflowProgressService.initializeSteps(taskId, mode);
+        console.log(`[WorkflowProgress] ✅ Initialized steps for ${taskId}`);
+      } catch (err) {
+        console.error(`[WorkflowProgress] ❌ Failed to initialize steps:`, err);
+      }
     }
 
-    // 🔥 FIX: 异步启动自动运营，不等待完成
+    // 🔥 FIX: 异步启动自动运营，不等待整个流程完成
     autoContentManager.startAutoMode({ ...userProfile, taskId }, workflowProgressService)
       .then(() => {
-        console.log(`[Auto Mode] ✅ 自动运营完成: ${userId}`);
+        console.log(`[Auto Mode] ✅ 自动运营流程执行完成: ${userId}`);
       })
       .catch((error) => {
-        console.error(`[Auto Mode] ❌ 自动运营失败: ${userId}`, error);
+        console.error(`[Auto Mode] ❌ 自动运营流程异常中断: ${userId}`, error);
       });
 
     // 立即返回响应，告知前端已开始生成
