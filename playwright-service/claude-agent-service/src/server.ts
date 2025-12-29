@@ -1329,7 +1329,10 @@ app.post('/agent/auto/start', async (req: Request, res: Response) => {
       contentModePreference // 获取前端传递的内容模式
     } = req.body;
 
+    console.log(`[Auto Mode] Received start request:`, { userId, productName, taskId, contentModePreference });
+
     if (!userId || !productName) {
+      console.warn(`[Auto Mode] Missing required fields:`, { userId, productName });
       return res.status(400).json({
         success: false,
         error: 'userId and productName are required',
