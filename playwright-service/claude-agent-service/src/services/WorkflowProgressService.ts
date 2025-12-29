@@ -362,7 +362,7 @@ export class WorkflowProgressService {
                     currentAction: step.current_action,
                     eta: step.eta,
                     timeTaken: step.time_taken,
-                    output: step.output ? JSON.stringify(step.output).slice(0, 5000) : undefined,
+                    output: step.output, // 不要截断，传递完整结果
                     error: step.error,
                 },
             },
