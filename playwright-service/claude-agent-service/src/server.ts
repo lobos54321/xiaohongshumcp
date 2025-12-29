@@ -971,6 +971,8 @@ app.get('/health', (_req: Request, res: Response) => {
   res.json({
     status: 'healthy',
     service: 'claude-agent-service',
+    version: '1.1.2', // 包含 WebSocket 重构
+    debug: 'ws-node-logic-v2',
     timestamp: new Date().toISOString(),
   });
 });
