@@ -11,6 +11,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { DatabaseService } from '../../databaseService.js';
 import { PlaywrightPublisher } from './playwrightPublisher.js';
 import { BrowserSessionManager } from '../auth/browserSessionManager.js';
+import { difyClient } from '../../services/DifyClient.js';
 
 interface UserProfile {
   userId: string;
@@ -47,6 +48,7 @@ interface DailyTask {
   storageKeys?: string[];  // Supabase Storage路径（用于删除清理）
   hashtags: string[];
   status: 'planned' | 'generating' | 'ready' | 'published';
+  variants?: Array<{ title: string; content: string }>; // 新增：变体文案
 }
 
 /**
@@ -477,6 +479,8 @@ export class AutoContentManager {
       console.log(`🚀 [DEBUG] 步骤3: 开始生成详细任务...`);
       if (workflowProgressService && taskId) {
         await workflowProgressService.startStep(taskId, 'detail-plan', '拆解今日具体执行目标...');
+        // 初始给一点进度，让用户看到它在动
+        await workflowProgressService.updateProgress(taskId, 'detail-plan', 1, '正在初始化每日任务队列...');
       }
       this.addRealTimeActivity(userProfile.userId, '📝 正在创建详细的每日任务（包含配图）...', 'generation');
 
@@ -1682,7 +1686,8 @@ export class AutoContentManager {
     let successCount = 0;
     let failCount = 0;
 
-    console.log(`📝 [任务生成] 开始生成任务，预计总数: ${weeklyPlan.days.reduce((sum, d) => sum + d.posts.length, 0)}`);
+    const totalPosts = weeklyPlan.days.reduce((sum, d) => sum + d.posts.length, 0);
+    console.log(`📝 [任务生成] 开始生成任务，预计总数: ${totalPosts}`);
 
     for (const day of weeklyPlan.days) {
       for (const post of day.posts) {
@@ -1692,19 +1697,73 @@ export class AutoContentManager {
 
           console.log(`📝 [任务生成] 正在生成任务 ${successCount + failCount + 1} - 主题: ${post.theme}`);
 
+          // 🔥 解决 detail-plan 卡在 0% 的问题：更新步骤进度
+          if (workflowProgressService && taskId) {
+            const currentPlanProgress = Math.round(((successCount + failCount) / totalPosts) * 100);
+            await workflowProgressService.updateProgress(taskId, 'detail-plan', currentPlanProgress, `正在生成第 ${successCount + failCount + 1} 个任务: ${post.theme}`);
+          }
+
           if (isFirstTask && workflowProgressService && taskId) {
             await workflowProgressService.startStep(taskId, 'copy-analyze', '正在从当前产品画像提取核心卖点与钩子...');
             // 模拟分析过程
             await new Promise(resolve => setTimeout(resolve, 800));
             await workflowProgressService.completeStep(taskId, 'copy-analyze', {
-              strategy: '场景化深度测评',
+              strategy: '深度全案策略',
               readabilityScore: 92,
+              insight: '基于 Prome Dify 工作流的深度分析',
               goldenQuotes: ['解放双手的带娃神器', '这大概是今年最值得入手的单品']
             });
-            await workflowProgressService.startStep(taskId, 'copy-gen', '基于 Prome Marketing Engine 生成核心母文案...');
+            await workflowProgressService.startStep(taskId, 'copy-gen', '正在调用 Dify 文案工作流生成母文案 (Mother Copy)...');
           }
 
-          const task = await this.createDetailedTask(profile, post);
+          let task: DailyTask;
+
+          // 🔥 如果是第一个任务（或配置了使用 Dify），调用 Dify 生成母文案
+          if (isFirstTask) {
+            try {
+              console.log('🤖 [Dify] 正在调用 Dify 工作流生成基础母文案...');
+              const difyResult = await difyClient.generateMarketingCopy({
+                productInfo: `${profile.productName}: ${post.theme}`,
+                targetAudience: profile.targetAudience,
+                marketingGoal: profile.marketingGoal,
+                userId: profile.userId,
+                platform: '小红书'
+              });
+
+              // 补全图片提示词生成（由 Claude 辅助）
+              const imagePromptRaw = await this.callClaudeWithRetry(
+                () => this.anthropic.messages.create({
+                  model: process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001',
+                  max_tokens: 1000,
+                  messages: [{
+                    role: 'user',
+                    content: `基于以下小红书文案，为这篇文章生成4个高质量的英文图片生成提示词（Image Prompts），返回 JSON 数组格式 ["prompt1", "prompt2", "prompt3", "prompt4"]：\n\n标题：${difyResult.title}\n正文：${difyResult.text}`
+                  }]
+                }),
+                2,
+                `补全 Dify 任务图片提示词`
+              );
+
+              const imagePromptsText = imagePromptRaw.content[0].type === 'text' ? imagePromptRaw.content[0].text : '[]';
+              const imagePrompts = JSON.parse(this.cleanJSONResponse(imagePromptsText));
+
+              task = {
+                scheduledTime: new Date(day.date + 'T' + post.scheduledTime + ':00'),
+                contentType: post.type || '图文',
+                title: difyResult.title,
+                content: difyResult.text,
+                hashtags: difyResult.hashtags,
+                imagePrompts: Array.isArray(imagePrompts) ? imagePrompts : [],
+                status: 'generating'
+              };
+              console.log('✅ [Dify] 母文案生成成功');
+            } catch (difyError) {
+              console.warn('⚠️ [Dify] 调用失败，降级使用 Claude 生成:', difyError);
+              task = await this.createDetailedTask(profile, post);
+            }
+          } else {
+            task = await this.createDetailedTask(profile, post);
+          }
 
           if (isFirstTask && workflowProgressService && taskId) {
             await workflowProgressService.completeStep(taskId, 'copy-gen', {
@@ -1712,16 +1771,46 @@ export class AutoContentManager {
               content: task.content,
               hashtags: task.hashtags,
               wordCount: task.content?.length || 0,
-              features: ['情绪感人', '利益点清晰']
+              engine: 'Dify Marketing Engine',
+              features: ['爆款逻辑', 'Dify工作流驱动']
             });
-            await workflowProgressService.startStep(taskId, 'variant-gen', '生成适配图文形式的文案变体与 SEO 优化...');
+            await workflowProgressService.startStep(taskId, 'variant-gen', '正在利用 Claude 3.5 分析母文案并生成3种策略变体...');
 
-            // 模拟变体生成
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            await workflowProgressService.completeStep(taskId, 'variant-gen', {
-              variants: 3,
-              bonus: '已包含 SEO 优化关键词'
-            });
+            // 🔥 真实生成变体文案
+            try {
+              console.log('📝 [Variants] 正在生成风格化变体...');
+              const variantResponse = await this.callClaudeWithRetry(
+                () => this.anthropic.messages.create({
+                  model: process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001',
+                  max_tokens: 1500,
+                  messages: [{
+                    role: 'user',
+                    content: `请根据以下小红书母文案，生成3个不同风格的“文案变体”（Variants）。要求每组变体包含 title 和 content 字段。返回格式为 JSON 数组：[{"title": "...", "content": "..."}, ...]。风格要求：1. 极端震惊 2. 情感共鸣 3. 极速总结。\n\n母文案：\n标题：${task.title}\n正文：${task.content}`
+                  }]
+                }),
+                2,
+                `生成文案变体`
+              );
+              const variantText = variantResponse.content[0].type === 'text' ? variantResponse.content[0].text : '[]';
+              const rawVariants = JSON.parse(this.cleanJSONResponse(variantText));
+
+              // 映射到前端期待的格式 (text 而不是 content)
+              task.variants = rawVariants.map((v: any, idx: number) => ({
+                type: ['震惊词', '共鸣感', '快节奏'][idx] || '风格化变体',
+                title: v.title,
+                text: v.content || v.text
+              }));
+
+              await workflowProgressService.completeStep(taskId, 'variant-gen', {
+                variantCount: task.variants.length,
+                styles: ['极端震惊', '情感共鸣', '极速总结'],
+                variants: task.variants // 同时发送变体内容
+              });
+            } catch (vError) {
+              console.warn('⚠️ 变体生成失败:', vError);
+              await workflowProgressService.completeStep(taskId, 'variant-gen', { variantCount: 0, error: '生成超时或失败' });
+            }
+
             await workflowProgressService.startStep(taskId, 'image-adapt', '分析配图需求，规划补充素材与视觉排版...');
 
             // 模拟图片适配分析
