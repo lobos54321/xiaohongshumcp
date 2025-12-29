@@ -1709,7 +1709,9 @@ export class AutoContentManager {
           if (isFirstTask && workflowProgressService && taskId) {
             await workflowProgressService.completeStep(taskId, 'copy-gen', {
               title: task.title,
-              wordCount: task.content.length,
+              content: task.content,
+              hashtags: task.hashtags,
+              wordCount: task.content?.length || 0,
               features: ['情绪感人', '利益点清晰']
             });
             await workflowProgressService.startStep(taskId, 'variant-gen', '生成适配图文形式的文案变体与 SEO 优化...');
