@@ -4,6 +4,7 @@
 
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
+import { WebSocketServer } from 'ws';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import * as fs from 'fs';
@@ -31,14 +32,33 @@ import { skyvernExecutor } from './orchestrator/executors/SkyvernExecutor.js';
 
 // Workflow Progress Module
 import { WorkflowProgressService } from './services/WorkflowProgressService.js';
-
-// Legacy - TODO: move to modules
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { MCPAuthClient } from './mcpAuthClient.js';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Supabase Client for AI Analysis & Workflow Progress
+let supabaseClient: SupabaseClient | null = null;
+try {
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+  if (supabaseUrl && supabaseKey) {
+    supabaseClient = createClient(supabaseUrl, supabaseKey);
+    console.log('[Startup] Supabase client initialized');
+  }
+} catch (error) {
+  console.warn('[Startup] Failed to initialize Supabase client:', error);
+}
+
+// Initialize WorkflowProgressService
+let workflowProgressService: WorkflowProgressService | null = null;
+if (supabaseClient) {
+  workflowProgressService = new WorkflowProgressService(supabaseClient);
+}
 
 // 端口配置 - 支持Zeabur动态端口分配
 const PORT = parseInt(process.env.PORT || '8080');
@@ -1302,7 +1322,9 @@ app.post('/agent/auto/start', async (req: Request, res: Response) => {
       marketingGoal,
       postFrequency,
       brandStyle,
-      reviewMode
+      reviewMode,
+      taskId, // 获取前端传递的任务ID
+      contentModePreference // 获取前端传递的内容模式
     } = req.body;
 
     if (!userId || !productName) {
@@ -1322,11 +1344,18 @@ app.post('/agent/auto/start', async (req: Request, res: Response) => {
       reviewMode: reviewMode || 'auto'
     };
 
-    console.log(`[Auto Mode] Starting auto mode for user ${userId} with product: ${productName}`);
+    console.log(`[Auto Mode] Starting auto mode for user ${userId} with task: ${taskId}`);
 
-    // 🔥 FIX: 异步启动自动运营，不等待完成（避免超时）
-    // 前端通过轮询 /agent/auto/status 获取进度
-    autoContentManager.startAutoMode(userProfile)
+    // 🔥 初始化工作流进度
+    if (workflowProgressService && taskId) {
+      const mode = contentModePreference || 'IMAGE_TEXT';
+      workflowProgressService.initializeSteps(taskId, mode)
+        .then(() => console.log(`[WorkflowProgress] Initialized steps for ${taskId}`))
+        .catch(err => console.error(`[WorkflowProgress] Failed to initialize steps:`, err));
+    }
+
+    // 🔥 FIX: 异步启动自动运营，不等待完成
+    autoContentManager.startAutoMode({ ...userProfile, taskId }, workflowProgressService)
       .then(() => {
         console.log(`[Auto Mode] ✅ 自动运营完成: ${userId}`);
       })
@@ -3842,31 +3871,7 @@ app.post('/agent/xiaohongshu/delete-cookies-from-db', async (req: Request, res: 
 // ==========================================================================
 // AI 分析 API (Phase 3) ====================
 // Added by Phase 3 integration
-
-import { createClient } from '@supabase/supabase-js';
-
-// Supabase client for AI analysis (optional - only used if configured)
-let supabaseClient: any = null;
-try {
-  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
-  const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || '';
-
-  if (supabaseUrl && supabaseKey) {
-    supabaseClient = createClient(supabaseUrl, supabaseKey);
-    console.log('[AI-ANALYSIS] Supabase client initialized for analytics');
-  } else {
-    console.warn('[AI-ANALYSIS] Supabase not configured, analysis results will not be saved to database');
-  }
-} catch (error) {
-  console.warn('[AI-ANALYSIS] Failed to initialize Supabase client:', error);
-}
-
-// Initialize WorkflowProgressService (for Agent Progress Tree UI)
-let workflowProgressService: WorkflowProgressService | null = null;
-if (supabaseClient) {
-  workflowProgressService = new WorkflowProgressService(supabaseClient);
-  console.log('[WorkflowProgress] Service initialized');
-}
+// (Supabase client and WorkflowProgressService are initialized at the top of the file)
 
 interface AnalysisRequest {
   userId: string;
@@ -4664,10 +4669,45 @@ app.post('/api/v1/analytics/sync', async (req: Request, res: Response) => {
 });
 
 // 启动服务器
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`[Claude Agent Service] Server listening on 0.0.0.0:${PORT}`);
   console.log(`[Claude Agent Service] Health check: http://localhost:${PORT}/health`);
   console.log(`[Claude Agent Service] MCP Router URL: ${MCP_ROUTER_URL}`);
+});
+
+// ============================================================================
+// WebSocket Server for Workflow Progress
+// ============================================================================
+
+const wss = new WebSocketServer({ noServer: true });
+
+server.on('upgrade', (request, socket, head) => {
+  try {
+    const host = request.headers.host || `localhost:${PORT}`;
+    const { pathname, searchParams } = new URL(request.url || '', `http://${host}`);
+
+    if (pathname === '/ws/workflow') {
+      const taskId = searchParams.get('taskId');
+      if (taskId && workflowProgressService) {
+        wss.handleUpgrade(request, socket, head, (ws) => {
+          workflowProgressService!.registerConnection(taskId, ws);
+
+          ws.on('close', () => {
+            workflowProgressService!.unregisterConnection(taskId, ws);
+          });
+
+          // 推送初始状态
+          workflowProgressService!.broadcastFullStatus(taskId);
+        });
+        return;
+      }
+    }
+
+    socket.destroy();
+  } catch (err) {
+    console.error('[WebSocket] Upgrade error:', err);
+    socket.destroy();
+  }
 });
 
 // 优雅关闭

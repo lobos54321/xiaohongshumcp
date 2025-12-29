@@ -20,6 +20,7 @@ interface UserProfile {
   postFrequency: 'daily' | 'twice-daily' | 'high-freq';
   brandStyle: 'warm' | 'professional' | 'trendy' | 'funny';
   reviewMode: 'auto' | 'review' | 'edit';
+  taskId?: string; // 🔥 新增：用于关联进度追踪
 }
 
 interface ContentPlan {
@@ -376,7 +377,7 @@ export class AutoContentManager {
   /**
    * 用户完成设置后，启动自动运营
    */
-  async startAutoMode(userProfile: UserProfile): Promise<void> {
+  async startAutoMode(userProfile: UserProfile, workflowProgressService?: any): Promise<void> {
     console.log(`🚀 [DEBUG] 为用户 ${userProfile.userId} 启动自动运营模式`);
     console.log(`🚀 [DEBUG] 用户配置:`, JSON.stringify(userProfile, null, 2));
 
@@ -412,31 +413,53 @@ export class AutoContentManager {
     console.log(`🚀 [DEBUG] 当前 contentPlans 大小: ${this.contentPlans.size}`);
 
     try {
+      const taskId = userProfile.taskId;
+
       // 初始化活动记录
       this.addRealTimeActivity(userProfile.userId, '🚀 自动运营系统已启动', 'execution');
 
       // 1. 制定内容策略
       console.log(`🚀 [DEBUG] 步骤1: 开始制定内容策略...`);
+      if (workflowProgressService && taskId) {
+        await workflowProgressService.startStep(taskId, 'market-strategy', '分析市场趋势和热门话题...');
+      }
       this.addRealTimeActivity(userProfile.userId, '🧠 正在分析市场趋势和热门话题...', 'analysis');
       const strategy = await this.createContentStrategy(userProfile);
+
+      if (workflowProgressService && taskId) {
+        await workflowProgressService.completeStep(taskId, 'market-strategy', { themes: strategy.keyThemes });
+      }
       console.log(`🚀 [DEBUG] 步骤1完成: 内容策略制定成功`, JSON.stringify(strategy, null, 2));
       const topicsCount = (strategy as any).weeklyTopics?.length || (strategy as any).topics?.length || 0;
       this.addRealTimeActivity(userProfile.userId, `✅ 内容策略制定完成，识别到${topicsCount}个本周主题`, 'analysis');
 
       // 2. 生成周计划
       console.log(`🚀 [DEBUG] 步骤2: 开始生成周计划...`);
+      if (workflowProgressService && taskId) {
+        await workflowProgressService.startStep(taskId, 'weekly-plan', '规划本周内容发布频率与主题...');
+      }
       this.addRealTimeActivity(userProfile.userId, '📅 正在规划本周内容发布计划...', 'generation');
       const weeklyPlan = await this.generateWeeklyPlan(userProfile, strategy);
+
+      if (workflowProgressService && taskId) {
+        await workflowProgressService.completeStep(taskId, 'weekly-plan', { dayCount: weeklyPlan.days.length });
+      }
       console.log(`🚀 [DEBUG] 步骤2完成: 周计划生成成功，包含 ${weeklyPlan.days.length} 天计划`);
       this.addRealTimeActivity(userProfile.userId, `✅ 周计划生成成功，规划了${weeklyPlan.days.length}天的内容`, 'generation');
 
       // 3. 生成详细的每日任务（包含图片生成 + 渐进式保存）
       console.log(`🚀 [DEBUG] 步骤3: 开始生成详细任务...`);
+      if (workflowProgressService && taskId) {
+        await workflowProgressService.startStep(taskId, 'detail-plan', '拆解今日具体执行目标...');
+      }
       this.addRealTimeActivity(userProfile.userId, '📝 正在创建详细的每日任务（包含配图）...', 'generation');
 
       // 🔥 传入strategy，支持渐进式保存和错误容忍
-      const dailyTasks = await this.generateDailyTasks(userProfile, weeklyPlan, strategy);
+      const dailyTasks = await this.generateDailyTasks(userProfile, weeklyPlan, strategy, workflowProgressService);
 
+      if (workflowProgressService && taskId) {
+        await workflowProgressService.completeStep(taskId, 'detail-plan', { taskCount: dailyTasks.length });
+      }
       console.log(`🚀 [DEBUG] 步骤3完成: 生成了 ${dailyTasks.length} 个每日任务，所有图片已生成`);
       this.addRealTimeActivity(userProfile.userId, `✅ 生成了${dailyTasks.length}个每日任务，配图已就绪`, 'generation');
 
@@ -1623,7 +1646,8 @@ export class AutoContentManager {
   private async generateDailyTasks(
     profile: UserProfile,
     weeklyPlan: WeeklyPlan,
-    strategy: ContentStrategy
+    strategy: ContentStrategy,
+    workflowProgressService?: any
   ): Promise<DailyTask[]> {
     const tasks: DailyTask[] = [];
     let successCount = 0;
@@ -1634,8 +1658,66 @@ export class AutoContentManager {
     for (const day of weeklyPlan.days) {
       for (const post of day.posts) {
         try {
+          const isFirstTask = successCount === 0;
+          const taskId = profile.taskId;
+
           console.log(`📝 [任务生成] 正在生成任务 ${successCount + failCount + 1} - 主题: ${post.theme}`);
+
+          if (isFirstTask && workflowProgressService && taskId) {
+            await workflowProgressService.startStep(taskId, 'copy-analyze', '正在提取热点金句，分析分发策略...');
+          }
+
+          // 步骤 4: 文案分析 (在 AutoContentManager 中文案生成和分析是整体)
+          if (isFirstTask && workflowProgressService && taskId) {
+            setTimeout(() => {
+              workflowProgressService.completeStep(taskId, 'copy-analyze', { strategy: '爆款引导型' });
+              workflowProgressService.startStep(taskId, 'copy-gen', '基于 Dify 生成核心母文案...');
+            }, 1000);
+          }
+
           const task = await this.createDetailedTask(profile, post);
+
+          if (isFirstTask && workflowProgressService && taskId) {
+            await workflowProgressService.completeStep(taskId, 'copy-gen', { title: task.title });
+            await workflowProgressService.startStep(taskId, 'variant-gen', '生成适配图文形式的文案变体...');
+
+            // 模拟变体生成
+            setTimeout(() => {
+              workflowProgressService.completeStep(taskId, 'variant-gen', { variants: 3 });
+              workflowProgressService.startStep(taskId, 'image-adapt', '分析配图需求，规划补充素材...');
+            }, 1000);
+          }
+
+          // 步骤 7: 图片智能适配
+          if (isFirstTask && workflowProgressService && taskId) {
+            setTimeout(() => {
+              workflowProgressService.completeStep(taskId, 'image-adapt', { plannedImages: task.imagePrompts.length });
+              workflowProgressService.startStep(taskId, 'image-gen', `正在生成高精图片 (0/${task.imagePrompts.length})...`);
+            }, 2000);
+          }
+
+          // 执行图片生成 (这里会递归调用 generateImage 并更新进度)
+          const imageUrls: string[] = [];
+          const storageKeys: string[] = [];
+
+          for (let i = 0; i < task.imagePrompts.length; i++) {
+            if (isFirstTask && workflowProgressService && taskId) {
+              await workflowProgressService.updateProgress(taskId, 'image-gen', Math.round((i / task.imagePrompts.length) * 100), `正在生成第 ${i + 1} 张图片...`);
+            }
+
+            const result = await this.generateImage(task.imagePrompts[i], profile.userId);
+            imageUrls.push(result.url);
+            if (result.storageKey) storageKeys.push(result.storageKey);
+          }
+
+          task.imageUrls = imageUrls;
+          task.storageKeys = storageKeys;
+
+          if (isFirstTask && workflowProgressService && taskId) {
+            await workflowProgressService.completeStep(taskId, 'image-gen', { imageCount: imageUrls.length });
+            await workflowProgressService.startStep(taskId, 'task-save', '正在同步至待审任务列表...');
+          }
+
           tasks.push(task);
           successCount++;
 
@@ -1648,6 +1730,10 @@ export class AutoContentManager {
 
           // 同时持久化到文件
           await this.saveData(profile.userId);
+
+          if (isFirstTask && workflowProgressService && taskId) {
+            await workflowProgressService.completeStep(taskId, 'task-save', { status: 'success' });
+          }
 
           console.log(`✅ [任务生成] 任务 ${successCount} 生成成功并已保存 (总进度: ${successCount}/${successCount + failCount})`);
           this.addRealTimeActivity(
