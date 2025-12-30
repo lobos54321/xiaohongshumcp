@@ -247,6 +247,8 @@ export class DifyClient {
             const answer = await this.processStreamingResponse(response);
 
             console.log('[DifyClient] Streaming 完成，响应长度:', answer.length);
+            console.log('[DifyClient] 🔍 原始响应内容 (前500字符):', answer.substring(0, 500));
+            console.log('[DifyClient] 🔍 原始响应内容 (后500字符):', answer.substring(Math.max(0, answer.length - 500)));
 
             // 解析 LLM8b 输出的 JSON 格式
             const result = this.parseContentGenerationResult(answer);
