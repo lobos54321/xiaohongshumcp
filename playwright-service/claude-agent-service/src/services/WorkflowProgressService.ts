@@ -127,7 +127,10 @@ export class WorkflowProgressService {
                     progress: 0,
                 }, { onConflict: 'task_id,step_key' })
                 .then(({ error }) => {
-                    if (error) console.error(`[WorkflowProgressService] DB Upsert Error (non-fatal):`, error.message);
+                    // 🔥 只有在真正出错且不是格式问题时才记录
+                    if (error && error.code !== '22P02') {
+                        console.error(`[WorkflowProgressService] DB Upsert Error:`, error.message);
+                    }
                 });
         }
 
@@ -188,7 +191,9 @@ export class WorkflowProgressService {
             .eq('task_id', taskId)
             .eq('step_key', stepKey)
             .then(({ error }) => {
-                if (error) console.error(`[WorkflowProgressService] DB Update Error (non-fatal):`, error.message);
+                if (error && error.code !== '22P02') {
+                    console.error(`[WorkflowProgressService] DB Update Error:`, error.message);
+                }
             });
 
         // 3. 立即推送 WebSocket 更新 (无视数据库延迟)

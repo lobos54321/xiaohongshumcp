@@ -323,53 +323,104 @@ export class DifyClient {
     private parseContentGenerationResult(answer: string): DifyContentGenerationResult {
         console.log('[DifyClient] 解析响应内容...');
 
-        // 尝试直接解析 JSON
         try {
-            // 提取 JSON 块 (可能被 markdown 代码块包裹)
-            let jsonStr = answer;
-
-            // 移除 markdown 代码块标记
-            const jsonMatch = answer.match(/```(?:json)?\s*([\s\S]*?)```/);
-            if (jsonMatch) {
-                jsonStr = jsonMatch[1].trim();
-            }
-
-            // 尝试找到 JSON 对象
-            const jsonObjectMatch = jsonStr.match(/\{[\s\S]*\}/);
-            if (jsonObjectMatch) {
-                jsonStr = jsonObjectMatch[0];
-            }
-
+            // 🔥 使用更强力的清洗逻辑
+            const jsonStr = this.cleanJSONResponse(answer);
             const parsed = JSON.parse(jsonStr);
 
             // 验证必需字段
             if (!parsed.title || !parsed.text) {
-                throw new Error('JSON 缺少必需字段 title 或 text');
+                // 如果缺少基本字段，尝试第二次智能提取
+                throw new Error('Dify JSON 缺少必需字段 title 或 text');
             }
 
             const result: DifyContentGenerationResult = {
                 title: parsed.title,
                 text: parsed.text,
-                emotion: parsed.emotion || '严肃的', // 默认情感
+                emotion: parsed.emotion || '严肃的',
                 hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : [],
                 rawResponse: answer,
             };
 
-            console.log('[DifyClient] 解析成功:', {
-                title: result.title.substring(0, 30) + '...',
-                textLength: result.text.length,
-                emotion: result.emotion,
-                hashtagsCount: result.hashtags.length,
-            });
-
             return result;
 
         } catch (parseError) {
-            console.warn('[DifyClient] JSON 解析失败，尝试智能提取...', parseError);
-
-            // 降级方案：智能提取
+            console.warn('[DifyClient] JSON 解析失败，尝试终极降级方案...', parseError);
             return this.extractContentFallback(answer);
         }
+    }
+
+    /**
+     * 实现与 AutoContentManager 一致的强力 JSON 清洗逻辑
+     */
+    private cleanJSONResponse(responseText: string): string {
+        try {
+            let cleanedText = responseText
+                .replace(/```json\s*/gi, '')
+                .replace(/```\s*/g, '')
+                .trim();
+
+            const extracted = this.extractCompleteJSON(cleanedText);
+            if (extracted && this.isValidJSON(extracted)) {
+                return extracted;
+            }
+
+            const escaped = this.escapeJSONStringLiterals(cleanedText);
+            return escaped;
+        } catch (error) {
+            return responseText.trim();
+        }
+    }
+
+    private extractCompleteJSON(text: string): string {
+        const objectStart = text.indexOf('{');
+        if (objectStart === -1) return '';
+
+        let depth = 0;
+        let inString = false;
+        let escapeNext = false;
+
+        for (let i = objectStart; i < text.length; i++) {
+            const char = text[i];
+            if (escapeNext) { escapeNext = false; continue; }
+            if (char === '\\') { escapeNext = true; continue; }
+            if (char === '"') { inString = !inString; continue; }
+            if (inString) continue;
+
+            if (char === '{') depth++;
+            else if (char === '}') {
+                depth--;
+                if (depth === 0) return text.substring(objectStart, i + 1);
+            }
+        }
+        return '';
+    }
+
+    private escapeJSONStringLiterals(jsonString: string): string {
+        let result = '';
+        let inString = false;
+        let escapeNext = false;
+
+        for (let i = 0; i < jsonString.length; i++) {
+            const char = jsonString[i];
+            if (escapeNext) { result += char; escapeNext = false; continue; }
+            if (char === '\\') { result += char; escapeNext = true; continue; }
+            if (char === '"') { result += char; inString = !inString; continue; }
+
+            if (inString) {
+                if (char === '\n') result += '\\n';
+                else if (char === '\r') result += '\\r';
+                else if (char === '\t') result += '\\t';
+                else result += char;
+            } else {
+                result += char;
+            }
+        }
+        return result;
+    }
+
+    private isValidJSON(str: string): boolean {
+        try { JSON.parse(str); return true; } catch { return false; }
     }
 
     /**

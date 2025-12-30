@@ -1625,11 +1625,14 @@ export class AutoContentManager {
 
     // 映射到 nano-banana 级别的快速模型 (gemini-1.5-flash 是目前最稳健的)
     const modelName = 'gemini-1.5-flash';
+    const apiVersion = 'v1'; // 尝试使用 v1 稳定版而非 v1beta
 
     for (let i = 0; i <= retries; i++) {
       try {
-        console.log(`📡 [Gemini 3] ${context} - 尝试 ${i + 1}/${retries + 1}`);
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`, {
+        const url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${modelName}:generateContent`;
+        console.log(`📡 [Gemini 3] ${context} - 尝试 ${i + 1}/${retries + 1} (URL: ${url})`);
+
+        const response = await fetch(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1827,10 +1830,16 @@ export class AutoContentManager {
                 await workflowProgressService.updateProgress(taskId, 'copy-gen', 80, 'Gemini 3 正在为母文案规划视觉提示词...');
               }
 
-              const geminiPrompt = `基于以下小红书文案，为这篇文章生成4个高质量的英文图片生成提示词（Image Prompts），需要符合小红书美学。返回 JSON 数组格式 ["prompt1", "prompt2", "prompt3", "prompt4"]：\n\n标题：${difyResult.title}\n正文：${difyResult.text}`;
-
-              const imagePromptsText = await this.callGeminiWithRetry(geminiPrompt, '补全图片提示词');
-              const imagePrompts = JSON.parse(this.cleanJSONResponse(imagePromptsText));
+              let imagePrompts: string[] = [];
+              try {
+                const geminiPrompt = `基于以下小红书文案，为这篇文章生成4个高质量的英文图片生成提示词（Image Prompts），需要符合小红书美学。返回 JSON 数组格式 ["prompt1", "prompt2", "prompt3", "prompt4"]：\n\n标题：${difyResult.title}\n正文：${difyResult.text}`;
+                const imagePromptsText = await this.callGeminiWithRetry(geminiPrompt, '补全图片提示词');
+                imagePrompts = JSON.parse(this.cleanJSONResponse(imagePromptsText));
+              } catch (geminiError: any) {
+                console.warn('⚠️ [Gemini 3] 提示词生成失败 (已降级):', geminiError.message);
+                // 降级：使用基础关键词
+                imagePrompts = ['lifestyle photography', 'modern aesthetic', 'bright natural lighting', 'product showcase'];
+              }
 
               // 🔥 修正：处理日期和时间的组合逻辑，防止 [object Date] 导致的解析错误
               let taskScheduledTime: Date;
