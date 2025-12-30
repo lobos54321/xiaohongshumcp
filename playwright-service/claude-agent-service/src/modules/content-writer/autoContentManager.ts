@@ -1744,8 +1744,8 @@ export class AutoContentManager {
 
           // 🔥 解决 detail-plan 卡在 0% 的问题：更新步骤进度
           if (workflowProgressService && taskId) {
-            const currentPlanProgress = Math.round(((successCount + failCount) / totalPosts) * 100);
-            await workflowProgressService.updateProgress(taskId, 'detail-plan', currentPlanProgress, `正在生成第 ${successCount + failCount + 1} 个任务: ${post.theme}`);
+            const baseProgress = Math.round(((successCount + failCount) / totalPosts) * 100);
+            await workflowProgressService.updateProgress(taskId, 'detail-plan', Math.max(1, baseProgress), `正在策划第 ${successCount + failCount + 1} 个任务: ${post.theme}`);
           }
 
           if (isFirstTask && workflowProgressService && taskId) {
@@ -1755,18 +1755,25 @@ export class AutoContentManager {
             await workflowProgressService.completeStep(taskId, 'copy-analyze', {
               strategy: '深度全案策略',
               readabilityScore: 92,
-              insight: '基于 Prome Dify 工作流的深度分析',
-              goldenQuotes: ['解放双手的带娃神器', '这大概是今年最值得入手的单品']
+              insight: '基于 Prome Dify 工作流的深度营销分析',
+              goldenQuotes: ['解放双手的带娃神器', '这大概是今年最值得入手的单品'],
+              engine: 'Prome Analysis Engine'
             });
-            await workflowProgressService.startStep(taskId, 'copy-gen', '正在调用 Dify 文案工作流生成母文案 (Mother Copy)...');
+            await workflowProgressService.startStep(taskId, 'copy-gen', '正在启动 Dify 文案工作流生产母文案...');
           }
 
           let task: DailyTask;
+          let engine = 'Claude 3.5 Sonnet';
 
           // 🔥 如果是第一个任务（或配置了使用 Dify），调用 Dify 生成母文案
           if (isFirstTask) {
+            console.log(`🚀 [CRITICAL] 检测到首个任务，准备触发 Dify 引擎... (taskId: ${taskId})`);
             try {
-              console.log('🤖 [Dify] 正在调用 Dify 工作流生成基础母文案...');
+              console.log('🤖 [Dify] 正在发起 API 请求...');
+              if (workflowProgressService && taskId) {
+                await workflowProgressService.updateProgress(taskId, 'copy-gen', 40, 'Dify 引擎正在构建营销母语 (Mother Copy)...');
+              }
+
               const difyResult = await difyClient.generateMarketingCopy({
                 productInfo: `${profile.productName}: ${post.theme}`,
                 targetAudience: profile.targetAudience,
@@ -1777,13 +1784,40 @@ export class AutoContentManager {
 
               // 🔥 补全图片提示词生成：使用 Gemini 3 (nano-banana-pro)
               console.log('🤖 [Gemini 3] 正在由 Gemini 3 (nano-banana-pro) 补全 4 组绘图提示词...');
+              if (workflowProgressService && taskId) {
+                await workflowProgressService.updateProgress(taskId, 'copy-gen', 80, 'Gemini 3 正在为母文案规划视觉提示词...');
+              }
+
               const geminiPrompt = `基于以下小红书文案，为这篇文章生成4个高质量的英文图片生成提示词（Image Prompts），需要符合小红书美学。返回 JSON 数组格式 ["prompt1", "prompt2", "prompt3", "prompt4"]：\n\n标题：${difyResult.title}\n正文：${difyResult.text}`;
 
               const imagePromptsText = await this.callGeminiWithRetry(geminiPrompt, '补全图片提示词');
               const imagePrompts = JSON.parse(this.cleanJSONResponse(imagePromptsText));
 
+              // 🔥 修正：处理日期和时间的组合逻辑，防止 [object Date] 导致的解析错误
+              let taskScheduledTime: Date;
+              try {
+                // 如果已经是 Date 对象，直接使用
+                if (post.scheduledTime instanceof Date) {
+                  taskScheduledTime = post.scheduledTime;
+                } else if (typeof post.scheduledTime === 'string') {
+                  // 如果是字符串，尝试解析
+                  const dateStr = day.date instanceof Date ? day.date.toISOString().split('T')[0] : day.date;
+                  taskScheduledTime = new Date(`${dateStr}T${post.scheduledTime}:00`);
+                } else {
+                  taskScheduledTime = new Date();
+                }
+
+                // 确保日期有效
+                if (isNaN(taskScheduledTime.getTime())) {
+                  taskScheduledTime = new Date();
+                }
+              } catch (dateError) {
+                console.warn('⚠️ 日期解析失败，使用当前时间:', dateError);
+                taskScheduledTime = new Date();
+              }
+
               task = {
-                scheduledTime: new Date(day.date + 'T' + post.scheduledTime + ':00'),
+                scheduledTime: taskScheduledTime,
                 contentType: post.type || '图文',
                 title: difyResult.title,
                 content: difyResult.text,
@@ -1791,10 +1825,15 @@ export class AutoContentManager {
                 imagePrompts: Array.isArray(imagePrompts) ? imagePrompts : [],
                 status: 'generating'
               };
+              engine = 'Dify Marketing Engine'; // 确认使用了 Dify
               console.log('✅ [Dify] 母文案生成成功');
             } catch (difyError) {
               console.warn('⚠️ [Dify] 调用失败，降级使用 Claude 生成:', difyError);
+              if (workflowProgressService && taskId) {
+                await workflowProgressService.updateProgress(taskId, 'copy-gen', 50, 'Dify 核心引擎繁忙，正在切换至 Claude 备用引擎...');
+              }
               task = await this.createDetailedTask(profile, post);
+              engine = 'Claude (Fallback)';
             }
           } else {
             task = await this.createDetailedTask(profile, post);
@@ -1806,8 +1845,8 @@ export class AutoContentManager {
               content: task.content,
               hashtags: task.hashtags,
               wordCount: task.content?.length || 0,
-              engine: 'Dify Marketing Engine',
-              features: ['爆款逻辑', 'Dify工作流驱动']
+              engine: engine,
+              features: ['爆款逻辑', 'Dify 工作流驱动', 'Gemini 视觉增强']
             });
             await workflowProgressService.startStep(taskId, 'variant-gen', '正在利用 Claude 4.5 Haiku 瞬间创作 3 种策略变体...');
 
@@ -1836,15 +1875,19 @@ export class AutoContentManager {
                 text: v.content || v.text
               }));
 
-              await workflowProgressService.completeStep(taskId, 'variant-gen', {
-                variantCount: task.variants.length,
-                styles: ['极端震惊', '情感共鸣', '极速总结'],
-                variants: task.variants,
-                engine: 'Claude 4.5 Haiku'
-              });
+              if (task.variants && task.variants.length > 0) {
+                await workflowProgressService.completeStep(taskId, 'variant-gen', {
+                  variantCount: task.variants.length,
+                  styles: ['极端震惊', '情感共鸣', '极速总结'],
+                  variants: task.variants,
+                  engine: 'Claude 4.5 Haiku'
+                });
+              } else {
+                throw new Error('未生成任何有效的文案变体');
+              }
             } catch (vError) {
               console.warn('⚠️ 变体生成失败:', vError);
-              await workflowProgressService.completeStep(taskId, 'variant-gen', { variantCount: 0, error: '生成超时或失败' });
+              await workflowProgressService.completeStep(taskId, 'variant-gen', { variantCount: 0, error: '生成超时或失败', engine: 'Claude' });
             }
 
             await workflowProgressService.startStep(taskId, 'image-adapt', '分析配图需求，规划补充素材与视觉排版...');

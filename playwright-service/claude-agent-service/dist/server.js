@@ -2,6 +2,7 @@
  * Claude Agent HTTP Server
  */
 import express from 'express';
+import { WebSocketServer } from 'ws';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import * as fs from 'fs';
@@ -22,11 +23,31 @@ import { sendTestEmail, triggerAnalysisForUser, initCronJobs } from './modules/a
 // Orchestrator Module (Phase 1)
 import { controlCenter } from './orchestrator/index.js';
 import { skyvernExecutor } from './orchestrator/executors/SkyvernExecutor.js';
-// Legacy - TODO: move to modules
+// Workflow Progress Module
+import { WorkflowProgressService } from './services/WorkflowProgressService.js';
+import { createClient } from '@supabase/supabase-js';
 import { MCPAuthClient } from './mcpAuthClient.js';
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+// Supabase Client for AI Analysis & Workflow Progress
+let supabaseClient = null;
+try {
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    if (supabaseUrl && supabaseKey) {
+        supabaseClient = createClient(supabaseUrl, supabaseKey);
+        console.log('[Startup] Supabase client initialized');
+    }
+}
+catch (error) {
+    console.warn('[Startup] Failed to initialize Supabase client:', error);
+}
+// Initialize WorkflowProgressService
+let workflowProgressService = null;
+if (supabaseClient) {
+    workflowProgressService = new WorkflowProgressService(supabaseClient);
+}
 // 端口配置 - 支持Zeabur动态端口分配
 const PORT = parseInt(process.env.PORT || '8080');
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
@@ -834,6 +855,8 @@ app.get('/health', (_req, res) => {
     res.json({
         status: 'healthy',
         service: 'claude-agent-service',
+        version: '1.1.2', // 包含 WebSocket 重构
+        debug: 'ws-node-logic-v2',
         timestamp: new Date().toISOString(),
     });
 });
@@ -1133,8 +1156,12 @@ ${schedule ? `发布计划：${schedule}` : '请立即全部发布'}`;
 // 启动自动运营
 app.post('/agent/auto/start', async (req, res) => {
     try {
-        const { userId, productName, targetAudience, marketingGoal, postFrequency, brandStyle, reviewMode } = req.body;
+        const { userId, productName, targetAudience, marketingGoal, postFrequency, brandStyle, reviewMode, taskId, // 获取前端传递的任务ID
+        contentModePreference // 获取前端传递的内容模式
+         } = req.body;
+        console.log(`[Auto Mode] Received start request:`, { userId, productName, taskId, contentModePreference });
         if (!userId || !productName) {
+            console.warn(`[Auto Mode] Missing required fields:`, { userId, productName });
             return res.status(400).json({
                 success: false,
                 error: 'userId and productName are required',
@@ -1149,15 +1176,25 @@ app.post('/agent/auto/start', async (req, res) => {
             brandStyle: brandStyle || 'warm',
             reviewMode: reviewMode || 'auto'
         };
-        console.log(`[Auto Mode] Starting auto mode for user ${userId} with product: ${productName}`);
-        // 🔥 FIX: 异步启动自动运营，不等待完成（避免超时）
-        // 前端通过轮询 /agent/auto/status 获取进度
-        autoContentManager.startAutoMode(userProfile)
+        console.log(`[Auto Mode] Starting auto mode for user ${userId} with task: ${taskId}, mode: ${contentModePreference}`);
+        // 🔥 初始化工作流进度 - 修改为 await 确保顺序
+        if (workflowProgressService && taskId) {
+            const mode = contentModePreference || 'IMAGE_TEXT';
+            try {
+                await workflowProgressService.initializeSteps(taskId, mode);
+                console.log(`[WorkflowProgress] ✅ Initialized steps for ${taskId}`);
+            }
+            catch (err) {
+                console.error(`[WorkflowProgress] ❌ Failed to initialize steps:`, err);
+            }
+        }
+        // 🔥 FIX: 异步启动自动运营，不等待整个流程完成
+        autoContentManager.startAutoMode({ ...userProfile, taskId }, workflowProgressService)
             .then(() => {
-            console.log(`[Auto Mode] ✅ 自动运营完成: ${userId}`);
+            console.log(`[Auto Mode] ✅ 自动运营流程执行完成: ${userId}`);
         })
             .catch((error) => {
-            console.error(`[Auto Mode] ❌ 自动运营失败: ${userId}`, error);
+            console.error(`[Auto Mode] ❌ 自动运营流程异常中断: ${userId}`, error);
         });
         // 立即返回响应，告知前端已开始生成
         res.json({
@@ -3350,26 +3387,6 @@ app.post('/agent/xiaohongshu/delete-cookies-from-db', async (req, res) => {
         });
     }
 });
-// ==========================================================================
-// AI 分析 API (Phase 3) ====================
-// Added by Phase 3 integration
-import { createClient } from '@supabase/supabase-js';
-// Supabase client for AI analysis (optional - only used if configured)
-let supabaseClient = null;
-try {
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
-    const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || '';
-    if (supabaseUrl && supabaseKey) {
-        supabaseClient = createClient(supabaseUrl, supabaseKey);
-        console.log('[AI-ANALYSIS] Supabase client initialized for analytics');
-    }
-    else {
-        console.warn('[AI-ANALYSIS] Supabase not configured, analysis results will not be saved to database');
-    }
-}
-catch (error) {
-    console.warn('[AI-ANALYSIS] Failed to initialize Supabase client:', error);
-}
 function performLocalAnalysis(summary, topNotes) {
     const { avgClickRate, avgEngagementRate, totalLikes, totalNotes } = summary;
     let score = 50;
@@ -3518,6 +3535,54 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { GoogleAIFileManager, FileState } from '@google/generative-ai/server';
 import os from 'os';
 import { pipeline } from 'stream/promises';
+// N8n UGC Client import
+import { n8nUgcClient } from './services/N8nUgcClient.js';
+// ============================================
+// 📹 N8n UGC 视频回调 API
+// ============================================
+/**
+ * 接收 N8n UGC 工作流的视频完成回调
+ *
+ * N8n 工作流完成后会调用此 API 回传视频 URL
+ */
+app.post('/api/ugc-video-callback', async (req, res) => {
+    console.log('[UGC Callback] Received callback from N8n:', req.body);
+    try {
+        const { sessionId, finalvideourl, callbackUrl } = req.body;
+        if (!sessionId) {
+            res.status(400).json({
+                success: false,
+                error: 'Missing sessionId',
+            });
+            return;
+        }
+        if (!finalvideourl) {
+            res.status(400).json({
+                success: false,
+                error: 'Missing finalvideourl',
+            });
+            return;
+        }
+        // 使用 N8nUgcClient 处理回调
+        await n8nUgcClient.handleCallback({
+            sessionId,
+            finalvideourl,
+        });
+        console.log('[UGC Callback] Successfully processed callback for session:', sessionId);
+        res.json({
+            success: true,
+            message: 'Callback received and processed',
+            sessionId,
+        });
+    }
+    catch (error) {
+        console.error('[UGC Callback] Error processing callback:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+        });
+    }
+});
 app.post('/api/materials/analyze', async (req, res) => {
     const { supabaseUuid, images, documents, productName, targetAudience } = req.body;
     console.log('[Material Analysis] Processing request:', {
@@ -3775,6 +3840,119 @@ ${contextInfo ? `## 产品背景\n${contextInfo}\n` : ''}
         }
     }
 });
+// 🔧 新增：单素材分析端点 - 分析单个图片/文档并返回结构化结果
+app.post('/api/material/analyze-single', async (req, res) => {
+    const { supabaseUuid, fileUrl, fileType, fileName } = req.body;
+    console.log('[Single Material Analysis] Request:', {
+        supabaseUuid,
+        fileUrl: fileUrl?.substring(0, 60) + '...',
+        fileType,
+        fileName
+    });
+    if (!fileUrl) {
+        return res.status(400).json({
+            success: false,
+            error: 'fileUrl is required'
+        });
+    }
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+    if (!GEMINI_API_KEY) {
+        // 回退到基础描述
+        return res.json({
+            success: true,
+            analysis: {
+                ai_description: `${fileType === 'image' ? '产品图片' : '产品文档'}: ${fileName || '未命名'}`,
+                ai_tags: [fileType === 'image' ? '图片' : '文档'],
+                ai_category: fileType === 'image' ? 'product_photo' : 'document'
+            },
+            provider: 'fallback'
+        });
+    }
+    try {
+        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+        const modelId = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+        const model = genAI.getGenerativeModel({ model: modelId });
+        const parts = [];
+        // 分析提示词
+        parts.push({
+            text: `你是产品素材分析专家。请分析这个${fileType === 'image' ? '图片' : '文档'}并返回JSON格式结果。
+
+请识别并输出：
+1. ai_description: 详细描述（100字以内），说明素材内容、产品特征、视觉亮点
+2. ai_tags: 标签数组（3-5个），如["产品", "白色", "简约", "咖啡杯"]
+3. ai_category: 分类，只能是以下之一:
+   - product_photo (产品主图)
+   - packaging (包装图)
+   - usage_scene (使用场景)
+   - document (文档资料)
+   - certificate (证书/资质)
+   - other (其他)
+
+直接返回JSON，不要任何解释：
+{"ai_description": "...", "ai_tags": [...], "ai_category": "..."}`
+        });
+        if (fileType === 'image') {
+            // 下载图片并转为 base64
+            const response = await fetch(fileUrl);
+            if (!response.ok)
+                throw new Error('Failed to download image');
+            const buffer = Buffer.from(await response.arrayBuffer());
+            const base64 = buffer.toString('base64');
+            const contentType = response.headers.get('content-type') || 'image/jpeg';
+            parts.push({
+                inlineData: {
+                    mimeType: contentType,
+                    data: base64
+                }
+            });
+        }
+        else {
+            // 文档暂时只返回基础信息
+            parts.push({
+                text: `文档URL: ${fileUrl}\n文件名: ${fileName || '未知'}`
+            });
+        }
+        const result = await model.generateContent({ contents: [{ role: 'user', parts }] });
+        const responseText = result.response.text();
+        console.log('[Single Material Analysis] Raw response:', responseText.substring(0, 200));
+        // 解析 JSON 结果
+        let analysis;
+        try {
+            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                analysis = JSON.parse(jsonMatch[0]);
+            }
+            else {
+                throw new Error('No JSON found');
+            }
+        }
+        catch (parseErr) {
+            analysis = {
+                ai_description: responseText.substring(0, 200),
+                ai_tags: [fileType === 'image' ? '图片' : '文档'],
+                ai_category: fileType === 'image' ? 'product_photo' : 'document'
+            };
+        }
+        console.log('[Single Material Analysis] Success:', analysis.ai_category);
+        res.json({
+            success: true,
+            analysis,
+            provider: 'gemini'
+        });
+    }
+    catch (error) {
+        console.error('[Single Material Analysis] Error:', error);
+        res.json({
+            success: true,
+            analysis: {
+                ai_description: `${fileType === 'image' ? '产品图片' : '产品文档'}: ${fileName || '未命名'}`,
+                ai_tags: [fileType === 'image' ? '图片' : '文档'],
+                ai_category: fileType === 'image' ? 'product_photo' : 'document'
+            },
+            provider: 'fallback'
+        });
+    }
+});
 // API 2: POST analytics sync
 app.post('/api/v1/analytics/sync', async (req, res) => {
     try {
@@ -3907,10 +4085,39 @@ app.post('/api/v1/analytics/sync', async (req, res) => {
     }
 });
 // 启动服务器
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`[Claude Agent Service] Server listening on 0.0.0.0:${PORT}`);
     console.log(`[Claude Agent Service] Health check: http://localhost:${PORT}/health`);
     console.log(`[Claude Agent Service] MCP Router URL: ${MCP_ROUTER_URL}`);
+});
+// ============================================================================
+// WebSocket Server for Workflow Progress
+// ============================================================================
+const wss = new WebSocketServer({ noServer: true });
+server.on('upgrade', (request, socket, head) => {
+    try {
+        const host = request.headers.host || `localhost:${PORT}`;
+        const { pathname, searchParams } = new URL(request.url || '', `http://${host}`);
+        if (pathname === '/ws/workflow') {
+            const taskId = searchParams.get('taskId');
+            if (taskId && workflowProgressService) {
+                wss.handleUpgrade(request, socket, head, (ws) => {
+                    workflowProgressService.registerConnection(taskId, ws);
+                    ws.on('close', () => {
+                        workflowProgressService.unregisterConnection(taskId, ws);
+                    });
+                    // 推送初始状态
+                    workflowProgressService.broadcastFullStatus(taskId);
+                });
+                return;
+            }
+        }
+        socket.destroy();
+    }
+    catch (err) {
+        console.error('[WebSocket] Upgrade error:', err);
+        socket.destroy();
+    }
 });
 // 优雅关闭
 const shutdown = async () => {
@@ -4426,6 +4633,93 @@ app.get('/agent/skyvern/status', async (req, res) => {
         res.status(500).json({
             success: false,
             error: error.message || 'Failed to get Skyvern status',
+        });
+    }
+});
+// ============================================================================
+// Workflow Progress API (for Agent Progress Tree UI)
+// ============================================================================
+/**
+ * GET /api/workflow/status/:taskId
+ *
+ * 获取任务的工作流步骤状态
+ */
+app.get('/api/workflow/status/:taskId', async (req, res) => {
+    try {
+        const { taskId } = req.params;
+        if (!workflowProgressService) {
+            return res.status(503).json({
+                success: false,
+                error: 'WorkflowProgressService not initialized',
+            });
+        }
+        const status = await workflowProgressService.getWorkflowStatus(taskId);
+        // Transform to frontend format
+        const nodes = status.steps.map(step => ({
+            id: step.step_key,
+            title: step.step_title,
+            agent: step.agent_name,
+            desc: '',
+            status: step.status,
+            details: {
+                progress: step.progress,
+                currentAction: step.current_action,
+                eta: step.eta,
+                timeTaken: step.time_taken,
+                output: step.output ? JSON.stringify(step.output).slice(0, 500) : undefined,
+                error: step.error,
+            },
+        }));
+        res.json({
+            success: true,
+            data: {
+                taskId,
+                overallStatus: status.overallStatus,
+                overallProgress: status.overallProgress,
+                nodes,
+            },
+        });
+    }
+    catch (error) {
+        console.error('[Workflow] Status error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Failed to get workflow status',
+        });
+    }
+});
+/**
+ * POST /api/workflow/initialize/:taskId
+ *
+ * 为任务初始化工作流步骤
+ */
+app.post('/api/workflow/initialize/:taskId', async (req, res) => {
+    try {
+        const { taskId } = req.params;
+        const { contentMode } = req.body;
+        if (!contentMode) {
+            return res.status(400).json({
+                success: false,
+                error: 'contentMode is required',
+            });
+        }
+        if (!workflowProgressService) {
+            return res.status(503).json({
+                success: false,
+                error: 'WorkflowProgressService not initialized',
+            });
+        }
+        await workflowProgressService.initializeSteps(taskId, contentMode);
+        res.json({
+            success: true,
+            message: `Workflow steps initialized for ${contentMode}`,
+        });
+    }
+    catch (error) {
+        console.error('[Workflow] Initialize error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Failed to initialize workflow',
         });
     }
 });

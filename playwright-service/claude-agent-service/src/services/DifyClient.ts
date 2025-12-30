@@ -132,7 +132,10 @@ export class DifyClient {
         this.maxConcurrent = maxConcurrent;
         this.semaphore = new Semaphore(maxConcurrent);
 
-        console.log(`[DifyClient] 初始化完成，最大并发数: ${maxConcurrent}`);
+        console.log(`[DifyClient] 初始化完成:`);
+        console.log(`   - API URL: ${this.baseUrl}`);
+        console.log(`   - API Key: ${process.env.DIFY_API_KEY ? '来自环境变量' : '使用代码硬编码 (app-fOxd...)'}`);
+        console.log(`   - 最大并发: ${maxConcurrent}`);
     }
 
     /**
