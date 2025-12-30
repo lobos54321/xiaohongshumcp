@@ -495,6 +495,67 @@ export class DifyClient {
      */
     private extractContentFallback(answer: string): DifyContentGenerationResult {
         console.log('[DifyClient] 使用降级提取方案...');
+        console.log('[DifyClient] 降级方案 - 原始内容前200字符:', answer.substring(0, 200));
+
+        // 🔥 策略1：即使在fallback中，也尝试直接从文本中提取JSON对象
+        try {
+            // 查找 {"title" 或 { "title" 模式
+            const jsonStartPatterns = ['{"title"', '{ "title"', '{"text"', '{ "text"'];
+            let jsonStart = -1;
+
+            for (const pattern of jsonStartPatterns) {
+                jsonStart = answer.indexOf(pattern);
+                if (jsonStart !== -1) break;
+            }
+
+            if (jsonStart !== -1) {
+                console.log('[DifyClient] 降级方案 - 找到JSON起始位置:', jsonStart);
+                // 使用括号匹配提取完整JSON
+                let depth = 0;
+                let inString = false;
+                let escapeNext = false;
+
+                for (let i = jsonStart; i < answer.length; i++) {
+                    const char = answer[i];
+                    if (escapeNext) { escapeNext = false; continue; }
+                    if (char === '\\') { escapeNext = true; continue; }
+                    if (char === '"') { inString = !inString; continue; }
+                    if (inString) continue;
+
+                    if (char === '{') depth++;
+                    else if (char === '}') {
+                        depth--;
+                        if (depth === 0) {
+                            const jsonStr = answer.substring(jsonStart, i + 1);
+                            console.log('[DifyClient] 降级方案 - 提取到JSON，长度:', jsonStr.length);
+
+                            // 尝试解析
+                            try {
+                                const parsed = JSON.parse(jsonStr);
+                                if (parsed.title && parsed.text) {
+                                    console.log('[DifyClient] 降级方案 - JSON解析成功！');
+                                    return {
+                                        title: parsed.title,
+                                        text: parsed.text,
+                                        emotion: parsed.emotion || '严肃的',
+                                        hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : [],
+                                        rawResponse: answer,
+                                    };
+                                }
+                            } catch (e) {
+                                console.log('[DifyClient] 降级方案 - JSON解析失败，继续尝试文本提取');
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            console.log('[DifyClient] 降级方案 - JSON提取异常:', e);
+        }
+
+        // 🔥 策略2：从纯文本中提取
+        console.log('[DifyClient] 降级方案 - 使用纯文本提取');
 
         // 尝试提取标题 (通常是第一行或 ## 标题)
         let title = '';
@@ -503,11 +564,18 @@ export class DifyClient {
             title = titleMatch[1].trim();
         }
 
-        // 尝试提取话题标签
+        // 尝试提取话题标签 - 改进正则以处理JSON转义格式
         const hashtags: string[] = [];
-        const hashtagMatches = answer.match(/#[^\s#]+/g);
+        // 匹配 #话题 或 "#话题" 格式
+        const hashtagMatches = answer.match(/#[^\s#"\\,\]]+/g);
         if (hashtagMatches) {
-            hashtags.push(...hashtagMatches);
+            // 清理提取到的标签
+            hashtagMatches.forEach(tag => {
+                const cleanTag = tag.replace(/["\],]/g, '').trim();
+                if (cleanTag.length > 1 && !hashtags.includes(cleanTag)) {
+                    hashtags.push(cleanTag);
+                }
+            });
         }
 
         // 推断情感

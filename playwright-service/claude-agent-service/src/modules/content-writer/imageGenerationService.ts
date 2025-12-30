@@ -83,7 +83,7 @@ export class ImageGenerationService {
   }
 
   /**
-   * 使用 Gemini 2.5 Flash Image (Nano Banana) 生成图片
+   * 使用 Gemini 2.0 Flash Experimental 生成图片 (原生图像生成支持)
    */
   private async generateWithGemini(request: ImageRequest): Promise<ImageResult | null> {
     try {
@@ -92,14 +92,14 @@ export class ImageGenerationService {
         return null;
       }
 
-      console.log('🎨 [Gemini] 开始使用 imagen-3.0-generate-001 生成图片');
+      console.log('🎨 [Gemini] 开始使用 gemini-2.0-flash-exp 生成图片');
       const stylePrompt = this.getStylePrompt(request.style);
-      const fullPrompt = `${request.prompt}, ${stylePrompt}, high quality, vibrant colors, social media ready`;
+      const fullPrompt = `Generate a high-quality image: ${request.prompt}, ${stylePrompt}, photorealistic, detailed, vibrant colors, suitable for social media`;
       console.log('🎨 [Gemini] 提示词:', fullPrompt.substring(0, 100) + '...');
 
-      // 调用 Gemini 3 (Imagen 3) API
+      // 🔥 使用 Gemini 2.0 Flash Experimental - 支持原生图像生成
       const response = await fetch(
-        'https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:generateContent',
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent',
         {
           method: 'POST',
           headers: {
@@ -111,15 +111,21 @@ export class ImageGenerationService {
               parts: [{
                 text: fullPrompt
               }]
-            }]
+            }],
+            generationConfig: {
+              responseModalities: ["image", "text"],
+              responseMimeType: "text/plain"
+            }
           })
         }
       );
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('🎨 [Gemini] API错误:', response.status, errorText);
-        return null;
+        console.error('🎨 [Gemini] API错误:', response.status, errorText.substring(0, 200));
+        // 🔥 自动 fallback 到 Unsplash
+        console.log('🎨 [Gemini] 自动切换到 Unsplash 备选方案');
+        return await this.getFromUnsplash(request);
       }
 
       const data = await response.json() as any;
