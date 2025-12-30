@@ -92,14 +92,17 @@ export class ImageGenerationService {
         return null;
       }
 
-      console.log('🎨 [Gemini] 开始使用 imagen-3 生成图片');
+      console.log('🎨 [Gemini 3] 开始使用 gemini-3-pro-image-preview 生成图片');
       const stylePrompt = this.getStylePrompt(request.style);
-      const fullPrompt = `Generate a high-quality image: ${request.prompt}, ${stylePrompt}, high fidelity, social media style, 4k resolution`;
-      console.log('🎨 [Gemini] 提示词:', fullPrompt.substring(0, 100) + '...');
+      const fullPrompt = `Generate a high-quality studio image for a social media post: ${request.prompt}. 
+      Style requirements: ${stylePrompt}. 
+      Technical requirements: high resolution, professional lighting, social media aesthetic, stunning composition.`;
 
-      // 🔥 使用 Google AI Studio 的 imagen-3 模型
+      console.log('🎨 [Gemini 3] 提示词:', fullPrompt.substring(0, 100) + '...');
+
+      // 🔥 使用 Google AI Studio 的 gemini-3-pro-image-preview 模型
       const response = await fetch(
-        'https://generativelanguage.googleapis.com/v1beta/models/imagen-3:predict',
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent',
         {
           method: 'POST',
           headers: {
@@ -107,14 +110,13 @@ export class ImageGenerationService {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            instances: [
-              { prompt: fullPrompt }
-            ],
-            parameters: {
-              sampleCount: 1,
-              aspectRatio: request.aspectRatio === '9:16' ? '9:16' :
-                request.aspectRatio === '16:9' ? '16:9' : '1:1',
-              outputMimeType: 'image/png'
+            contents: [{
+              parts: [{
+                text: fullPrompt
+              }]
+            }],
+            generationConfig: {
+              responseModalities: ["image"]
             }
           })
         }
@@ -122,32 +124,26 @@ export class ImageGenerationService {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('🎨 [Gemini] API错误:', response.status, errorText.substring(0, 200));
+        console.error('🎨 [Gemini 3] API错误:', response.status, errorText.substring(0, 200));
         // 🔥 自动 fallback 到 Unsplash
-        console.log('🎨 [Gemini] 自动切换到 Unsplash 备选方案');
+        console.log('🎨 [Gemini 3] 自动切换到 Unsplash 备选方案');
         return await this.getFromUnsplash(request);
       }
 
       const data = await response.json() as any;
-      console.log('🎨 [Gemini] API响应状态:', response.status);
+      console.log('🎨 [Gemini 3] API响应状态:', response.status);
 
       let base64Data: string | null = null;
       let mimeType = 'image/png';
 
-      // 策略1：处理 :predict 响应 (predictions[0].bytesBase64Encoded)
-      if (data.predictions && data.predictions[0]) {
-        base64Data = data.predictions[0].bytesBase64Encoded;
-        mimeType = data.predictions[0].mimeType || 'image/png';
-        console.log('🎨 [Gemini] 从 predictions 提取图片成功');
-      }
       // 策略2：处理 generateContent 响应 (candidates[0].content.parts[0].inlineData)
-      else if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+      if (data.candidates && data.candidates[0] && data.candidates[0].content) {
         const parts = data.candidates[0].content.parts;
         const imagePart = parts.find((part: any) => part.inlineData && part.inlineData.mimeType?.startsWith('image/'));
         if (imagePart && imagePart.inlineData && imagePart.inlineData.data) {
           base64Data = imagePart.inlineData.data;
           mimeType = imagePart.inlineData.mimeType || 'image/png';
-          console.log('🎨 [Gemini] 从 candidates 提取图片成功');
+          console.log('🎨 [Gemini 3] 从 candidates 提取图片成功');
         }
       }
 
