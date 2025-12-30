@@ -1283,20 +1283,6 @@ export class AutoContentManager {
       if (extracted && this.isValidJSONString(extracted)) {
         console.log('✅ [JSON清理] 成功提取，JSON长度:', extracted.length, '字符');
         console.log('✅ [JSON清理] 最终JSON前300字符:', extracted.substring(0, 300));
-
-        // 🔥 关键检查：确保提取的是对象而不是数组
-        const parsed = JSON.parse(extracted);
-        if (Array.isArray(parsed)) {
-          console.warn('⚠️ [JSON清理] 警告：提取的是数组而不是对象！');
-          console.log('⚠️ [JSON清理] 数组内容:', JSON.stringify(parsed));
-          // 尝试在原文中查找对象
-          const objectExtracted = this.forceExtractObject(cleanedText);
-          if (objectExtracted && this.isValidJSONString(objectExtracted)) {
-            console.log('✅ [JSON清理] 强制提取对象成功，长度:', objectExtracted.length);
-            return objectExtracted;
-          }
-        }
-
         return extracted;
       }
 
@@ -1385,17 +1371,25 @@ export class AutoContentManager {
     let jsonStart = -1;
     let isObject = false;
 
-    // 🔥 修复：总是优先提取对象（任务数据），而不是数组（可能是hashtags）
-    if (objectStart !== -1) {
-      // 优先选择对象，无论数组位置在哪
+    // 🔥 改进：选择两者中靠前的一个作为起始，而不是盲目优先对象
+    if (objectStart !== -1 && arrayStart !== -1) {
+      if (objectStart < arrayStart) {
+        jsonStart = objectStart;
+        isObject = true;
+        console.log('✅ [extractCompleteJSON] 选择提取对象 (较早出现)，起始位置:', jsonStart);
+      } else {
+        jsonStart = arrayStart;
+        isObject = false;
+        console.log('✅ [extractCompleteJSON] 选择提取数组 (较早出现)，起始位置:', jsonStart);
+      }
+    } else if (objectStart !== -1) {
       jsonStart = objectStart;
       isObject = true;
-      console.log('✅ [extractCompleteJSON] 选择提取对象，起始位置:', jsonStart);
+      console.log('✅ [extractCompleteJSON] 仅找到对象，起始位置:', jsonStart);
     } else if (arrayStart !== -1) {
-      // 只有在没有对象时才提取数组
       jsonStart = arrayStart;
       isObject = false;
-      console.log('⚠️ [extractCompleteJSON] 未找到对象，提取数组，起始位置:', jsonStart);
+      console.log('✅ [extractCompleteJSON] 仅找到数组，起始位置:', jsonStart);
     }
 
     if (jsonStart === -1) {
@@ -1629,15 +1623,18 @@ export class AutoContentManager {
       return '["lifestyle", "modern"]';
     }
 
-    // 映射到 nano-banana 级别的快速模型 (gemini-2.0-flash 或 1.5-flash)
-    const modelName = 'gemini-1.5-flash-latest';
+    // 映射到 nano-banana 级别的快速模型 (gemini-1.5-flash 是目前最稳健的)
+    const modelName = 'gemini-1.5-flash';
 
     for (let i = 0; i <= retries; i++) {
       try {
         console.log(`📡 [Gemini 3] ${context} - 尝试 ${i + 1}/${retries + 1}`);
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiKey}`, {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': geminiKey
+          },
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: { temperature: 0.7, maxOutputTokens: 1000 }
@@ -1645,7 +1642,8 @@ export class AutoContentManager {
         });
 
         if (!response.ok) {
-          throw new Error(`Gemini API error: ${response.status}`);
+          const errorBody = await response.text();
+          throw new Error(`Gemini API error: ${response.status} - ${errorBody.substring(0, 100)}`);
         }
 
         const data = await response.json() as any;
@@ -1654,7 +1652,31 @@ export class AutoContentManager {
         if (!text) throw new Error('Gemini 返回内容为空');
         return text;
       } catch (error: any) {
-        if (i === retries) throw error;
+        if (i === retries) {
+          // 如果尝试了 gemini-1.5-flash 还失败，最后尝试一个硬编码的版本镜像
+          if (modelName === 'gemini-1.5-flash') {
+            console.log('🔄 [Gemini 3] 尝试备选模型版本 gemini-1.5-flash-001...');
+            try {
+              const altModel = 'gemini-1.5-flash-001';
+              const altResp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${altModel}:generateContent`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-goog-api-key': geminiKey
+                },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: prompt }] }],
+                  generationConfig: { temperature: 0.7, maxOutputTokens: 1000 }
+                })
+              });
+              if (altResp.ok) {
+                const altData = await altResp.json() as any;
+                return altData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+              }
+            } catch (e) { }
+          }
+          throw error;
+        }
         console.warn(`⚠️ [Gemini] ${context} 失败: ${error.message}, 正在重试...`);
         await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
       }

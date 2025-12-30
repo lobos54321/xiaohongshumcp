@@ -92,14 +92,14 @@ export class ImageGenerationService {
         return null;
       }
 
-      console.log('🎨 [Gemini] 开始使用 gemini-2.5-flash-image 生成图片');
+      console.log('🎨 [Gemini] 开始使用 imagen-3.0-generate-001 生成图片');
       const stylePrompt = this.getStylePrompt(request.style);
       const fullPrompt = `${request.prompt}, ${stylePrompt}, high quality, vibrant colors, social media ready`;
       console.log('🎨 [Gemini] 提示词:', fullPrompt.substring(0, 100) + '...');
 
-      // 调用 Gemini 2.5 Flash Image API
+      // 调用 Gemini 3 (Imagen 3) API
       const response = await fetch(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent',
+        'https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:generateContent',
         {
           method: 'POST',
           headers: {
@@ -334,8 +334,8 @@ export class ImageGenerationService {
     try {
       // 根据mimeType确定扩展名
       const extension = mimeType.includes('png') ? '.png' :
-                       mimeType.includes('jpeg') || mimeType.includes('jpg') ? '.jpg' :
-                       '.png';
+        mimeType.includes('jpeg') || mimeType.includes('jpg') ? '.jpg' :
+          '.png';
 
       // 生成文件名和存储路径
       const timestamp = Date.now();
@@ -387,8 +387,8 @@ export class ImageGenerationService {
 
       // 根据mimeType确定扩展名
       const extension = mimeType.includes('png') ? '.png' :
-                       mimeType.includes('jpeg') || mimeType.includes('jpg') ? '.jpg' :
-                       '.png';
+        mimeType.includes('jpeg') || mimeType.includes('jpg') ? '.jpg' :
+          '.png';
 
       // 生成文件名
       const timestamp = Date.now();
