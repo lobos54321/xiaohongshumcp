@@ -1990,7 +1990,10 @@ export class AutoContentManager {
               text: task.content,
               imageUrls: task.imageUrls,
               hashtags: task.hashtags,
-              scheduledTime: task.scheduledTime.toISOString()
+              scheduledTime: task.scheduledTime.toISOString(),
+              // 🔥 新增：传递变体数据到前端
+              variants: task.variants,
+              engine: (task as any).engine || 'Dify Marketing Engine'
             };
 
             await workflowProgressService.completeStep(taskId, 'task-save', {

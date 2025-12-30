@@ -468,16 +468,45 @@ export class ImageGenerationService {
    * 从提示词中提取关键词
    */
   private extractKeywords(prompt: string): string[] {
-    // 简单的关键词提取逻辑
-    const keywords = prompt
-      .toLowerCase()
-      .replace(/[，。！？；：""''（）【】]/g, ' ') // 移除中文标点
-      .replace(/[,.!?;:""''()\[\]]/g, ' ') // 移除英文标点
-      .split(/\s+/)
-      .filter(word => word.length > 1)
-      .slice(0, 5); // 只取前5个关键词
+    // 🔥 关键词映射表
+    const keywordMappings: Record<string, string[]> = {
+      'lifestyle': ['lifestyle', 'daily life'],
+      'modern': ['modern', 'minimalist'],
+      'aesthetic': ['aesthetic', 'beautiful'],
+      'product': ['product photography', 'showcase'],
+      'showcase': ['product showcase', 'display'],
+      'lighting': ['natural light', 'bright'],
+      'ai': ['artificial intelligence', 'technology'],
+      '内容': ['content creation', 'digital'],
+      '创作': ['creative', 'workspace'],
+      '营销': ['marketing', 'business'],
+      '科技': ['technology', 'innovation'],
+      '创业': ['startup', 'entrepreneur'],
+      '博主': ['influencer', 'social media'],
+      '教育': ['education', 'learning'],
+      '地产': ['real estate', 'architecture'],
+      '金融': ['finance', 'business'],
+    };
 
-    return keywords.length > 0 ? keywords : ['lifestyle', 'modern'];
+    const words = prompt
+      .toLowerCase()
+      .replace(/[，。！？；：""''（）【】,.!?;:""''()\[\]]/g, ' ')
+      .split(/\s+/)
+      .filter(word => word.length > 1);
+
+    const mappedKeywords: string[] = [];
+    for (const word of words) {
+      if (keywordMappings[word]) {
+        mappedKeywords.push(...keywordMappings[word]);
+      } else if (word.length > 2) {
+        mappedKeywords.push(word);
+      }
+    }
+
+    const uniqueKeywords = [...new Set(mappedKeywords)].slice(0, 5);
+    console.log(`🔍 [Unsplash] 关键词: "${prompt.substring(0, 30)}..." -> [${uniqueKeywords.join(', ')}]`);
+
+    return uniqueKeywords.length > 0 ? uniqueKeywords : ['technology', 'workspace'];
   }
 
   /**
