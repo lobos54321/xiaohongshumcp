@@ -357,26 +357,85 @@ export class DifyClient {
      */
     private cleanJSONResponse(responseText: string): string {
         try {
+            console.log('[DifyClient] cleanJSONResponse: 开始清洗，原始长度:', responseText.length);
+
+            // 🔥 策略0：直接尝试完整文本解析（如果LLM严格输出了JSON）
+            try {
+                const directParsed = JSON.parse(responseText.trim());
+                if (directParsed.title && directParsed.text) {
+                    console.log('[DifyClient] cleanJSONResponse: 直接解析成功！');
+                    return responseText.trim();
+                }
+            } catch (e) {
+                // 继续尝试其他策略
+            }
+
+            // 移除 markdown 代码块标记
             let cleanedText = responseText
                 .replace(/```json\s*/gi, '')
                 .replace(/```\s*/g, '')
                 .trim();
 
+            // 🔥 策略1：使用正则查找包含 title 和 text 的 JSON 块
+            const jsonBlockMatch = cleanedText.match(/\{[^{}]*"title"[^{}]*"text"[\s\S]*?\}(?=\s*$|\s*\n|\s*```)/);
+            if (jsonBlockMatch) {
+                const potentialJson = jsonBlockMatch[0];
+                if (this.isValidJSON(potentialJson)) {
+                    console.log('[DifyClient] cleanJSONResponse: 正则策略成功');
+                    return potentialJson;
+                }
+            }
+
+            // 策略2：使用括号匹配提取完整 JSON
             const extracted = this.extractCompleteJSON(cleanedText);
             if (extracted && this.isValidJSON(extracted)) {
+                console.log('[DifyClient] cleanJSONResponse: 括号匹配策略成功');
                 return extracted;
             }
 
-            const escaped = this.escapeJSONStringLiterals(cleanedText);
-            return escaped;
+            // 策略3：对提取的内容进行换行符转义后再尝试
+            if (extracted) {
+                const escaped = this.escapeJSONStringLiterals(extracted);
+                if (this.isValidJSON(escaped)) {
+                    console.log('[DifyClient] cleanJSONResponse: 转义后解析成功');
+                    return escaped;
+                }
+            }
+
+            // 策略4：对整个清理文本进行转义
+            const escapedFull = this.escapeJSONStringLiterals(cleanedText);
+            const extractedFromEscaped = this.extractCompleteJSON(escapedFull);
+            if (extractedFromEscaped && this.isValidJSON(extractedFromEscaped)) {
+                console.log('[DifyClient] cleanJSONResponse: 全文转义后提取成功');
+                return extractedFromEscaped;
+            }
+
+            console.warn('[DifyClient] cleanJSONResponse: 所有策略均失败');
+            return escapedFull;
         } catch (error) {
+            console.error('[DifyClient] cleanJSONResponse: 发生异常', error);
             return responseText.trim();
         }
     }
 
     private extractCompleteJSON(text: string): string {
-        const objectStart = text.indexOf('{');
-        if (objectStart === -1) return '';
+        // 🔥 策略1：优先查找包含 "title" 的 JSON 对象起点（这是我们期待的 LLM8b 格式）
+        let objectStart = text.indexOf('{"title"');
+        if (objectStart === -1) {
+            // 策略2：查找 { "title" 格式（带空格）
+            objectStart = text.indexOf('{ "title"');
+        }
+        if (objectStart === -1) {
+            // 策略3：回退到查找任意 JSON 对象
+            objectStart = text.indexOf('{');
+        }
+
+        if (objectStart === -1) {
+            console.log('[DifyClient] extractCompleteJSON: 未找到任何 { 起始标记');
+            return '';
+        }
+
+        console.log(`[DifyClient] extractCompleteJSON: 找到 JSON 起始位置 ${objectStart}, 前10字符: "${text.substring(objectStart, objectStart + 10)}"`);
 
         let depth = 0;
         let inString = false;
@@ -392,9 +451,15 @@ export class DifyClient {
             if (char === '{') depth++;
             else if (char === '}') {
                 depth--;
-                if (depth === 0) return text.substring(objectStart, i + 1);
+                if (depth === 0) {
+                    const extracted = text.substring(objectStart, i + 1);
+                    console.log(`[DifyClient] extractCompleteJSON: 成功提取 JSON，长度 ${extracted.length} 字符`);
+                    return extracted;
+                }
             }
         }
+
+        console.log('[DifyClient] extractCompleteJSON: 未找到匹配的 } 结束标记');
         return '';
     }
 
