@@ -2093,7 +2093,13 @@ export class AutoContentManager {
       await workflowProgressService.completeStep(profile.taskId, 'detail-plan', {
         status: 'success',
         taskCount: successCount,
-        today_target: tasks[0]?.title || '完成内容策划'
+        today_target: tasks[0]?.title || '完成内容策划',
+        // 🔥 新增：传递任务摘要列表，方便前端详细展示
+        taskSummaries: tasks.map(t => ({
+          title: t.title,
+          scheduledTime: t.scheduledTime.toISOString(),
+          type: t.contentType
+        }))
       });
     }
 
