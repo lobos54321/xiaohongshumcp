@@ -1,7 +1,5 @@
-/**
- * DifyClient - Dify API 客户端
- * 用于调用 Dify 工作流生成营销文案
- */
+import fetch from 'node-fetch';
+import { Response } from 'node-fetch';
 
 // ============ 类型定义 ============
 
@@ -233,7 +231,7 @@ export class DifyClient {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify(request),
-            });
+            }) as any; // Cast for node-fetch vs global fetch compatibility
 
             if (!response.ok) {
                 const errorText = await response.text();
@@ -264,8 +262,7 @@ export class DifyClient {
      * 处理 Streaming 响应 (SSE 格式)
      */
     private async processStreamingResponse(response: Response): Promise<string> {
-        const reader = response.body?.getReader();
-        if (!reader) {
+        if (!response.body) {
             throw new Error('无法获取响应流');
         }
 
@@ -274,16 +271,15 @@ export class DifyClient {
         let lastProgressLog = Date.now();
 
         try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                const chunk = decoder.decode(value, { stream: true });
+            // node-fetch and global fetch handle streams differently
+            // for await works for most modern stream implementations
+            for await (const value of response.body as any) {
+                const chunk = decoder.decode(value as any, { stream: true });
                 const lines = chunk.split('\n');
 
                 for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const jsonStr = line.slice(6);
+                    if (line.trim().startsWith('data: ')) {
+                        const jsonStr = line.trim().slice(6);
                         if (jsonStr === '[DONE]') continue;
 
                         try {
@@ -312,8 +308,9 @@ export class DifyClient {
                     lastProgressLog = Date.now();
                 }
             }
-        } finally {
-            reader.releaseLock();
+        } catch (err) {
+            console.error('[DifyClient] 流处理过程中出错:', err);
+            throw err;
         }
 
         return fullAnswer;

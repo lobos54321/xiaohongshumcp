@@ -111,9 +111,10 @@ export class ContentPipelineService {
                 documentUrl: request.sentimentReportUrl,
             };
 
+            console.log(`🚀 [ContentPipelineService] 发起 Dify 请求 (Task: ${request.taskId})...`);
             const motherCopy = await difyClient.generateMarketingCopy(contentParams);
 
-            console.log('[ContentPipelineService] Mother copy generated:', {
+            console.log('✅ [ContentPipelineService] Dify 母文案生成成功:', {
                 title: motherCopy.title.substring(0, 30) + '...',
                 textLength: motherCopy.text.length,
                 emotion: motherCopy.emotion,

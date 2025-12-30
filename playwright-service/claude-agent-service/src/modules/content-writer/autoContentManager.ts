@@ -1774,16 +1774,33 @@ export class AutoContentManager {
                 await workflowProgressService.updateProgress(taskId, 'copy-gen', 40, 'Dify 引擎正在构建营销母语 (Mother Copy)...');
               }
 
-              const difyResult = await difyClient.generateMarketingCopy({
-                productInfo: `${profile.productName}: ${post.theme}`,
-                targetAudience: profile.targetAudience,
-                marketingGoal: profile.marketingGoal,
-                userId: profile.userId,
-                platform: '小红书'
-              });
+              // Retry logic for Dify
+              let retries = 0;
+              const maxRetries = 2;
+              let difyResult;
+
+              while (retries <= maxRetries) {
+                try {
+                  difyResult = await difyClient.generateMarketingCopy({
+                    productInfo: `${profile.productName}: ${post.theme}`,
+                    targetAudience: profile.targetAudience,
+                    marketingGoal: profile.marketingGoal,
+                    userId: profile.userId,
+                    platform: '小红书'
+                  });
+                  break; // Success!
+                } catch (err: any) {
+                  retries++;
+                  console.warn(`⚠️ [Dify] 第 ${retries} 次尝试失败:`, err.message);
+                  if (retries > maxRetries) throw err; // Re-throw if all retries fail
+                  await new Promise(resolve => setTimeout(resolve, 2000)); // Wait before retry
+                }
+              }
+
+              if (!difyResult) throw new Error('Dify 引擎返回了空结果');
 
               // 🔥 补全图片提示词生成：使用 Gemini 3 (nano-banana-pro)
-              console.log('🤖 [Gemini 3] 正在由 Gemini 3 (nano-banana-pro) 补全 4 组绘图提示词...');
+              console.log('🤖 [Gemini 3] 正在由 Gemini 3 (nano-banana-pro) 补全 组绘图提示词...');
               if (workflowProgressService && taskId) {
                 await workflowProgressService.updateProgress(taskId, 'copy-gen', 80, 'Gemini 3 正在为母文案规划视觉提示词...');
               }
@@ -1826,11 +1843,11 @@ export class AutoContentManager {
                 status: 'generating'
               };
               engine = 'Dify Marketing Engine'; // 确认使用了 Dify
-              console.log('✅ [Dify] 母文案生成成功');
-            } catch (difyError) {
-              console.warn('⚠️ [Dify] 调用失败，降级使用 Claude 生成:', difyError);
+              console.log('✅ [Dify] 母文案生成成功 (TaskId:', taskId, ')');
+            } catch (difyError: any) {
+              console.error('❌ [Dify] 引擎调用彻底失败 (已重试):', difyError.message);
               if (workflowProgressService && taskId) {
-                await workflowProgressService.updateProgress(taskId, 'copy-gen', 50, 'Dify 核心引擎繁忙，正在切换至 Claude 备用引擎...');
+                await workflowProgressService.updateProgress(taskId, 'copy-gen', 50, `Dify 核心引擎故障: ${difyError.message.substring(0, 50)}... 正在切换至备用引擎...`);
               }
               task = await this.createDetailedTask(profile, post);
               engine = 'Claude (Fallback)';
