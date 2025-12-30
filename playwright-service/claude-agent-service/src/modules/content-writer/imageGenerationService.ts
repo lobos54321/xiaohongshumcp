@@ -83,7 +83,7 @@ export class ImageGenerationService {
   }
 
   /**
-   * 使用 Gemini 2.0 Flash Experimental 生成图片 (原生图像生成支持)
+   * 使用 Gemini 3 (Imagen 3) 生成图片
    */
   private async generateWithGemini(request: ImageRequest): Promise<ImageResult | null> {
     try {
@@ -92,14 +92,14 @@ export class ImageGenerationService {
         return null;
       }
 
-      console.log('🎨 [Gemini] 开始使用 gemini-2.0-flash-exp 生成图片');
+      console.log('🎨 [Gemini] 开始使用 imagen-3 生成图片');
       const stylePrompt = this.getStylePrompt(request.style);
-      const fullPrompt = `Generate a high-quality image: ${request.prompt}, ${stylePrompt}, photorealistic, detailed, vibrant colors, suitable for social media`;
+      const fullPrompt = `Generate a high-quality image: ${request.prompt}, ${stylePrompt}, high fidelity, social media style, 4k resolution`;
       console.log('🎨 [Gemini] 提示词:', fullPrompt.substring(0, 100) + '...');
 
-      // 🔥 使用 Gemini 2.0 Flash Experimental - 支持原生图像生成
+      // 🔥 使用 Google AI Studio 的 imagen-3 模型
       const response = await fetch(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent',
+        'https://generativelanguage.googleapis.com/v1beta/models/imagen-3:predict',
         {
           method: 'POST',
           headers: {
@@ -107,14 +107,14 @@ export class ImageGenerationService {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            contents: [{
-              parts: [{
-                text: fullPrompt
-              }]
-            }],
-            generationConfig: {
-              responseModalities: ["image", "text"],
-              responseMimeType: "text/plain"
+            instances: [
+              { prompt: fullPrompt }
+            ],
+            parameters: {
+              sampleCount: 1,
+              aspectRatio: request.aspectRatio === '9:16' ? '9:16' :
+                request.aspectRatio === '16:9' ? '16:9' : '1:1',
+              outputMimeType: 'image/png'
             }
           })
         }
@@ -131,90 +131,71 @@ export class ImageGenerationService {
       const data = await response.json() as any;
       console.log('🎨 [Gemini] API响应状态:', response.status);
 
-      // 🔥 增强调试：记录完整响应结构
-      console.log('🎨 [Gemini] 响应结构:', JSON.stringify({
-        has_candidates: !!data.candidates,
-        candidates_length: data.candidates?.length || 0,
-        first_candidate_has_content: !!data.candidates?.[0]?.content,
-        parts_count: data.candidates?.[0]?.content?.parts?.length || 0,
-        parts_types: data.candidates?.[0]?.content?.parts?.map((p: any) => Object.keys(p)) || []
-      }));
+      let base64Data: string | null = null;
+      let mimeType = 'image/png';
 
-      // 从响应中提取图片数据（base64）
-      if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+      // 策略1：处理 :predict 响应 (predictions[0].bytesBase64Encoded)
+      if (data.predictions && data.predictions[0]) {
+        base64Data = data.predictions[0].bytesBase64Encoded;
+        mimeType = data.predictions[0].mimeType || 'image/png';
+        console.log('🎨 [Gemini] 从 predictions 提取图片成功');
+      }
+      // 策略2：处理 generateContent 响应 (candidates[0].content.parts[0].inlineData)
+      else if (data.candidates && data.candidates[0] && data.candidates[0].content) {
         const parts = data.candidates[0].content.parts;
-
-        // 查找inlineData类型的part（包含图片）
         const imagePart = parts.find((part: any) => part.inlineData && part.inlineData.mimeType?.startsWith('image/'));
-
         if (imagePart && imagePart.inlineData && imagePart.inlineData.data) {
-          const base64Data = imagePart.inlineData.data;
-          const mimeType = imagePart.inlineData.mimeType || 'image/png';
-
-          console.log('🎨 [Gemini] 成功获取图片数据，mimeType:', mimeType);
-
-          // 上传到 Supabase Storage（带自动fallback）
-          if (this.supabase) {
-            try {
-              const { url, storageKey } = await this.uploadToSupabase(
-                base64Data,
-                request.userId,
-                'gemini',
-                mimeType
-              );
-
-              console.log(`✅ [Gemini] Supabase上传成功: ${url}`);
-              return {
-                url,
-                storageKey,
-                source: 'gemini',
-                cost: 0.03 // Gemini定价：$0.03 per image
-              };
-            } catch (supabaseError: any) {
-              // 🔥 Supabase上传失败（RLS权限、网络等），自动fallback到本地存储
-              console.warn(`⚠️ [Gemini] Supabase上传失败，fallback到本地存储: ${supabaseError.message}`);
-              // 继续执行下面的本地存储逻辑
-            }
-          }
-
-          // 备用方案：保存到本地（Supabase未配置或上传失败）
-          console.log('📁 [Gemini] 使用本地存储');
-          const localPath = await this.saveBase64Image(base64Data, 'gemini', mimeType);
-          const filename = path.basename(localPath);
-
-          // 🔥 CRITICAL FIX: 返回完整URL，MCP binary需要完整HTTP URL才能下载
-          const baseUrl = process.env.PUBLIC_URL || 'http://localhost:8080';
-          const imageUrl = `${baseUrl}/images/${filename}`;
-          console.log(`🎨 [Gemini] 本地图片完整URL: ${imageUrl}`);
-
-          return {
-            url: imageUrl,
-            storageKey: localPath,  // 本地路径作为storageKey
-            source: 'gemini',
-            cost: 0.03
-          };
+          base64Data = imagePart.inlineData.data;
+          mimeType = imagePart.inlineData.mimeType || 'image/png';
+          console.log('🎨 [Gemini] 从 candidates 提取图片成功');
         }
       }
 
-      // 🔥 详细记录为什么找不到图片数据
+      if (base64Data) {
+        console.log('🎨 [Gemini] 成功获取图片数据，mimeType:', mimeType);
+
+        // 上传到 Supabase Storage（带自动fallback）
+        if (this.supabase) {
+          try {
+            const { url, storageKey } = await this.uploadToSupabase(
+              base64Data,
+              request.userId,
+              'gemini',
+              mimeType
+            );
+
+            console.log(`✅ [Gemini] Supabase上传成功: ${url}`);
+            return {
+              url,
+              storageKey,
+              source: 'gemini',
+              cost: 0.03
+            };
+          } catch (supabaseError: any) {
+            console.warn(`⚠️ [Gemini] Supabase上传失败，fallback到本地存储: ${supabaseError.message}`);
+          }
+        }
+
+        // 备用方案：保存到本地
+        console.log('📁 [Gemini] 使用本地存储');
+        const localPath = await this.saveBase64Image(base64Data, 'gemini', mimeType);
+        const filename = path.basename(localPath);
+        const baseUrl = process.env.PUBLIC_URL || 'http://localhost:8080';
+        const imageUrl = `${baseUrl}/images/${filename}`;
+
+        return {
+          url: imageUrl,
+          storageKey: localPath,
+          source: 'gemini',
+          cost: 0.03
+        };
+      }
+
       console.error('🎨 [Gemini] 响应中未找到图片数据！');
-      console.error('🎨 [Gemini] 完整响应:', JSON.stringify(data, null, 2).substring(0, 1000));
-
-      // 检查是否有错误信息
-      if (data.error) {
-        console.error('🎨 [Gemini] API返回错误:', data.error);
-      }
-
-      // 检查是否被安全过滤
-      if (data.candidates?.[0]?.finishReason) {
-        console.error('🎨 [Gemini] 生成终止原因:', data.candidates[0].finishReason);
-      }
-
       return null;
 
     } catch (error: any) {
       console.error('🎨 [Gemini] 生成失败:', error.message);
-      console.error('🎨 [Gemini] 错误详情:', error);
       return null;
     }
   }
@@ -251,13 +232,11 @@ export class ImageGenerationService {
       const data = await response.json() as any;
 
       if (data.candidates && data.candidates[0] && data.candidates[0].content) {
-        // 这个API可能返回图片描述而不是图片，我们用描述去Unsplash搜索
         const description = data.candidates[0].content.parts[0].text;
         return await this.getFromUnsplash({ ...request, prompt: description });
       }
 
       return null;
-
     } catch (error) {
       console.error('Gemini V2 API 失败:', error);
       return null;
@@ -271,10 +250,8 @@ export class ImageGenerationService {
     try {
       if (!this.unsplashKey) return null;
 
-      // 从prompt提取关键词
       const keywords = this.extractKeywords(request.prompt);
       const query = keywords.join(' ');
-
       const orientation = this.getUnsplashOrientation(request.aspectRatio);
 
       const response = await fetch(
@@ -292,18 +269,14 @@ export class ImageGenerationService {
         return null;
       }
 
-      // 选择第一张图片
       const photo = data.results[0];
       const imageUrl = photo.urls.regular;
 
-      // Unsplash 直接返回 URL，不需要下载
-      // MCP Router 会自动下载这个 URL
       return {
         url: imageUrl,
         source: 'unsplash',
-        cost: 0 // Unsplash 免费
+        cost: 0
       };
-
     } catch (error) {
       console.error('Unsplash 获取失败:', error);
       return null;
@@ -312,11 +285,8 @@ export class ImageGenerationService {
 
   /**
    * 获取占位图片
-   * 【修复】使用data URI而非外部URL，避免生产环境访问失败
    */
   private getPlaceholderImage(request: ImageRequest): ImageResult {
-    // 返回简单的1x1透明PNG的data URI
-    // 实际应用中，前端会显示一个本地的占位图标
     return {
       url: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTA4MCIgaGVpZ2h0PSIxMDgwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxMDgwIiBoZWlnaHQ9IjEwODAiIGZpbGw9IiNlZWYyZmYiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjQ4IiBmaWxsPSIjNjY3ZWVhIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+8J+OqCBJbWFnZTwvdGV4dD48L3N2Zz4=',
       source: 'placeholder',
@@ -338,22 +308,16 @@ export class ImageGenerationService {
     }
 
     try {
-      // 根据mimeType确定扩展名
       const extension = mimeType.includes('png') ? '.png' :
-        mimeType.includes('jpeg') || mimeType.includes('jpg') ? '.jpg' :
-          '.png';
+        mimeType.includes('jpeg') || mimeType.includes('jpg') ? '.jpg' : '.png';
 
-      // 生成文件名和存储路径
       const timestamp = Date.now();
       const filename = `${source}_${timestamp}${extension}`;
       const storageKey = `users/${userId}/images/${filename}`;
-
-      // 转换 base64 为 Buffer
       const buffer = Buffer.from(base64Data, 'base64');
 
       console.log(`📤 [Supabase] 开始上传图片: ${storageKey}`);
 
-      // 上传到 Supabase Storage
       const { data, error } = await this.supabase.storage
         .from('images')
         .upload(storageKey, buffer, {
@@ -362,16 +326,12 @@ export class ImageGenerationService {
         });
 
       if (error) {
-        console.error('❌ [Supabase] 上传失败:', error);
         throw new Error(`Supabase上传失败: ${error.message}`);
       }
 
-      // 获取公网 URL
       const { data: { publicUrl } } = this.supabase.storage
         .from('images')
         .getPublicUrl(storageKey);
-
-      console.log('✅ [Supabase] 图片上传成功:', publicUrl);
 
       return { url: publicUrl, storageKey };
     } catch (error: any) {
@@ -381,67 +341,26 @@ export class ImageGenerationService {
   }
 
   /**
-   * 保存base64图片到本地（备用方案，当Supabase不可用时使用）
+   * 保存base64图片到本地
    */
   private async saveBase64Image(base64Data: string, source: string, mimeType: string): Promise<string> {
     try {
-      // 创建下载目录
       const downloadDir = path.join(process.cwd(), 'downloads', 'images');
       if (!fs.existsSync(downloadDir)) {
         fs.mkdirSync(downloadDir, { recursive: true });
       }
 
-      // 根据mimeType确定扩展名
       const extension = mimeType.includes('png') ? '.png' :
-        mimeType.includes('jpeg') || mimeType.includes('jpg') ? '.jpg' :
-          '.png';
+        mimeType.includes('jpeg') || mimeType.includes('jpg') ? '.jpg' : '.png';
 
-      // 生成文件名
-      const timestamp = Date.now();
-      const filename = `${source}_${timestamp}${extension}`;
+      const filename = `${source}_${Date.now()}${extension}`;
       const filepath = path.join(downloadDir, filename);
-
-      // 将base64转换为buffer并保存
       const buffer = Buffer.from(base64Data, 'base64');
       fs.writeFileSync(filepath, buffer);
 
-      console.log(`📁 [Gemini] 图片已保存: ${filepath}`);
       return filepath;
-
     } catch (error) {
       console.error('📁 [Gemini] 保存图片失败:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * 下载图片到本地
-   */
-  private async downloadImage(url: string, source: string): Promise<string> {
-    try {
-      const response = await fetch(url);
-      const buffer = await response.buffer();
-
-      // 创建下载目录
-      const downloadDir = path.join(process.cwd(), 'downloads', 'images');
-      if (!fs.existsSync(downloadDir)) {
-        fs.mkdirSync(downloadDir, { recursive: true });
-      }
-
-      // 生成文件名
-      const timestamp = Date.now();
-      const extension = this.getImageExtension(url);
-      const filename = `${source}_${timestamp}${extension}`;
-      const filepath = path.join(downloadDir, filename);
-
-      // 保存文件
-      fs.writeFileSync(filepath, buffer);
-
-      console.log(`📁 图片已保存: ${filepath}`);
-      return filepath;
-
-    } catch (error) {
-      console.error('下载图片失败:', error);
       throw error;
     }
   }
@@ -454,11 +373,11 @@ export class ImageGenerationService {
       case 'realistic':
         return 'photorealistic, detailed, professional photography, natural lighting';
       case 'cartoon':
-        return 'cartoon style, colorful, friendly, cute illustration, anime style';
+        return 'cartoon style, colorful, friendly, cute illustration';
       case 'painting':
-        return 'digital painting, artistic, beautiful colors, brush strokes';
+        return 'digital painting, artistic, beautiful colors';
       case 'sketch':
-        return 'pencil sketch, hand-drawn, artistic, line art';
+        return 'pencil sketch, hand-drawn, artistic';
       default:
         return 'modern, clean, vibrant colors, professional, aesthetic';
     }
@@ -468,14 +387,11 @@ export class ImageGenerationService {
    * 从提示词中提取关键词
    */
   private extractKeywords(prompt: string): string[] {
-    // 🔥 关键词映射表
     const keywordMappings: Record<string, string[]> = {
       'lifestyle': ['lifestyle', 'daily life'],
       'modern': ['modern', 'minimalist'],
       'aesthetic': ['aesthetic', 'beautiful'],
       'product': ['product photography', 'showcase'],
-      'showcase': ['product showcase', 'display'],
-      'lighting': ['natural light', 'bright'],
       'ai': ['artificial intelligence', 'technology'],
       '内容': ['content creation', 'digital'],
       '创作': ['creative', 'workspace'],
@@ -483,17 +399,10 @@ export class ImageGenerationService {
       '科技': ['technology', 'innovation'],
       '创业': ['startup', 'entrepreneur'],
       '博主': ['influencer', 'social media'],
-      '教育': ['education', 'learning'],
       '地产': ['real estate', 'architecture'],
-      '金融': ['finance', 'business'],
     };
 
-    const words = prompt
-      .toLowerCase()
-      .replace(/[，。！？；：""''（）【】,.!?;:""''()\[\]]/g, ' ')
-      .split(/\s+/)
-      .filter(word => word.length > 1);
-
+    const words = prompt.toLowerCase().replace(/[^\w\s\u4e00-\u9fa5]/g, ' ').split(/\s+/).filter(word => word.length > 1);
     const mappedKeywords: string[] = [];
     for (const word of words) {
       if (keywordMappings[word]) {
@@ -503,24 +412,7 @@ export class ImageGenerationService {
       }
     }
 
-    const uniqueKeywords = [...new Set(mappedKeywords)].slice(0, 5);
-    console.log(`🔍 [Unsplash] 关键词: "${prompt.substring(0, 30)}..." -> [${uniqueKeywords.join(', ')}]`);
-
-    return uniqueKeywords.length > 0 ? uniqueKeywords : ['technology', 'workspace'];
-  }
-
-  /**
-   * 获取图片扩展名
-   */
-  private getImageExtension(url: string): string {
-    try {
-      const urlObj = new URL(url);
-      const pathname = urlObj.pathname;
-      const ext = path.extname(pathname);
-      return ext || '.jpg';
-    } catch {
-      return '.jpg';
-    }
+    return [...new Set(mappedKeywords)].slice(0, 5);
   }
 
   /**
@@ -528,45 +420,9 @@ export class ImageGenerationService {
    */
   private getUnsplashOrientation(aspectRatio?: string): string {
     switch (aspectRatio) {
-      case '9:16':
-        return 'portrait';
-      case '16:9':
-        return 'landscape';
-      case '1:1':
-      default:
-        return 'squarish';
-    }
-  }
-
-  /**
-   * 获取占位图尺寸
-   */
-  private getPlaceholderDimensions(aspectRatio?: string): string {
-    switch (aspectRatio) {
-      case '9:16':
-        return '720x1280';
-      case '16:9':
-        return '1280x720';
-      case '1:1':
-      default:
-        return '1080x1080';
-    }
-  }
-
-  /**
-   * 计算 Gemini 成本
-   */
-  private calculateGeminiCost(aspectRatio?: string): number {
-    // Gemini Imagen 的大概成本 (需要根据实际定价调整)
-    const basePrice = 0.02; // 假设每张图片 $0.02
-
-    switch (aspectRatio) {
-      case '9:16':
-      case '16:9':
-        return basePrice * 1.5; // 非正方形稍贵
-      case '1:1':
-      default:
-        return basePrice;
+      case '9:16': return 'portrait';
+      case '16:9': return 'landscape';
+      default: return 'squarish';
     }
   }
 
@@ -575,38 +431,16 @@ export class ImageGenerationService {
    */
   async generateBatchImages(requests: ImageRequest[]): Promise<ImageResult[]> {
     const results: ImageResult[] = [];
-
     for (const request of requests) {
       try {
         const result = await this.generateImage(request);
         results.push(result);
-
-        // 避免API限制，每次生成后等待2秒
         await new Promise(resolve => setTimeout(resolve, 2000));
       } catch (error) {
-        console.error('批量生成失败:', error);
         results.push(this.getPlaceholderImage(request));
       }
     }
-
     return results;
-  }
-
-  /**
-   * 获取使用统计
-   */
-  getUsageStats() {
-    // 这里可以实现使用统计逻辑
-    return {
-      totalGenerated: 0,
-      totalCost: 0,
-      averageCost: 0,
-      sourceBreakdown: {
-        gemini: 0,
-        unsplash: 0,
-        placeholder: 0
-      }
-    };
   }
 
   /**

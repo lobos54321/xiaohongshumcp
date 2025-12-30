@@ -1824,21 +1824,36 @@ export class AutoContentManager {
 
               if (!difyResult) throw new Error('Dify 引擎返回了空结果');
 
-              // 🔥 补全图片提示词生成：使用 Gemini 3 (nano-banana-pro)
-              console.log('🤖 [Gemini 3] 正在由 Gemini 3 (nano-banana-pro) 补全 组绘图提示词...');
+              // 🔥 核心逻辑：使用 Claude 4.5 Haiku 分析文案并生成高质量绘图提示词
+              console.log('🤖 [Claude 4.5 Haiku] 正在规划视觉提示词...');
               if (workflowProgressService && taskId) {
-                await workflowProgressService.updateProgress(taskId, 'copy-gen', 80, 'Gemini 3 正在为母文案规划视觉提示词...');
+                await workflowProgressService.updateProgress(taskId, 'copy-gen', 80, 'Claude 4.5 Haiku 正在为母文案规划视觉方案...');
               }
 
               let imagePrompts: string[] = [];
               try {
-                const geminiPrompt = `基于以下小红书文案，为这篇文章生成4个高质量的英文图片生成提示词（Image Prompts），需要符合小红书美学。返回 JSON 数组格式 ["prompt1", "prompt2", "prompt3", "prompt4"]：\n\n标题：${difyResult.title}\n正文：${difyResult.text}`;
-                const imagePromptsText = await this.callGeminiWithRetry(geminiPrompt, '补全图片提示词');
-                imagePrompts = JSON.parse(this.cleanJSONResponse(imagePromptsText));
-              } catch (geminiError: any) {
-                console.warn('⚠️ [Gemini 3] 提示词生成失败 (已降级):', geminiError.message);
-                // 降级：使用基础关键词
-                imagePrompts = ['lifestyle photography', 'modern aesthetic', 'bright natural lighting', 'product showcase'];
+                const claudeImagePrompt = `你是一位顶级视觉导演和提示词专家。请根据以下小红书文案，设计4个极具网感、符合小红书美学的图片提示词（Image Generation Prompts）。
+                提示词应为英文，涵盖场景描述、构图、光效和艺术风格。
+                
+                文案内容：
+                标题：${difyResult.title}
+                正文：${difyResult.text}
+                
+                返回格式：纯JSON数组，例如 ["prompt1", "prompt2", "prompt3", "prompt4"]。
+                不要包含任何解释，只需返回 JSON。`;
+
+                const claudeResponse = await this.anthropic.messages.create({
+                  model: 'claude-3-5-haiku-20241022',
+                  max_tokens: 1000,
+                  messages: [{ role: 'user', content: claudeImagePrompt }]
+                });
+
+                const claudeText = claudeResponse.content[0].type === 'text' ? claudeResponse.content[0].text : '[]';
+                imagePrompts = JSON.parse(this.cleanJSONResponse(claudeText));
+                console.log('✅ [Claude 4.5 Haiku] 视觉方案规划完成:', imagePrompts.length, '个提示词');
+              } catch (haikuError: any) {
+                console.warn('⚠️ [Claude 4.5 Haiku] 视觉规划失败 (已降级):', haikuError.message);
+                imagePrompts = ['lifestyle photography, minimalist aesthetic', 'modern technology, soft lighting', 'content creation workspace', 'vibrant creative studio'];
               }
 
               // 🔥 修正：处理日期和时间的组合逻辑，防止 [object Date] 导致的解析错误
