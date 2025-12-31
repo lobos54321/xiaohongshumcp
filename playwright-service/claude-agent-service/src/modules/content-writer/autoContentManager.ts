@@ -491,7 +491,14 @@ export class AutoContentManager {
       if (workflowProgressService && taskId) {
         await workflowProgressService.completeStep(taskId, 'detail-plan', {
           today_target: dailyTasks[0]?.title || '首日内容生产',
-          tasksCount: dailyTasks.length
+          tasksCount: dailyTasks.length,
+          taskCount: dailyTasks.length,
+          // 🔥 新增：传递任务摘要列表
+          taskSummaries: dailyTasks.map(t => ({
+            title: t.title,
+            scheduledTime: t.scheduledTime.toISOString(),
+            type: t.contentType
+          }))
         });
       }
       console.log(`🚀 [DEBUG] 步骤3完成: 生成了 ${dailyTasks.length} 个每日任务，所有图片已生成`);
