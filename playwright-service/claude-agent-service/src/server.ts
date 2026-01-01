@@ -1362,8 +1362,8 @@ app.post('/agent/auto/start', async (req: Request, res: Response) => {
       }
     }
 
-    // 🔥 FIX: 异步启动自动运营，不等待整个流程完成
-    autoContentManager.startAutoMode({ ...userProfile, taskId }, workflowProgressService)
+    // 🔥 FIX: 异步启动自动运营，传递内容模式偏好
+    autoContentManager.startAutoMode({ ...userProfile, taskId, contentModePreference: contentModePreference || 'IMAGE_TEXT' }, workflowProgressService)
       .then(() => {
         console.log(`[Auto Mode] ✅ 自动运营流程执行完成: ${userId}`);
       })

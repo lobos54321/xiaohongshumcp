@@ -22,7 +22,8 @@ interface UserProfile {
   postFrequency: 'daily' | 'twice-daily' | 'high-freq';
   brandStyle: 'warm' | 'professional' | 'trendy' | 'funny';
   reviewMode: 'auto' | 'review' | 'edit';
-  taskId?: string; // 🔥 新增：用于关联进度追踪
+  taskId?: string; // 🔥 用于关联进度追踪
+  contentModePreference?: 'IMAGE_TEXT' | 'AVATAR_VIDEO' | 'UGC_VIDEO'; // 🔥 内容形式偏好
 }
 
 interface ContentPlan {
@@ -420,6 +421,96 @@ export class AutoContentManager {
 
       // 初始化活动记录
       this.addRealTimeActivity(userProfile.userId, '🚀 自动运营系统已启动', 'execution');
+
+      // 🔥 根据内容模式分流
+      const contentMode = userProfile.contentModePreference || 'IMAGE_TEXT';
+      console.log(`🎯 [DEBUG] 内容模式: ${contentMode}`);
+
+      if (contentMode === 'AVATAR_VIDEO') {
+        // === 数字人视频模式 ===
+        console.log(`🎬 [DEBUG] 进入数字人视频流程...`);
+        this.addRealTimeActivity(userProfile.userId, '🎭 进入数字人视频创作模式', 'execution');
+
+        if (workflowProgressService && taskId) {
+          await workflowProgressService.startStep(taskId, 'market-strategy', '分析数字人营销策略...');
+        }
+
+        // 数字人模式：策略分析
+        const strategy = await this.createContentStrategy(userProfile);
+        if (workflowProgressService && taskId) {
+          await workflowProgressService.completeStep(taskId, 'market-strategy', {
+            key_themes: strategy.keyThemes,
+            mode: 'AVATAR_VIDEO'
+          });
+        }
+
+        // 数字人模式：脚本生成
+        if (workflowProgressService && taskId) {
+          await workflowProgressService.startStep(taskId, 'script-gen', '正在生成数字人口播脚本...');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          await workflowProgressService.completeStep(taskId, 'script-gen', {
+            scriptCount: 3,
+            duration: '2-3分钟'
+          });
+        }
+        this.addRealTimeActivity(userProfile.userId, '📜 数字人脚本已生成', 'generation');
+
+        // 数字人模式：语音克隆（占位）
+        if (workflowProgressService && taskId) {
+          await workflowProgressService.startStep(taskId, 'voice-clone', '正在克隆用户语音特征...');
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          await workflowProgressService.completeStep(taskId, 'voice-clone', {
+            status: 'voice_cloned',
+            message: '语音克隆完成，准备合成视频'
+          });
+        }
+        this.addRealTimeActivity(userProfile.userId, '🎤 语音克隆完成', 'generation');
+
+        // 数字人模式：视频渲染（占位）
+        if (workflowProgressService && taskId) {
+          await workflowProgressService.startStep(taskId, 'avatar-render', '正在渲染数字人视频...');
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          await workflowProgressService.completeStep(taskId, 'avatar-render', {
+            status: 'rendering_complete',
+            videoUrl: 'https://placeholder.video/avatar_video.mp4'
+          });
+        }
+        this.addRealTimeActivity(userProfile.userId, '🎬 数字人视频渲染完成', 'generation');
+
+        // 数字人模式：任务保存
+        if (workflowProgressService && taskId) {
+          await workflowProgressService.startStep(taskId, 'task-save', '正在保存视频任务...');
+          await workflowProgressService.completeStep(taskId, 'task-save', {
+            status: 'success',
+            result: {
+              title: '数字人营销视频',
+              type: 'AVATAR_VIDEO',
+              videoUrl: 'https://placeholder.video/avatar_video.mp4'
+            }
+          });
+          await workflowProgressService.completeWorkflow(taskId, {
+            title: '数字人营销视频',
+            type: 'AVATAR_VIDEO'
+          });
+        }
+
+        this.generationStatus.set(userProfile.userId, 'completed');
+        this.addRealTimeActivity(userProfile.userId, '🎉 数字人视频创作流程完成！', 'execution');
+        console.log(`✅ [DEBUG] 数字人视频流程完成`);
+        return;
+      }
+
+      if (contentMode === 'UGC_VIDEO') {
+        // === UGC 视频模式（占位）===
+        console.log(`📹 [DEBUG] 进入 UGC 视频流程...`);
+        this.addRealTimeActivity(userProfile.userId, '📹 进入 UGC 视频创作模式', 'execution');
+        // TODO: 实现 UGC 视频流程
+        this.generationStatus.set(userProfile.userId, 'completed');
+        return;
+      }
+
+      // === 图文模式（默认）===
+      console.log(`📝 [DEBUG] 进入图文模式流程...`);
 
       // 1. 制定内容策略
       console.log(`🚀 [DEBUG] 步骤1: 开始制定内容策略...`);
