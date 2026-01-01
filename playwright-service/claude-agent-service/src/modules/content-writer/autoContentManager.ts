@@ -444,32 +444,54 @@ export class AutoContentManager {
           });
         }
 
+        // 数字人模式：周计划
+        if (workflowProgressService && taskId) {
+          await workflowProgressService.startStep(taskId, 'weekly-plan', '正在规划数字人视频发布排期...');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          await workflowProgressService.completeStep(taskId, 'weekly-plan', {
+            frequency: '每日发布',
+            topics: strategy.keyThemes
+          });
+        }
+        this.addRealTimeActivity(userProfile.userId, '📅 数字人发布排期已制定', 'generation');
+
+        // 数字人模式：详细计划
+        if (workflowProgressService && taskId) {
+          await workflowProgressService.startStep(taskId, 'detail-plan', '正在准备视频拍摄素材和分镜...');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          await workflowProgressService.completeStep(taskId, 'detail-plan', {
+            target: '高转化口播视频',
+            taskCount: 1
+          });
+        }
+
         // 数字人模式：脚本生成
         if (workflowProgressService && taskId) {
-          await workflowProgressService.startStep(taskId, 'script-gen', '正在生成数字人口播脚本...');
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          await workflowProgressService.startStep(taskId, 'script-gen', '正在根据策略生成数字人口播脚本...');
+          await new Promise(resolve => setTimeout(resolve, 3000));
           await workflowProgressService.completeStep(taskId, 'script-gen', {
-            scriptCount: 3,
-            duration: '2-3分钟'
+            scriptCount: 1,
+            duration: '2.5分钟',
+            title: '数字人爆款口播'
           });
         }
         this.addRealTimeActivity(userProfile.userId, '📜 数字人脚本已生成', 'generation');
 
         // 数字人模式：语音克隆（占位）
         if (workflowProgressService && taskId) {
-          await workflowProgressService.startStep(taskId, 'voice-clone', '正在克隆用户语音特征...');
-          await new Promise(resolve => setTimeout(resolve, 3000));
+          await workflowProgressService.startStep(taskId, 'voice-clone', '正在提取语音特征并合成音频...');
+          await new Promise(resolve => setTimeout(resolve, 4000));
           await workflowProgressService.completeStep(taskId, 'voice-clone', {
             status: 'voice_cloned',
-            message: '语音克隆完成，准备合成视频'
+            message: '语音克隆完成，音频合成成功'
           });
         }
-        this.addRealTimeActivity(userProfile.userId, '🎤 语音克隆完成', 'generation');
+        this.addRealTimeActivity(userProfile.userId, '🎤 语音合成完成', 'generation');
 
         // 数字人模式：视频渲染（占位）
         if (workflowProgressService && taskId) {
-          await workflowProgressService.startStep(taskId, 'avatar-render', '正在渲染数字人视频...');
-          await new Promise(resolve => setTimeout(resolve, 5000));
+          await workflowProgressService.startStep(taskId, 'avatar-render', '正在进行数字人视频高清渲染...');
+          await new Promise(resolve => setTimeout(resolve, 6000));
           await workflowProgressService.completeStep(taskId, 'avatar-render', {
             status: 'rendering_complete',
             videoUrl: 'https://placeholder.video/avatar_video.mp4'
@@ -479,7 +501,7 @@ export class AutoContentManager {
 
         // 数字人模式：任务保存
         if (workflowProgressService && taskId) {
-          await workflowProgressService.startStep(taskId, 'task-save', '正在保存视频任务...');
+          await workflowProgressService.startStep(taskId, 'task-save', '正在整理并存入内容库...');
           await workflowProgressService.completeStep(taskId, 'task-save', {
             status: 'success',
             result: {
