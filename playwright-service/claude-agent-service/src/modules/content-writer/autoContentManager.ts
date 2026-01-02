@@ -432,8 +432,9 @@ export class AutoContentManager {
         this.addRealTimeActivity(userProfile.userId, '🎭 进入数字人视频创作模式', 'execution');
 
         if (workflowProgressService && taskId) {
-          await workflowProgressService.startStep(taskId, 'market-strategy', '分析数字人营销策略...');
+          await workflowProgressService.startStep(taskId, 'market-strategy', '正在为您量身定制数字人营销策略...');
         }
+        this.addRealTimeActivity(userProfile.userId, '🧠 正在分析数字人营销策略...', 'analysis');
 
         // 数字人模式：策略分析
         const strategy = await this.createContentStrategy(userProfile);
