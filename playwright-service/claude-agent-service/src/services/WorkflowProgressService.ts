@@ -385,9 +385,16 @@ export class WorkflowProgressService {
      */
     async broadcastFullStatus(taskId: string): Promise<void> {
         const connections = taskConnections.get(taskId);
-        if (!connections || connections.size === 0) return;
+        if (!connections || connections.size === 0) {
+            console.log(`[WorkflowProgressService] broadcastFullStatus: No connections for task ${taskId}`);
+            return;
+        }
 
         const status = await this.getWorkflowStatus(taskId);
+        console.log(`[WorkflowProgressService] broadcastFullStatus: taskId=${taskId}, mode=${status.mode}, overallProgress=${status.overallProgress}, stepsCount=${status.steps.length}`);
+        status.steps.forEach(s => {
+            console.log(`  -> step: ${s.step_key}, status=${s.status}, progress=${s.progress}`);
+        });
 
         const message = JSON.stringify({
             type: 'status_update',
@@ -407,13 +414,14 @@ export class WorkflowProgressService {
                         currentAction: s.current_action,
                         eta: s.eta,
                         timeTaken: s.time_taken,
-                        output: s.output, // 不截断，给状态更新完整的
+                        output: s.output,
                         error: s.error,
                     },
                 })),
             },
         });
 
+        console.log(`[WorkflowProgressService] Sending status_update to ${connections.size} clients`);
         for (const ws of connections) {
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(message);
