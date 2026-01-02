@@ -593,75 +593,95 @@ export class AutoContentManager {
     taskId: string,
     workflowProgressService: any
   ): Promise<void> {
+    console.log(`🎬 [continueAvatarWorkflow] Starting... taskId=${taskId}`);
     this.addRealTimeActivity(userProfile.userId, '🎭 正在制定数字人视频详细计划...', 'generation');
 
-    // 数字人模式：周计划
-    if (workflowProgressService && taskId) {
-      await workflowProgressService.startStep(taskId, 'weekly-plan', '正在规划数字人视频发布排期...');
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      await workflowProgressService.completeStep(taskId, 'weekly-plan', {
-        frequency: '每日发布',
-        topics: strategy.keyThemes
-      });
-    }
+    try {
+      // 数字人模式：周计划
+      console.log(`📅 [continueAvatarWorkflow] Step 1: weekly-plan`);
+      if (workflowProgressService && taskId) {
+        await workflowProgressService.startStep(taskId, 'weekly-plan', '正在规划数字人视频发布排期...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        await workflowProgressService.completeStep(taskId, 'weekly-plan', {
+          frequency: '每日发布',
+          topics: strategy.keyThemes
+        });
+        console.log(`✅ [continueAvatarWorkflow] weekly-plan completed`);
+      }
 
-    // 数字人模式：详细计划
-    if (workflowProgressService && taskId) {
-      await workflowProgressService.startStep(taskId, 'detail-plan', '正在准备视频拍摄素材和分镜...');
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      await workflowProgressService.completeStep(taskId, 'detail-plan', {
-        target: '高转化口播视频',
-        taskCount: 1
-      });
-    }
+      // 数字人模式：详细计划
+      console.log(`📝 [continueAvatarWorkflow] Step 2: detail-plan`);
+      if (workflowProgressService && taskId) {
+        await workflowProgressService.startStep(taskId, 'detail-plan', '正在准备视频拍摄素材和分镜...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        await workflowProgressService.completeStep(taskId, 'detail-plan', {
+          target: '高转化口播视频',
+          taskCount: 1
+        });
+        console.log(`✅ [continueAvatarWorkflow] detail-plan completed`);
+      }
 
-    // 数字人模式：脚本生成
-    if (workflowProgressService && taskId) {
-      await workflowProgressService.startStep(taskId, 'script-gen', '正在根据策略生成数字人口播脚本...');
-      await new Promise(resolve => setTimeout(resolve, 4000));
-      await workflowProgressService.completeStep(taskId, 'script-gen', {
-        scriptCount: 1,
-        duration: '2-5分钟',
-        title: '爆款数字人口播'
-      });
-    }
+      // 数字人模式：脚本生成
+      console.log(`📜 [continueAvatarWorkflow] Step 3: script-gen`);
+      if (workflowProgressService && taskId) {
+        await workflowProgressService.startStep(taskId, 'script-gen', '正在根据策略生成数字人口播脚本...');
+        await new Promise(resolve => setTimeout(resolve, 4000));
+        await workflowProgressService.completeStep(taskId, 'script-gen', {
+          scriptCount: 1,
+          duration: '2-5分钟',
+          title: '爆款数字人口播'
+        });
+        console.log(`✅ [continueAvatarWorkflow] script-gen completed`);
+      }
 
-    // 数字人模式：语音克隆
-    if (workflowProgressService && taskId) {
-      await workflowProgressService.startStep(taskId, 'voice-clone', '正在进行高保真语音克隆...');
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      await workflowProgressService.completeStep(taskId, 'voice-clone', { status: 'success' });
-    }
+      // 数字人模式：语音克隆
+      console.log(`🎤 [continueAvatarWorkflow] Step 4: voice-clone`);
+      if (workflowProgressService && taskId) {
+        await workflowProgressService.startStep(taskId, 'voice-clone', '正在进行高保真语音克隆...');
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        await workflowProgressService.completeStep(taskId, 'voice-clone', { status: 'success' });
+        console.log(`✅ [continueAvatarWorkflow] voice-clone completed`);
+      }
 
-    // 数字人模式：视频渲染
-    if (workflowProgressService && taskId) {
-      await workflowProgressService.startStep(taskId, 'avatar-render', '正在进行高清视频合成渲染...');
-      await new Promise(resolve => setTimeout(resolve, 8000));
-      await workflowProgressService.completeStep(taskId, 'avatar-render', {
-        videoUrl: 'https://placeholder.video/avatar_video.mp4',
-        status: 'success'
-      });
-    }
+      // 数字人模式：视频渲染
+      console.log(`🎬 [continueAvatarWorkflow] Step 5: avatar-render`);
+      if (workflowProgressService && taskId) {
+        await workflowProgressService.startStep(taskId, 'avatar-render', '正在进行高清视频合成渲染...');
+        await new Promise(resolve => setTimeout(resolve, 8000));
+        await workflowProgressService.completeStep(taskId, 'avatar-render', {
+          videoUrl: 'https://placeholder.video/avatar_video.mp4',
+          status: 'success'
+        });
+        console.log(`✅ [continueAvatarWorkflow] avatar-render completed`);
+      }
 
-    // 数字人模式：任务保存
-    if (workflowProgressService && taskId) {
-      await workflowProgressService.startStep(taskId, 'task-save', '正在保存任务到内容库...');
-      await workflowProgressService.completeStep(taskId, 'task-save', {
-        status: 'success',
-        result: {
+      // 数字人模式：任务保存
+      console.log(`💾 [continueAvatarWorkflow] Step 6: task-save`);
+      if (workflowProgressService && taskId) {
+        await workflowProgressService.startStep(taskId, 'task-save', '正在保存任务到内容库...');
+        await workflowProgressService.completeStep(taskId, 'task-save', {
+          status: 'success',
+          result: {
+            title: `${userProfile.productName} 数字人营销视频`,
+            type: 'AVATAR_VIDEO',
+            videoUrl: 'https://placeholder.video/avatar_video.mp4'
+          }
+        });
+        await workflowProgressService.completeWorkflow(taskId, {
           title: `${userProfile.productName} 数字人营销视频`,
-          type: 'AVATAR_VIDEO',
-          videoUrl: 'https://placeholder.video/avatar_video.mp4'
-        }
-      });
-      await workflowProgressService.completeWorkflow(taskId, {
-        title: `${userProfile.productName} 数字人营销视频`,
-        type: 'AVATAR_VIDEO'
-      });
-    }
+          type: 'AVATAR_VIDEO'
+        });
+        console.log(`✅ [continueAvatarWorkflow] task-save completed`);
+      }
 
-    this.generationStatus.set(userProfile.userId, 'completed');
-    this.addRealTimeActivity(userProfile.userId, '🎉 数字人视频录制完成！', 'execution');
+      this.generationStatus.set(userProfile.userId, 'completed');
+      this.addRealTimeActivity(userProfile.userId, '🎉 数字人视频录制完成！', 'execution');
+      console.log(`🎉 [continueAvatarWorkflow] All steps completed successfully!`);
+    } catch (error: any) {
+      console.error(`❌ [continueAvatarWorkflow] Error:`, error.message);
+      this.generationStatus.set(userProfile.userId, 'failed');
+      throw error;
+    }
   }
 
   /**
