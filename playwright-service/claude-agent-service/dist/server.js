@@ -1177,19 +1177,25 @@ app.post('/agent/auto/start', async (req, res) => {
             reviewMode: reviewMode || 'auto'
         };
         console.log(`[Auto Mode] Starting auto mode for user ${userId} with task: ${taskId}, mode: ${contentModePreference}`);
-        // 🔥 初始化工作流进度 - 修改为 await 确保顺序
-        if (workflowProgressService && taskId) {
-            const mode = contentModePreference || 'IMAGE_TEXT';
+        const mode = contentModePreference || 'IMAGE_TEXT';
+        const finalTaskId = taskId || `task_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        console.log(`🚀 [Auto Mode] Using TaskId: ${finalTaskId}, Mode: ${mode}`);
+        // 🔥 初始化工作流进度
+        if (workflowProgressService && finalTaskId) {
             try {
-                await workflowProgressService.initializeSteps(taskId, mode);
-                console.log(`[WorkflowProgress] ✅ Initialized steps for ${taskId}`);
+                await workflowProgressService.initializeSteps(finalTaskId, mode);
+                console.log(`[WorkflowProgress] ✅ Initialized steps for ${finalTaskId} (${mode})`);
             }
             catch (err) {
                 console.error(`[WorkflowProgress] ❌ Failed to initialize steps:`, err);
             }
         }
         // 🔥 FIX: 异步启动自动运营，传递内容模式偏好
-        autoContentManager.startAutoMode({ ...userProfile, taskId, contentModePreference: contentModePreference || 'IMAGE_TEXT' }, workflowProgressService)
+        autoContentManager.startAutoMode({
+            ...userProfile,
+            taskId: finalTaskId,
+            contentModePreference: mode
+        }, workflowProgressService)
             .then(() => {
             console.log(`[Auto Mode] ✅ 自动运营流程执行完成: ${userId}`);
         })
