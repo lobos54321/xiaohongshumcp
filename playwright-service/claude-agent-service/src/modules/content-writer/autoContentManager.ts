@@ -428,26 +428,40 @@ export class AutoContentManager {
 
       if (contentMode === 'AVATAR_VIDEO') {
         // === 数字人视频模式 ===
-        console.log(`🎬 [DEBUG] 进入数字人视频流程...`);
+        console.log(`🎬 [AVATAR_VIDEO] 进入数字人视频流程... taskId=${taskId}`);
         this.addRealTimeActivity(userProfile.userId, '🎭 进入数字人视频创作模式', 'execution');
 
         if (workflowProgressService && taskId) {
+          console.log(`📡 [AVATAR_VIDEO] Calling startStep for market-strategy...`);
           await workflowProgressService.startStep(taskId, 'market-strategy', '正在为您量身定制数字人营销策略...');
+          console.log(`✅ [AVATAR_VIDEO] startStep completed`);
+
+          // 🔥 立即发送初始进度，让用户立刻看到不是 0%
+          await workflowProgressService.updateProgress(taskId, 'market-strategy', 5, '正在初始化AI分析模块...');
+          console.log(`✅ [AVATAR_VIDEO] Initial progress (5%) sent`);
 
           // 🔥 心跳更新进度，让用户觉得系统在工作
+          let heartbeatCount = 0;
           const progressInterval = setInterval(async () => {
+            heartbeatCount++;
             const status = this.generationStatus.get(userProfile.userId);
+            console.log(`💓 [AVATAR_VIDEO] Heartbeat #${heartbeatCount}, status=${status}`);
             if (status !== 'generating') {
+              console.log(`⏹️ [AVATAR_VIDEO] Stopping heartbeat - status changed to ${status}`);
               clearInterval(progressInterval);
               return;
             }
-            const currentProgress = (Date.now() % 10000) / 100 > 90 ? 90 : (Date.now() % 10000) / 100;
-            await workflowProgressService.updateProgress(taskId, 'market-strategy', Math.floor(currentProgress), '深度分析目标客群与市场趋势...');
+            // 进度从 10% 逐步增加到 85%
+            const currentProgress = Math.min(10 + heartbeatCount * 15, 85);
+            console.log(`📈 [AVATAR_VIDEO] Sending progress update: ${currentProgress}%`);
+            await workflowProgressService.updateProgress(taskId, 'market-strategy', currentProgress, '深度分析目标客群与市场趋势...');
           }, 5000);
 
           try {
             // 数字人模式：策略分析
+            console.log(`🧠 [AVATAR_VIDEO] Starting createContentStrategy...`);
             const strategy = await this.createContentStrategy(userProfile);
+            console.log(`✅ [AVATAR_VIDEO] createContentStrategy completed`);
             clearInterval(progressInterval);
 
             await workflowProgressService.completeStep(taskId, 'market-strategy', {
