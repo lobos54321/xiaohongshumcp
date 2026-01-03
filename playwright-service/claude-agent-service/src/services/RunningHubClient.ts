@@ -220,18 +220,25 @@ export class RunningHubClient {
      * 获取任务状态和结果
      */
     async getTaskResult(taskId: string): Promise<RunningHubTaskResult> {
-        const response = await fetch(`${RUNNINGHUB_BASE_URL}/task/openapi/outputs?taskId=${taskId}&apiKey=${this.apiKey}`, {
-            method: 'GET',
+        const requestBody = {
+            taskId: taskId,
+            apiKey: this.apiKey
+        };
+
+        const response = await fetch(`${RUNNINGHUB_BASE_URL}/task/openapi/outputs`, {
+            method: 'POST',
             headers: {
-                'Host': 'www.runninghub.cn'
-            }
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestBody)
         });
 
         if (!response.ok) {
             throw new Error(`RunningHub get result error: ${response.status}`);
         }
 
-        return response.json() as Promise<RunningHubTaskResult>;
+        const result = await response.json() as RunningHubTaskResult;
+        return result;
     }
 
     /**
