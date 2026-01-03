@@ -248,7 +248,31 @@ export class RunningHubClient {
     }
 
     /**
-     * 获取任务状态和结果
+     * 查询任务状态
+     */
+    async getTaskStatus(taskId: string): Promise<{ code: number; msg: string; data: string }> {
+        const requestBody = {
+            taskId: taskId,
+            apiKey: this.apiKey
+        };
+
+        const response = await fetch(`${RUNNINGHUB_BASE_URL}/task/openapi/status`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            throw new Error(`RunningHub status error: ${response.status}`);
+        }
+
+        return response.json();
+    }
+
+    /**
+     * 获取任务结果
      */
     async getTaskResult(taskId: string): Promise<RunningHubTaskResult> {
         const requestBody = {
@@ -329,9 +353,17 @@ export class RunningHubClient {
                 return result;
             }
 
-            // code=804 表示任务仍在运行，继续等待
+            // code=804 表示任务仍在运行，查询详细状态
             if (result.code === 804) {
-                // 任务还在运行中，继续轮询
+                // 每 10 次轮询检查一次详细状态
+                if (pollCount % 10 === 0) {
+                    try {
+                        const statusResult = await this.getTaskStatus(taskId);
+                        console.log(`[RunningHubClient] Task status check: taskId=${taskId}, statusCode=${statusResult.code}, statusMsg=${statusResult.msg}, data=${statusResult.data}`);
+                    } catch (e) {
+                        // 忽略状态查询错误
+                    }
+                }
                 await this.sleep(pollIntervalMs);
                 continue;
             }
