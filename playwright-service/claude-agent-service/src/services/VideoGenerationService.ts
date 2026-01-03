@@ -50,6 +50,18 @@ export class VideoGenerationService {
     }
 
     /**
+     * 从 URL 提取文件名
+     */
+    private extractFileName(url: string): string {
+        if (!url) return '';
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+            const urlParts = url.split('/');
+            return urlParts[urlParts.length - 1].split('?')[0];
+        }
+        return url;
+    }
+
+    /**
      * 生成视频（根据内容模式）
      */
     async generateVideo(request: VideoGenerationRequest): Promise<VideoGenerationResult> {
@@ -100,10 +112,21 @@ export class VideoGenerationService {
             return { success: false, error: '缺少语音样本' };
         }
 
-        // 1. 使用 Index TTS 生成语音
+        // 1. 先把语音样本上传到 RunningHub
+        console.log('[VideoGenerationService] Uploading voice sample to RunningHub...');
+        let uploadedVoiceFileName: string;
+        try {
+            uploadedVoiceFileName = await this.runningHub.uploadFileFromUrl(voiceSampleUrl);
+            console.log(`[VideoGenerationService] Voice sample uploaded: ${uploadedVoiceFileName}`);
+        } catch (uploadError) {
+            console.error('[VideoGenerationService] Failed to upload voice sample:', uploadError);
+            throw new Error(`上传语音样本失败: ${uploadError instanceof Error ? uploadError.message : uploadError}`);
+        }
+
+        // 2. 使用 Index TTS 生成语音
         console.log('[VideoGenerationService] Generating TTS using Index TTS...');
         const ttsTaskResponse = await this.runningHub.createVoiceCloneTask({
-            cloneAudioUrl: voiceSampleUrl,
+            cloneAudioUrl: uploadedVoiceFileName,  // 使用上传后的文件名
             text: script,
             emotion: emotion
         });
@@ -134,11 +157,26 @@ export class VideoGenerationService {
         // 估算音频时长（中文约 4 字/秒）
         const estimatedDuration = Math.ceil(script.replace(/\s/g, '').length / 4);
 
-        // 2. 调用 RunningHub 生成数字人视频
+        // 3. 上传数字人照片到 RunningHub
+        console.log('[VideoGenerationService] Uploading avatar photo to RunningHub...');
+        let uploadedAvatarFileName: string;
+        try {
+            uploadedAvatarFileName = await this.runningHub.uploadFileFromUrl(avatarPhotoUrl);
+            console.log(`[VideoGenerationService] Avatar photo uploaded: ${uploadedAvatarFileName}`);
+        } catch (uploadError) {
+            console.error('[VideoGenerationService] Failed to upload avatar photo:', uploadError);
+            throw new Error(`上传数字人照片失败: ${uploadError instanceof Error ? uploadError.message : uploadError}`);
+        }
+
+        // 4. TTS 生成的音频已经在 RunningHub 服务器上，直接提取文件名
+        const audioFileName = this.extractFileName(audioUrl);
+        console.log(`[VideoGenerationService] Using TTS audio: ${audioFileName}`);
+
+        // 5. 调用 RunningHub 生成数字人视频
         console.log('[VideoGenerationService] Starting RunningHub avatar video task...');
         const videoTaskResponse = await this.runningHub.createAvatarVideoTask({
-            imageUrl: avatarPhotoUrl,
-            audioUrl: audioUrl,
+            imageUrl: uploadedAvatarFileName,  // 使用上传后的文件名
+            audioUrl: audioFileName,            // TTS 生成的音频文件名
             audioStartTime: 0,
             audioEndTime: estimatedDuration
         });

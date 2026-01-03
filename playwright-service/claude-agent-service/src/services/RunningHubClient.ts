@@ -270,7 +270,6 @@ export class RunningHubClient {
      * 上传文件到 RunningHub
      */
     async uploadFile(file: File | Buffer, fileName: string): Promise<string> {
-        // 注意：这个 API 路径需要根据实际文档确认
         const formData = new FormData();
 
         if (file instanceof Buffer) {
@@ -280,11 +279,10 @@ export class RunningHubClient {
         }
         formData.append('apiKey', this.apiKey);
 
+        console.log(`[RunningHubClient] Uploading file: ${fileName}`);
+
         const response = await fetch(`${RUNNINGHUB_BASE_URL}/task/openapi/upload`, {
             method: 'POST',
-            headers: {
-                'Host': 'www.runninghub.cn'
-            },
             body: formData
         });
 
@@ -292,8 +290,47 @@ export class RunningHubClient {
             throw new Error(`RunningHub upload error: ${response.status}`);
         }
 
-        const result = await response.json() as { data?: { fileName?: string; fileUrl?: string } };
-        return result.data?.fileName || result.data?.fileUrl || '';
+        const result = await response.json() as { code?: number; msg?: string; data?: { fileName?: string; fileUrl?: string } };
+
+        console.log(`[RunningHubClient] Upload result:`, result);
+
+        if (result.code !== 0) {
+            throw new Error(`RunningHub upload failed: ${result.msg}`);
+        }
+
+        const uploadedFileName = result.data?.fileName || '';
+        console.log(`[RunningHubClient] File uploaded successfully: ${uploadedFileName}`);
+        return uploadedFileName;
+    }
+
+    /**
+     * 从 URL 下载文件并上传到 RunningHub
+     */
+    async uploadFileFromUrl(fileUrl: string): Promise<string> {
+        console.log(`[RunningHubClient] Downloading file from: ${fileUrl}`);
+
+        // 下载文件
+        const response = await fetch(fileUrl);
+        if (!response.ok) {
+            throw new Error(`Failed to download file: ${response.status}`);
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+
+        // 提取原始文件名
+        const urlParts = fileUrl.split('/');
+        let fileName = urlParts[urlParts.length - 1].split('?')[0];
+
+        // 确保文件名有效
+        if (!fileName || fileName.length < 3) {
+            fileName = `file_${Date.now()}.mp3`;
+        }
+
+        console.log(`[RunningHubClient] Downloaded ${buffer.length} bytes, uploading as: ${fileName}`);
+
+        // 上传到 RunningHub
+        return this.uploadFile(buffer, fileName);
     }
 
     /**
