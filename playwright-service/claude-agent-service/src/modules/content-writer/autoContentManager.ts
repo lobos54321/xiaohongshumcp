@@ -705,6 +705,13 @@ export class AutoContentManager {
                 } else if (stage === 'video_started') {
                   // 视频任务已创建
                   console.log(`🎬 [continueAvatarWorkflow] Video task started: ${data?.taskId}`);
+                } else if (stage === 'video_progress') {
+                  // 🔥 视频渲染进度更新
+                  const elapsedFormatted = data?.elapsedFormatted || '0:00';
+                  await workflowProgressService.updateStep(taskId, 'avatar-render', {
+                    status: 'processing',
+                    current_action: `正在渲染... 已用时 ${elapsedFormatted}`
+                  });
                 }
               }
             });

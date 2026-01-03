@@ -32,7 +32,7 @@ export interface VideoGenerationRequest {
         duration?: number;
     };
     // 进度回调
-    onProgress?: (stage: 'tts_started' | 'tts_completed' | 'video_started' | 'video_completed', data?: any) => void;
+    onProgress?: (stage: 'tts_started' | 'tts_completed' | 'video_started' | 'video_progress' | 'video_completed', data?: any) => void;
 }
 
 export interface VideoGenerationResult {
@@ -49,6 +49,19 @@ export class VideoGenerationService {
 
     constructor() {
         this.runningHub = runningHubClient;
+    }
+
+    /**
+     * 格式化时间（秒 -> MM:SS 或 HH:MM:SS）
+     */
+    private formatTime(seconds: number): string {
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const secs = seconds % 60;
+        if (hours > 0) {
+            return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+        return `${minutes}:${secs.toString().padStart(2, '0')}`;
     }
 
     /**
@@ -212,7 +225,16 @@ export class VideoGenerationService {
         console.log('[VideoGenerationService] Waiting for RunningHub video completion...');
         const videoResult = await this.runningHub.waitForTaskCompletion(
             videoTaskResponse.data.taskId,
-            { maxWaitMs: 60 * 60 * 1000 }  // 视频最多等待 60 分钟 (实际可能需要 58 分钟)
+            {
+                maxWaitMs: 3 * 60 * 60 * 1000,  // 视频最多等待 3 小时
+                onProgress: onProgress ? (data) => {
+                    onProgress('video_progress', {
+                        elapsed: data.elapsed,
+                        elapsedFormatted: this.formatTime(data.elapsed),
+                        status: data.status
+                    });
+                } : undefined
+            }
         );
 
         // 提取视频 URL (data 是数组)

@@ -329,11 +329,16 @@ export class RunningHubClient {
      */
     async waitForTaskCompletion(
         taskId: string,
-        options: { maxWaitMs?: number; pollIntervalMs?: number } = {}
+        options: {
+            maxWaitMs?: number;
+            pollIntervalMs?: number;
+            onProgress?: (data: { elapsed: number; pollCount: number; status: string }) => void;
+        } = {}
     ): Promise<RunningHubTaskResult> {
-        const { maxWaitMs = 10 * 60 * 1000, pollIntervalMs = 5000 } = options; // 默认最多等待 10 分钟
+        const { maxWaitMs = 10 * 60 * 1000, pollIntervalMs = 5000, onProgress } = options; // 默认最多等待 10 分钟
         const startTime = Date.now();
         let pollCount = 0;
+        let lastProgressUpdate = 0;
 
         console.log(`[RunningHubClient] Waiting for task completion: ${taskId}, maxWait=${maxWaitMs}ms`);
 
@@ -355,6 +360,16 @@ export class RunningHubClient {
 
             // code=804 表示任务仍在运行，查询详细状态
             if (result.code === 804) {
+                // 每 30 秒发送一次进度更新
+                if (onProgress && (elapsed - lastProgressUpdate >= 30 || lastProgressUpdate === 0)) {
+                    lastProgressUpdate = elapsed;
+                    onProgress({
+                        elapsed,
+                        pollCount,
+                        status: 'rendering'
+                    });
+                }
+
                 // 每 10 次轮询检查一次详细状态
                 if (pollCount % 10 === 0) {
                     try {
