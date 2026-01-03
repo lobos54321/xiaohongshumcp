@@ -259,19 +259,40 @@ export class RunningHubClient {
             const result = await this.getTaskResult(taskId);
             const elapsed = Math.round((Date.now() - startTime) / 1000);
 
-            console.log(`[RunningHubClient] Poll #${pollCount} (${elapsed}s): taskId=${taskId}, status=${result.data?.taskStatus}, code=${result.code}, msg=${result.msg?.substring(0, 100)}`);
+            console.log(`[RunningHubClient] Poll #${pollCount} (${elapsed}s): taskId=${taskId}, code=${result.code}, msg=${result.msg?.substring(0, 50)}, outputs=${result.data?.outputs?.length || 0}`);
 
-            if (result.data?.taskStatus === 'COMPLETED' || result.data?.taskStatus === 'SUCCESS') {
-                console.log('[RunningHubClient] ✅ Task completed:', taskId);
+            // RunningHub 返回 code=0 且有 outputs 表示任务完成
+            if (result.code === 0 && result.msg === 'success' && result.data?.outputs && result.data.outputs.length > 0) {
+                console.log('[RunningHubClient] ✅ Task completed with outputs:', taskId);
                 return result;
             }
 
+            // 任务状态检查（备用）
+            if (result.data?.taskStatus === 'COMPLETED' || result.data?.taskStatus === 'SUCCESS') {
+                console.log('[RunningHubClient] ✅ Task completed by status:', taskId);
+                return result;
+            }
+
+            // code=804 表示任务仍在运行，继续等待
+            if (result.code === 804) {
+                // 任务还在运行中，继续轮询
+                await this.sleep(pollIntervalMs);
+                continue;
+            }
+
+            // 任务失败检查
             if (result.data?.taskStatus === 'FAILED' || result.data?.taskStatus === 'ERROR') {
                 console.error('[RunningHubClient] ❌ Task failed:', result);
                 throw new Error(`RunningHub task failed: ${result.msg}`);
             }
 
-            // 等待后再次轮询
+            // code=0 但没有 outputs，可能还在处理中，继续等待
+            if (result.code === 0 && (!result.data?.outputs || result.data.outputs.length === 0)) {
+                await this.sleep(pollIntervalMs);
+                continue;
+            }
+
+            // 其他未知状态，继续轮询
             await this.sleep(pollIntervalMs);
         }
 
