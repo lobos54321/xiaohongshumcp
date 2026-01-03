@@ -13,6 +13,7 @@ import { DatabaseService } from '../../databaseService.js';
 import { PlaywrightPublisher } from './playwrightPublisher.js';
 import { BrowserSessionManager } from '../auth/browserSessionManager.js';
 import { difyClient } from '../../services/DifyClient.js';
+import { videoGenerationService } from '../../services/VideoGenerationService.js';
 
 interface UserProfile {
   userId: string;
@@ -24,6 +25,8 @@ interface UserProfile {
   reviewMode: 'auto' | 'review' | 'edit';
   taskId?: string; // 🔥 用于关联进度追踪
   contentModePreference?: 'IMAGE_TEXT' | 'AVATAR_VIDEO' | 'UGC_VIDEO'; // 🔥 内容形式偏好
+  avatarPhotoUrl?: string; // 🔥 数字人照片 URL
+  voiceSampleUrl?: string; // 🔥 语音样本 URL
 }
 
 interface ContentPlan {
@@ -623,36 +626,114 @@ export class AutoContentManager {
 
       // 数字人模式：脚本生成
       console.log(`📜 [continueAvatarWorkflow] Step 3: script-gen`);
+      let generatedScript = '欢迎观看我们的视频！';
       if (workflowProgressService && taskId) {
         await workflowProgressService.startStep(taskId, 'script-gen', '正在根据策略生成数字人口播脚本...');
-        await new Promise(resolve => setTimeout(resolve, 4000));
-        await workflowProgressService.completeStep(taskId, 'script-gen', {
-          scriptCount: 1,
-          duration: '2-5分钟',
-          title: '爆款数字人口播'
-        });
-        console.log(`✅ [continueAvatarWorkflow] script-gen completed`);
+
+        try {
+          // 使用 Claude 生成真实脚本
+          const scriptPrompt = `你是一个小红书爆款短视频脚本专家。
+根据以下策略和产品信息，生成一个适合数字人口播的短视频脚本。
+产品：${userProfile.productName}
+目标受众：${userProfile.targetAudience}
+营销目标：${userProfile.marketingGoal === 'sales' ? '转化销售' : '品牌心智'}
+内容核心：${strategy.keyThemes[0] || '产品优势'}
+
+要求：
+1. 语言口语化，适合短视频快节奏
+2. 包含 Hook（开头吸引）、Body（核心内容）、CTA（行动号召）
+3. 字数控制在 200-400 字之间（适合 1-2 分钟视频）
+4. 只返回脚本正文，不要有任何其他解释。`;
+
+          const response = await this.anthropic.messages.create({
+            model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20240620',
+            max_tokens: 1000,
+            messages: [{ role: 'user', content: scriptPrompt }],
+          });
+
+          generatedScript = (response.content[0] as any).text;
+          console.log(`✅ [continueAvatarWorkflow] Script generated: ${generatedScript.substring(0, 50)}...`);
+
+          await workflowProgressService.completeStep(taskId, 'script-gen', {
+            script: generatedScript,
+            scriptCount: 1,
+            duration: '1-2分钟',
+            title: `${userProfile.productName} 爆款口播`
+          });
+        } catch (scriptError) {
+          console.error(`❌ [continueAvatarWorkflow] Script generation failed:`, scriptError);
+          // 降级使用默认脚本
+          await workflowProgressService.completeStep(taskId, 'script-gen', {
+            script: generatedScript,
+            scriptCount: 1,
+            error: 'AI 生成失败，使用默认脚本'
+          });
+        }
       }
 
-      // 数字人模式：语音克隆
-      console.log(`🎤 [continueAvatarWorkflow] Step 4: voice-clone`);
-      if (workflowProgressService && taskId) {
-        await workflowProgressService.startStep(taskId, 'voice-clone', '正在进行高保真语音克隆...');
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        await workflowProgressService.completeStep(taskId, 'voice-clone', { status: 'success' });
-        console.log(`✅ [continueAvatarWorkflow] voice-clone completed`);
-      }
+      // 数字人模式：语音克隆 & 视频渲染 (合并调用 VideoGenerationService)
+      console.log(`🎤 [continueAvatarWorkflow] Step 4 & 5: Video Generation`);
 
-      // 数字人模式：视频渲染
-      console.log(`🎬 [continueAvatarWorkflow] Step 5: avatar-render`);
+      let finalVideoUrl = 'https://placeholder.video/avatar_video.mp4';
+
       if (workflowProgressService && taskId) {
-        await workflowProgressService.startStep(taskId, 'avatar-render', '正在进行高清视频合成渲染...');
-        await new Promise(resolve => setTimeout(resolve, 8000));
-        await workflowProgressService.completeStep(taskId, 'avatar-render', {
-          videoUrl: 'https://placeholder.video/avatar_video.mp4',
-          status: 'success'
-        });
-        console.log(`✅ [continueAvatarWorkflow] avatar-render completed`);
+        // 更新语音克隆步骤状态
+        await workflowProgressService.startStep(taskId, 'voice-clone', '正在进行高保真语音克隆与视频合成...');
+
+        if (userProfile.avatarPhotoUrl && userProfile.voiceSampleUrl) {
+          try {
+            console.log(`🚀 [continueAvatarWorkflow] Calling VideoGenerationService...`);
+            const videoResult = await videoGenerationService.generateVideo({
+              supabaseUuid: userProfile.userId,
+              taskId: taskId,
+              contentMode: 'AVATAR_VIDEO',
+              script: generatedScript,
+              avatarPhotoUrl: userProfile.avatarPhotoUrl,
+              voiceSampleUrl: userProfile.voiceSampleUrl,
+              emotion: '自然, 专业'
+            });
+
+            if (videoResult.success && videoResult.videoUrl) {
+              finalVideoUrl = videoResult.videoUrl;
+              console.log(`✅ [continueAvatarWorkflow] Video generated successfully: ${finalVideoUrl}`);
+
+              await workflowProgressService.completeStep(taskId, 'voice-clone', {
+                status: 'success',
+                audioUrl: videoResult.audioUrl
+              });
+
+              await workflowProgressService.startStep(taskId, 'avatar-render', '视频渲染已完成');
+              await workflowProgressService.completeStep(taskId, 'avatar-render', {
+                videoUrl: finalVideoUrl,
+                status: 'success'
+              });
+            } else {
+              throw new Error(videoResult.error || '视频生成返回失败');
+            }
+          } catch (videoError: any) {
+            console.error(`❌ [continueAvatarWorkflow] Video generation failed:`, videoError);
+            await workflowProgressService.completeStep(taskId, 'voice-clone', {
+              status: 'failed',
+              error: videoError.message
+            });
+            await workflowProgressService.startStep(taskId, 'avatar-render', '视频渲染失败');
+            await workflowProgressService.completeStep(taskId, 'avatar-render', {
+              status: 'failed',
+              error: '由于 API 或配置问题，视频渲染失败'
+            });
+          }
+        } else {
+          console.warn(`⚠️ [continueAvatarWorkflow] Missing avatar photo or voice sample. Skipping real generation.`);
+          await workflowProgressService.completeStep(taskId, 'voice-clone', {
+            status: 'skipped',
+            error: '缺少配置的数字人形象或语音样本'
+          });
+          await workflowProgressService.startStep(taskId, 'avatar-render', '跳过视频渲染');
+          await workflowProgressService.completeStep(taskId, 'avatar-render', {
+            status: 'skipped',
+            videoUrl: finalVideoUrl
+          });
+        }
       }
 
       // 数字人模式：任务保存
@@ -664,7 +745,7 @@ export class AutoContentManager {
           result: {
             title: `${userProfile.productName} 数字人营销视频`,
             type: 'AVATAR_VIDEO',
-            videoUrl: 'https://placeholder.video/avatar_video.mp4'
+            videoUrl: finalVideoUrl
           }
         });
         await workflowProgressService.completeWorkflow(taskId, {

@@ -32,6 +32,7 @@ import { skyvernExecutor } from './orchestrator/executors/SkyvernExecutor.js';
 
 // Workflow Progress Module
 import { WorkflowProgressService } from './services/WorkflowProgressService.js';
+import { userProfileService } from './services/UserProfileService.js';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { MCPAuthClient } from './mcpAuthClient.js';
 
@@ -1339,17 +1340,27 @@ app.post('/agent/auto/start', async (req: Request, res: Response) => {
       });
     }
 
+    // 🔥 获取完整用户配置（包含数字人和语音样本）
+    const fullProfile = await userProfileService.getProfile(userId);
+    if (!fullProfile) {
+      console.warn(`[Auto Mode] No profile found in DB for user ${userId}, using request data.`);
+    }
+
     const userProfile = {
       userId,
-      productName,
-      targetAudience: targetAudience || '目标用户',
-      marketingGoal: marketingGoal || 'brand',
-      postFrequency: postFrequency || 'daily',
-      brandStyle: brandStyle || 'warm',
-      reviewMode: reviewMode || 'auto'
+      productName: productName || fullProfile?.product_name || '我的产品',
+      targetAudience: targetAudience || fullProfile?.target_audience || '目标用户',
+      marketingGoal: (marketingGoal || fullProfile?.marketing_goal || 'brand') as any,
+      postFrequency: (postFrequency || fullProfile?.post_frequency || 'daily') as any,
+      brandStyle: (brandStyle || fullProfile?.brand_style || 'warm') as any,
+      reviewMode: (reviewMode || fullProfile?.review_mode || 'auto') as any,
+      avatarPhotoUrl: fullProfile?.avatar_photo_url,
+      voiceSampleUrl: fullProfile?.voice_sample_url
     };
 
     console.log(`[Auto Mode] Starting auto mode for user ${userId} with task: ${taskId}, mode: ${contentModePreference}`);
+    if (fullProfile?.avatar_photo_url) console.log(`[Auto Mode] 👤 Avatar Photo URL: ${fullProfile.avatar_photo_url}`);
+    if (fullProfile?.voice_sample_url) console.log(`[Auto Mode] 🎤 Voice Sample URL: ${fullProfile.voice_sample_url}`);
 
     const mode = contentModePreference || 'IMAGE_TEXT';
     const finalTaskId = taskId || `task_${Date.now()}_${Math.random().toString(36).substring(7)}`;
