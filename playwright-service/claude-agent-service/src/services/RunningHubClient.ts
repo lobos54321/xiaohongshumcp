@@ -179,21 +179,22 @@ export class RunningHubClient {
      * @param webappId - 可选，指定工作流 ID，默认使用实例配置的 ID
      */
     async runTask(nodeInfoList: NodeInfo[], webappId?: string): Promise<RunningHubTaskResponse> {
+        const effectiveWebappId = webappId || this.webappId;
         const requestBody: RunningHubTaskRequest = {
-            webappId: webappId || this.webappId,
+            webappId: effectiveWebappId,
             apiKey: this.apiKey,
             nodeInfoList
         };
 
         console.log('[RunningHubClient] Starting task:', {
-            webappId: this.webappId,
+            webappId: effectiveWebappId,
+            apiKeyUsed: `${this.apiKey.substring(0, 5)}***`,
             nodeCount: nodeInfoList.length
         });
 
         const response = await fetch(`${RUNNINGHUB_BASE_URL}/task/openapi/ai-app/run`, {
             method: 'POST',
             headers: {
-                'Host': 'www.runninghub.cn',
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(requestBody)
@@ -207,7 +208,9 @@ export class RunningHubClient {
 
         console.log('[RunningHubClient] Task created:', {
             taskId: result.data?.taskId,
-            status: result.data?.taskStatus
+            status: result.data?.taskStatus,
+            msg: result.msg,
+            code: result.code
         });
 
         return result;
