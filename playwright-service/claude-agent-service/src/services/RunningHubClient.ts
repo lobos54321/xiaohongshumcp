@@ -126,6 +126,14 @@ export class RunningHubClient {
             }
         ];
 
+        console.log('[RunningHubClient] Creating avatar video task with params:', {
+            imageFileName,
+            audioFileName,
+            audioStartTime,
+            audioEndTime: endTime,
+            audioDuration: endTime - audioStartTime
+        });
+
         return this.runTask(nodeInfoList, AVATAR_VIDEO_WEBAPP_ID);
     }
 
