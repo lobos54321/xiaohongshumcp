@@ -212,7 +212,7 @@ export class VideoGenerationService {
         console.log('[VideoGenerationService] Waiting for RunningHub video completion...');
         const videoResult = await this.runningHub.waitForTaskCompletion(
             videoTaskResponse.data.taskId,
-            { maxWaitMs: 20 * 60 * 1000 }  // 视频最多等待 20 分钟
+            { maxWaitMs: 30 * 60 * 1000 }  // 视频最多等待 30 分钟
         );
 
         // 提取视频 URL (data 是数组)
