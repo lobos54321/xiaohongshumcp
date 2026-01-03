@@ -268,7 +268,7 @@ export class RunningHubClient {
             throw new Error(`RunningHub status error: ${response.status}`);
         }
 
-        return response.json();
+        return response.json() as Promise<{ code: number; msg: string; data: string }>;
     }
 
     /**
