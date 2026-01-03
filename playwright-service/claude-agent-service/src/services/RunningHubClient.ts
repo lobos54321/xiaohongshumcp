@@ -243,19 +243,24 @@ export class RunningHubClient {
     ): Promise<RunningHubTaskResult> {
         const { maxWaitMs = 10 * 60 * 1000, pollIntervalMs = 5000 } = options; // 默认最多等待 10 分钟
         const startTime = Date.now();
+        let pollCount = 0;
 
-        console.log('[RunningHubClient] Waiting for task completion:', taskId);
+        console.log(`[RunningHubClient] Waiting for task completion: ${taskId}, maxWait=${maxWaitMs}ms`);
 
         while (Date.now() - startTime < maxWaitMs) {
+            pollCount++;
             const result = await this.getTaskResult(taskId);
+            const elapsed = Math.round((Date.now() - startTime) / 1000);
+
+            console.log(`[RunningHubClient] Poll #${pollCount} (${elapsed}s): taskId=${taskId}, status=${result.data?.taskStatus}, code=${result.code}, msg=${result.msg?.substring(0, 100)}`);
 
             if (result.data?.taskStatus === 'COMPLETED' || result.data?.taskStatus === 'SUCCESS') {
-                console.log('[RunningHubClient] Task completed:', taskId);
+                console.log('[RunningHubClient] ✅ Task completed:', taskId);
                 return result;
             }
 
             if (result.data?.taskStatus === 'FAILED' || result.data?.taskStatus === 'ERROR') {
-                console.error('[RunningHubClient] Task failed:', result);
+                console.error('[RunningHubClient] ❌ Task failed:', result);
                 throw new Error(`RunningHub task failed: ${result.msg}`);
             }
 
