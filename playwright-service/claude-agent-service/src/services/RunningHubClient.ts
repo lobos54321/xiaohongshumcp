@@ -316,5 +316,5 @@ export class RunningHubClient {
 
 // 默认配置的单例（需要设置环境变量 RUNNINGHUB_API_KEY）
 export const runningHubClient = new RunningHubClient({
-    apiKey: process.env.RUNNINGHUB_API_KEY || '1f57cb4a52d244da9a43e07b065d3bf7'
+    apiKey: process.env.RUNNINGHUB_API_KEY || 'd5e5511b4b3a4133bbb76622fcdf2883'
 });

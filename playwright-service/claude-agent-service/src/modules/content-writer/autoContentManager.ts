@@ -712,15 +712,14 @@ export class AutoContentManager {
             }
           } catch (videoError: any) {
             console.error(`❌ [continueAvatarWorkflow] Video generation failed:`, videoError);
-            await workflowProgressService.completeStep(taskId, 'voice-clone', {
-              status: 'failed',
-              error: videoError.message
-            });
-            await workflowProgressService.startStep(taskId, 'avatar-render', '视频渲染失败');
-            await workflowProgressService.completeStep(taskId, 'avatar-render', {
-              status: 'failed',
-              error: '由于 API 或配置问题，视频渲染失败'
-            });
+
+            // 🔥 标记失败并直接退出，不继续后续步骤
+            await workflowProgressService.failStep(taskId, 'voice-clone', `视频生成失败: ${videoError.message}`);
+            await workflowProgressService.failStep(taskId, 'avatar-render', '由于前置步骤失败，渲染已中止');
+
+            this.addRealTimeActivity(userProfile.userId, `❌ 视频生成失败: ${videoError.message}`, 'error');
+            this.generationStatus.set(userProfile.userId, 'failed');
+            return; // 🛑 中止执行，不再进入下方的 task-save
           }
         } else {
           console.warn(`⚠️ [continueAvatarWorkflow] Missing avatar photo or voice sample. Skipping real generation.`);
