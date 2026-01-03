@@ -16,6 +16,7 @@ export interface UserProfile {
     marketing_goal: string;
     brand_style: string;
     review_mode: string;
+    post_frequency: string;
     material_images: string[] | null;
     material_documents: string[] | null;
     material_analysis: string | null;
