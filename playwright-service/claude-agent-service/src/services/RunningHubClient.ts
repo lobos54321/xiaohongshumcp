@@ -189,28 +189,54 @@ export class RunningHubClient {
             nodeCount: nodeInfoList.length
         });
 
-        const response = await fetch(`${RUNNINGHUB_BASE_URL}/task/openapi/ai-app/run`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(requestBody)
-        });
+        // 重试逻辑处理临时性网络错误
+        const maxRetries = 3;
+        let lastError: Error | null = null;
 
-        if (!response.ok) {
-            throw new Error(`RunningHub API error: ${response.status}`);
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                const response = await fetch(`${RUNNINGHUB_BASE_URL}/task/openapi/ai-app/run`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (!response.ok) {
+                    // 5xx 错误可能是临时性的，允许重试
+                    if (response.status >= 500 && attempt < maxRetries) {
+                        console.warn(`[RunningHubClient] Transient error ${response.status} on runTask, retrying (${attempt}/${maxRetries})...`);
+                        await this.sleep(2000 * attempt); // 指数退避
+                        continue;
+                    }
+                    throw new Error(`RunningHub API error: ${response.status}`);
+                }
+
+                const result = await response.json() as RunningHubTaskResponse;
+
+                console.log('[RunningHubClient] Task created:', {
+                    taskId: result.data?.taskId,
+                    status: result.data?.taskStatus,
+                    msg: result.msg,
+                    code: result.code
+                });
+
+                return result;
+            } catch (error) {
+                lastError = error instanceof Error ? error : new Error(String(error));
+                if (attempt < maxRetries && !lastError.message.includes('RunningHub API error: 4')) {
+                    // 对非4xx错误进行重试
+                    console.warn(`[RunningHubClient] runTask failed, retrying (${attempt}/${maxRetries}):`, lastError.message);
+                    await this.sleep(2000 * attempt);
+                } else if (lastError.message.includes('RunningHub API error: 4')) {
+                    // 4xx 错误不重试
+                    throw lastError;
+                }
+            }
         }
 
-        const result = await response.json() as RunningHubTaskResponse;
-
-        console.log('[RunningHubClient] Task created:', {
-            taskId: result.data?.taskId,
-            status: result.data?.taskStatus,
-            msg: result.msg,
-            code: result.code
-        });
-
-        return result;
+        throw lastError || new Error('RunningHub runTask failed after retries');
     }
 
     /**
