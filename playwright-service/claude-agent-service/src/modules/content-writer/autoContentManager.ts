@@ -1051,7 +1051,21 @@ export class AutoContentManager {
 
       console.log('📋 [DEBUG] 清理后的响应文本:', responseText.substring(0, 200) + '...');
 
-      const rawStrategy = JSON.parse(responseText);
+      let rawStrategy: any;
+      try {
+        rawStrategy = JSON.parse(responseText);
+      } catch (parseError: any) {
+        console.warn(`⚠️ [JSON修复] 原始文本解析失败: ${parseError.message}`);
+        const repaired = this.tryRepairJson(responseText);
+        if (repaired) {
+          console.log('✅ [JSON修复] 成功修复并解析 JSON');
+          rawStrategy = repaired;
+        } else {
+          console.error('❌ [JSON修复] 修复后仍然解析失败');
+          throw parseError;
+        }
+      }
+
       console.log('📋 [DEBUG] Claude原始策略数据:', JSON.stringify(rawStrategy, null, 2));
 
       // 智能解析Claude返回的数据，支持多种格式
@@ -3789,6 +3803,74 @@ export class AutoContentManager {
     }
 
     throw new Error('发布超时（10分钟）');
+  }
+
+  /**
+   * 🛠️ 尝试修复损坏的 JSON 文本（处理截断或多余文本）
+   */
+  private tryRepairJson(jsonStr: string): any {
+    try {
+      // 1. 尝试找到第一个 { 和最后一个 }
+      const start = jsonStr.indexOf('{');
+      const end = jsonStr.lastIndexOf('}');
+      if (start !== -1 && end !== -1 && end > start) {
+        const potentialJson = jsonStr.substring(start, end + 1);
+        try {
+          return JSON.parse(potentialJson);
+        } catch (e) {
+          // 继续尝试修复
+        }
+      }
+
+      // 2. 处理截断的 JSON（尝试闭合未闭合的大括号）
+      let cleanStr = jsonStr.trim();
+      if (cleanStr.startsWith('{')) {
+        let openBraces = 0;
+        let openBrackets = 0;
+        let inString = false;
+        let isEscaped = false;
+
+        for (let i = 0; i < cleanStr.length; i++) {
+          const char = cleanStr[i];
+          if (char === '\\') {
+            isEscaped = !isEscaped;
+          } else if (char === '"' && !isEscaped) {
+            inString = !inString;
+            isEscaped = false;
+          } else if (!inString) {
+            if (char === '{') openBraces++;
+            else if (char === '}') openBraces--;
+            else if (char === '[') openBrackets++;
+            else if (char === ']') openBrackets--;
+            isEscaped = false;
+          } else {
+            isEscaped = false;
+          }
+        }
+
+        // 补齐未闭合的括号
+        let repairedStr = cleanStr;
+        if (inString) repairedStr += '"';
+        while (openBrackets > 0) {
+          repairedStr += ']';
+          openBrackets--;
+        }
+        while (openBraces > 0) {
+          repairedStr += '}';
+          openBraces--;
+        }
+
+        try {
+          return JSON.parse(repairedStr);
+        } catch (e) {
+          // 仍然失败
+        }
+      }
+
+      return null;
+    } catch (e) {
+      return null;
+    }
   }
 }
 

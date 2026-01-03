@@ -1340,10 +1340,25 @@ app.post('/agent/auto/start', async (req: Request, res: Response) => {
       });
     }
 
+    // 🔥 规范化 UUID：将 user_xxx_prome 转换为标准 UUID 格式
+    let normalizedUserId = userId;
+    if (userId.startsWith('user_')) {
+      // 提取中间的 32 位十六进制字符串
+      const match = userId.match(/user_([a-f0-9]{32})_prome/);
+      if (match) {
+        const h = match[1];
+        normalizedUserId = `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+      }
+    } else if (userId.length === 32 && !userId.includes('-')) {
+      normalizedUserId = `${userId.slice(0, 8)}-${userId.slice(8, 12)}-${userId.slice(12, 16)}-${userId.slice(16, 20)}-${userId.slice(20)}`;
+    }
+
+    console.log(`[Auto Mode] Normalized User ID for DB search: ${normalizedUserId}`);
+
     // 🔥 获取完整用户配置（包含数字人和语音样本）
-    const fullProfile = await userProfileService.getProfile(userId);
+    const fullProfile = await userProfileService.getProfile(normalizedUserId);
     if (!fullProfile) {
-      console.warn(`[Auto Mode] No profile found in DB for user ${userId}, using request data.`);
+      console.warn(`[Auto Mode] No profile found in DB for user ${normalizedUserId}, using request data.`);
     }
 
     const userProfile = {

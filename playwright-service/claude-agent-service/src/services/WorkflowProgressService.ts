@@ -113,23 +113,25 @@ export class WorkflowProgressService {
             };
             memSteps.set(step.step_key, newStep);
 
-            // 异步保存到数据库，不阻塞初始化
-            this.supabase
-                .from('xhs_workflow_steps')
-                .upsert({
-                    task_id: taskId,
-                    step_key: step.step_key,
-                    step_title: step.step_title,
-                    agent_name: step.agent_name,
-                    status: 'pending',
-                    progress: 0,
-                }, { onConflict: 'task_id,step_key' })
-                .then(({ error }) => {
-                    // 🔥 只有在真正出错且不是格式问题时才记录
-                    if (error && error.code !== '22P02') {
-                        console.error(`[WorkflowProgressService] DB Upsert Error:`, error.message);
-                    }
-                });
+            // 异步保存到数据库，不阻塞初始化（仅当 taskId 是 UUID 时）
+            if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(taskId)) {
+                this.supabase
+                    .from('xhs_workflow_steps')
+                    .upsert({
+                        task_id: taskId,
+                        step_key: step.step_key,
+                        step_title: step.step_title,
+                        agent_name: step.agent_name,
+                        status: 'pending',
+                        progress: 0,
+                    }, { onConflict: 'task_id,step_key' })
+                    .then(({ error }) => {
+                        // 🔥 只有在真正出错且不是格式问题时才记录
+                        if (error && error.code !== '22P02') {
+                            console.error(`[WorkflowProgressService] DB Upsert Error:`, error.message);
+                        }
+                    });
+            }
         }
 
         stepsCache.set(taskId, memSteps);
@@ -182,17 +184,19 @@ export class WorkflowProgressService {
         const updatedStep = { ...currentStep, ...updateData } as WorkflowStep;
         memSteps.set(stepKey, updatedStep);
 
-        // 2. 异步更新数据库 (持久化)
-        this.supabase
-            .from('xhs_workflow_steps')
-            .update(updateData)
-            .eq('task_id', taskId)
-            .eq('step_key', stepKey)
-            .then(({ error }) => {
-                if (error && error.code !== '22P02') {
-                    console.error(`[WorkflowProgressService] DB Update Error:`, error.message);
-                }
-            });
+        // 2. 异步更新数据库 (持久化) - 仅当 taskId 为 UUID 时
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(taskId)) {
+            this.supabase
+                .from('xhs_workflow_steps')
+                .update(updateData)
+                .eq('task_id', taskId)
+                .eq('step_key', stepKey)
+                .then(({ error }) => {
+                    if (error && error.code !== '22P02') {
+                        console.error(`[WorkflowProgressService] DB Update Error:`, error.message);
+                    }
+                });
+        }
 
         // 3. 立即推送 WebSocket 更新 (无视数据库延迟)
         this.broadcastStepUpdate(taskId, updatedStep);
@@ -260,6 +264,13 @@ export class WorkflowProgressService {
      * 获取任务的所有步骤
      */
     async getSteps(taskId: string): Promise<WorkflowStep[]> {
+        // 🔥 如果不是 UUID 格式，不查数据库（防止报 22P02 错误）
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(taskId);
+        if (!isUuid) {
+            // console.log(`[WorkflowProgressService] taskId ${taskId} is not a UUID, skipping DB getSteps.`);
+            return [];
+        }
+
         const { data, error } = await this.supabase
             .from('xhs_workflow_steps')
             .select('*')
