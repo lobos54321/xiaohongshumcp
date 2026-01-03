@@ -717,7 +717,7 @@ export class AutoContentManager {
             await workflowProgressService.failStep(taskId, 'voice-clone', `视频生成失败: ${videoError.message}`);
             await workflowProgressService.failStep(taskId, 'avatar-render', '由于前置步骤失败，渲染已中止');
 
-            this.addRealTimeActivity(userProfile.userId, `❌ 视频生成失败: ${videoError.message}`, 'error');
+            this.addRealTimeActivity(userProfile.userId, `❌ 视频生成失败: ${videoError.message}`, 'execution');
             this.generationStatus.set(userProfile.userId, 'failed');
             return; // 🛑 中止执行，不再进入下方的 task-save
           }
