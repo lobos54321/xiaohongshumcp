@@ -328,6 +328,18 @@ export class RunningHubClient {
                 continue;
             }
 
+            // code=805 表示任务状态错误，任务失败
+            if (result.code === 805) {
+                console.error(`[RunningHubClient] ❌ Task failed with status error: ${taskId}, code=${result.code}, msg=${result.msg}`);
+                throw new Error(`RunningHub task failed: ${result.msg} (code=${result.code})`);
+            }
+
+            // 其他非零错误码也视为失败
+            if (result.code !== 0 && result.code !== 804) {
+                console.error(`[RunningHubClient] ❌ Task error: ${taskId}, code=${result.code}, msg=${result.msg}`);
+                throw new Error(`RunningHub task error: ${result.msg} (code=${result.code})`);
+            }
+
             // code=0 但 data 为空，可能还在处理中，继续等待
             if (result.code === 0 && (!Array.isArray(result.data) || result.data.length === 0)) {
                 await this.sleep(pollIntervalMs);
