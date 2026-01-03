@@ -172,15 +172,22 @@ export class VideoGenerationService {
             throw new Error(`上传数字人照片失败: ${uploadError instanceof Error ? uploadError.message : uploadError}`);
         }
 
-        // 4. TTS 生成的音频已经在 RunningHub 服务器上，直接提取文件名
-        const audioFileName = this.extractFileName(audioUrl);
-        console.log(`[VideoGenerationService] Using TTS audio: ${audioFileName}`);
+        // 4. TTS 生成的音频在 CDN 上，需要重新上传到 RunningHub 输入存储
+        console.log('[VideoGenerationService] Re-uploading TTS audio to RunningHub input storage...');
+        let uploadedAudioFileName: string;
+        try {
+            uploadedAudioFileName = await this.runningHub.uploadFileFromUrl(audioUrl);
+            console.log(`[VideoGenerationService] TTS audio re-uploaded: ${uploadedAudioFileName}`);
+        } catch (uploadError) {
+            console.error('[VideoGenerationService] Failed to re-upload TTS audio:', uploadError);
+            throw new Error(`重新上传 TTS 音频失败: ${uploadError instanceof Error ? uploadError.message : uploadError}`);
+        }
 
         // 5. 调用 RunningHub 生成数字人视频
         console.log('[VideoGenerationService] Starting RunningHub avatar video task...');
         const videoTaskResponse = await this.runningHub.createAvatarVideoTask({
-            imageUrl: uploadedAvatarFileName,  // 使用上传后的文件名
-            audioUrl: audioFileName,            // TTS 生成的音频文件名
+            imageUrl: uploadedAvatarFileName,   // 使用上传后的照片文件名
+            audioUrl: uploadedAudioFileName,    // 使用重新上传后的音频文件名
             audioStartTime: 0,
             audioEndTime: estimatedDuration
         });
