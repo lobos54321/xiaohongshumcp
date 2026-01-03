@@ -238,6 +238,12 @@ export class RunningHubClient {
         }
 
         const result = await response.json() as RunningHubTaskResult;
+
+        // 🔥 详细日志：查看完整响应结构
+        if (result.code === 0) {
+            console.log('[RunningHubClient] Full API response:', JSON.stringify(result, null, 2).substring(0, 500));
+        }
+
         return result;
     }
 
