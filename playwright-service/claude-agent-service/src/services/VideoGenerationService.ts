@@ -31,6 +31,8 @@ export interface VideoGenerationRequest {
         language?: string;
         duration?: number;
     };
+    // 进度回调
+    onProgress?: (stage: 'tts_started' | 'tts_completed' | 'video_started' | 'video_completed', data?: any) => void;
 }
 
 export interface VideoGenerationResult {
@@ -102,7 +104,7 @@ export class VideoGenerationService {
      * 2. 数字人照片 + 语音 → RunningHub → 视频
      */
     private async generateAvatarVideo(request: VideoGenerationRequest): Promise<VideoGenerationResult> {
-        const { supabaseUuid, script, avatarPhotoUrl, voiceSampleUrl, emotion = '' } = request;
+        const { supabaseUuid, script, avatarPhotoUrl, voiceSampleUrl, emotion = '', onProgress } = request;
 
         if (!avatarPhotoUrl) {
             return { success: false, error: '缺少数字人照片' };
@@ -158,6 +160,11 @@ export class VideoGenerationService {
         const audioUrl = audioOutput.fileUrl;
         console.log('[VideoGenerationService] TTS audio generated:', audioUrl);
 
+        // 🔥 通知 TTS 完成
+        if (onProgress) {
+            onProgress('tts_completed', { audioUrl });
+        }
+
         // 估算音频时长（中文约 4 字/秒）
         const estimatedDuration = Math.ceil(script.replace(/\s/g, '').length / 4);
 
@@ -194,6 +201,11 @@ export class VideoGenerationService {
 
         if (videoTaskResponse.code !== 0) {
             throw new Error(`RunningHub avatar video task creation failed: ${videoTaskResponse.msg}`);
+        }
+
+        // 🔥 通知视频渲染开始
+        if (onProgress) {
+            onProgress('video_started', { taskId: videoTaskResponse.data.taskId });
         }
 
         // 3. 等待视频生成完成

@@ -678,7 +678,7 @@ export class AutoContentManager {
 
       if (workflowProgressService && taskId) {
         // 更新语音克隆步骤状态
-        await workflowProgressService.startStep(taskId, 'voice-clone', '正在进行高保真语音克隆与视频合成...');
+        await workflowProgressService.startStep(taskId, 'voice-clone', '正在进行高保真语音克隆...');
 
         if (userProfile.avatarPhotoUrl && userProfile.voiceSampleUrl) {
           try {
@@ -690,21 +690,34 @@ export class AutoContentManager {
               script: generatedScript,
               avatarPhotoUrl: userProfile.avatarPhotoUrl,
               voiceSampleUrl: userProfile.voiceSampleUrl,
-              emotion: '自然, 专业'
+              emotion: '自然, 专业',
+              // 🔥 进度回调：更新前端状态
+              onProgress: async (stage, data) => {
+                console.log(`📍 [VideoProgress] Stage: ${stage}`, data);
+                if (stage === 'tts_completed') {
+                  // TTS 完成，更新 voice-clone 步骤
+                  await workflowProgressService.completeStep(taskId, 'voice-clone', {
+                    status: 'success',
+                    audioUrl: data?.audioUrl
+                  });
+                  // 开始 avatar-render 步骤
+                  await workflowProgressService.startStep(taskId, 'avatar-render', '正在渲染数字人视频...');
+                } else if (stage === 'video_started') {
+                  // 视频任务已创建
+                  console.log(`🎬 [continueAvatarWorkflow] Video task started: ${data?.taskId}`);
+                }
+              }
             });
 
             if (videoResult.success && videoResult.videoUrl) {
               finalVideoUrl = videoResult.videoUrl;
               console.log(`✅ [continueAvatarWorkflow] Video generated successfully: ${finalVideoUrl}`);
 
-              await workflowProgressService.completeStep(taskId, 'voice-clone', {
-                status: 'success',
-                audioUrl: videoResult.audioUrl
-              });
-
-              await workflowProgressService.startStep(taskId, 'avatar-render', '视频渲染已完成');
+              // voice-clone 已在 onProgress 回调中完成
+              // 完成 avatar-render 步骤，传递视频 URL 供预览
               await workflowProgressService.completeStep(taskId, 'avatar-render', {
                 videoUrl: finalVideoUrl,
+                audioUrl: videoResult.audioUrl,
                 status: 'success'
               });
             } else {
