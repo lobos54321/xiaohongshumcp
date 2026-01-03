@@ -142,12 +142,16 @@ export class VideoGenerationService {
             { maxWaitMs: 5 * 60 * 1000 }  // TTS 最多等待 5 分钟
         );
 
-        // 提取生成的音频 URL
-        const audioOutput = ttsResult.data?.outputs?.find(o =>
-            o.fileType === 'audio' || o.fileName.endsWith('.mp3') || o.fileName.endsWith('.wav')
-        );
+        // 提取生成的音频 URL (data 是数组)
+        const audioOutput = Array.isArray(ttsResult.data)
+            ? ttsResult.data.find(o =>
+                o.fileType === 'flac' || o.fileType === 'audio' || o.fileType === 'mp3' || o.fileType === 'wav' ||
+                o.fileUrl?.endsWith('.flac') || o.fileUrl?.endsWith('.mp3') || o.fileUrl?.endsWith('.wav')
+            )
+            : undefined;
 
         if (!audioOutput?.fileUrl) {
+            console.error('[VideoGenerationService] TTS result data:', JSON.stringify(ttsResult.data));
             throw new Error('No audio output from Index TTS');
         }
 
@@ -192,12 +196,16 @@ export class VideoGenerationService {
             { maxWaitMs: 10 * 60 * 1000 }  // 视频最多等待 10 分钟
         );
 
-        // 提取视频 URL
-        const videoOutput = videoResult.data?.outputs?.find(o =>
-            o.fileType === 'video' || o.fileName.endsWith('.mp4')
-        );
+        // 提取视频 URL (data 是数组)
+        const videoOutput = Array.isArray(videoResult.data)
+            ? videoResult.data.find((o: { fileType: string; fileUrl?: string }) =>
+                o.fileType === 'video' || o.fileType === 'mp4' ||
+                o.fileUrl?.endsWith('.mp4') || o.fileUrl?.endsWith('.webm')
+            )
+            : undefined;
 
         if (!videoOutput?.fileUrl) {
+            console.error('[VideoGenerationService] Video result data:', JSON.stringify(videoResult.data));
             throw new Error('No video output from RunningHub');
         }
 
@@ -307,9 +315,12 @@ export class VideoGenerationService {
                 { maxWaitMs: 5 * 60 * 1000 }
             );
 
-            const audioOutput = ttsResult.data?.outputs?.find(o =>
-                o.fileType === 'audio' || o.fileName.endsWith('.mp3') || o.fileName.endsWith('.wav')
-            );
+            const audioOutput = Array.isArray(ttsResult.data)
+                ? ttsResult.data.find((o: { fileType: string; fileUrl?: string }) =>
+                    o.fileType === 'flac' || o.fileType === 'audio' || o.fileType === 'mp3' || o.fileType === 'wav' ||
+                    o.fileUrl?.endsWith('.flac') || o.fileUrl?.endsWith('.mp3') || o.fileUrl?.endsWith('.wav')
+                )
+                : undefined;
 
             if (!audioOutput?.fileUrl) {
                 throw new Error('No audio output');

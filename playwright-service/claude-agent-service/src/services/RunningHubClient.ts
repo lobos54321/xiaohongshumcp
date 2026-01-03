@@ -50,17 +50,14 @@ export interface RunningHubTaskResponse {
 export interface RunningHubTaskResult {
     code: number;
     msg: string;
-    data: {
-        taskId: string;
-        taskStatus: string;
-        fileUrl?: string;
-        outputs?: Array<{
-            nodeId: string;
-            fileName: string;
-            fileUrl: string;
-            fileType: string;
-        }>;
-    };
+    errorMessages?: string | null;
+    data: Array<{
+        fileUrl: string;
+        fileType: string;
+        taskCostTime?: string;
+        nodeId?: string;
+        consumeMoney?: string;
+    }>;
 }
 
 export interface AvatarVideoParams {
@@ -265,17 +262,14 @@ export class RunningHubClient {
             const result = await this.getTaskResult(taskId);
             const elapsed = Math.round((Date.now() - startTime) / 1000);
 
-            console.log(`[RunningHubClient] Poll #${pollCount} (${elapsed}s): taskId=${taskId}, code=${result.code}, msg=${result.msg?.substring(0, 50)}, outputs=${result.data?.outputs?.length || 0}`);
+            // data 是一个数组，直接检查长度
+            const outputCount = Array.isArray(result.data) ? result.data.length : 0;
 
-            // RunningHub 返回 code=0 且有 outputs 表示任务完成
-            if (result.code === 0 && result.msg === 'success' && result.data?.outputs && result.data.outputs.length > 0) {
-                console.log('[RunningHubClient] ✅ Task completed with outputs:', taskId);
-                return result;
-            }
+            console.log(`[RunningHubClient] Poll #${pollCount} (${elapsed}s): taskId=${taskId}, code=${result.code}, msg=${result.msg?.substring(0, 50)}, outputs=${outputCount}`);
 
-            // 任务状态检查（备用）
-            if (result.data?.taskStatus === 'COMPLETED' || result.data?.taskStatus === 'SUCCESS') {
-                console.log('[RunningHubClient] ✅ Task completed by status:', taskId);
+            // RunningHub 返回 code=0 且 data 数组有内容表示任务完成
+            if (result.code === 0 && result.msg === 'success' && Array.isArray(result.data) && result.data.length > 0) {
+                console.log('[RunningHubClient] ✅ Task completed with outputs:', taskId, 'fileUrl:', result.data[0]?.fileUrl);
                 return result;
             }
 
@@ -286,14 +280,8 @@ export class RunningHubClient {
                 continue;
             }
 
-            // 任务失败检查
-            if (result.data?.taskStatus === 'FAILED' || result.data?.taskStatus === 'ERROR') {
-                console.error('[RunningHubClient] ❌ Task failed:', result);
-                throw new Error(`RunningHub task failed: ${result.msg}`);
-            }
-
-            // code=0 但没有 outputs，可能还在处理中，继续等待
-            if (result.code === 0 && (!result.data?.outputs || result.data.outputs.length === 0)) {
+            // code=0 但 data 为空，可能还在处理中，继续等待
+            if (result.code === 0 && (!Array.isArray(result.data) || result.data.length === 0)) {
                 await this.sleep(pollIntervalMs);
                 continue;
             }
