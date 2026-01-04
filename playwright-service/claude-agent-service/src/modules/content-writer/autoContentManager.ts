@@ -631,19 +631,17 @@ export class AutoContentManager {
         await workflowProgressService.startStep(taskId, 'script-gen', '正在根据策略生成数字人口播脚本...');
 
         try {
-          // 使用 Claude 生成真实脚本
-          const scriptPrompt = `你是一个小红书爆款短视频脚本专家。
-根据以下策略和产品信息，生成一个适合数字人口播的短视频脚本。
+          // 使用 Claude 生成真实脚本 (测试模式：短文案)
+          const scriptPrompt = `你是一个小红书短视频脚本专家。
+根据以下产品信息，生成一个超短测试脚本。
 产品：${userProfile.productName}
-目标受众：${userProfile.targetAudience}
-营销目标：${userProfile.marketingGoal === 'sales' ? '转化销售' : '品牌心智'}
-内容核心：${strategy.keyThemes[0] || '产品优势'}
 
 要求：
-1. 语言口语化，适合短视频快节奏
-2. 包含 Hook（开头吸引）、Body（核心内容）、CTA（行动号召）
-3. 字数控制在 200-400 字之间（适合 1-2 分钟视频）
-4. 只返回脚本正文，不要有任何其他解释。`;
+1. 只需要 15-25 个汉字
+2. 简洁有力，适合快速测试
+3. 只返回脚本正文，不要有任何其他解释。
+
+示例格式：大家好，今天给大家推荐一款超棒的产品！`;
 
           const response = await this.anthropic.messages.create({
             model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20240620',
@@ -696,10 +694,12 @@ export class AutoContentManager {
                 console.log(`📍 [VideoProgress] Stage: ${stage}`, data);
                 if (stage === 'tts_completed') {
                   // TTS 完成，更新 voice-clone 步骤
+                  console.log(`🔊 [continueAvatarWorkflow] TTS completed, audioUrl: ${data?.audioUrl}`);
                   await workflowProgressService.completeStep(taskId, 'voice-clone', {
                     status: 'success',
                     audioUrl: data?.audioUrl
                   });
+                  console.log(`✅ [continueAvatarWorkflow] voice-clone step completed with audioUrl`);
                   // 开始 avatar-render 步骤
                   await workflowProgressService.startStep(taskId, 'avatar-render', '正在渲染数字人视频...');
                 } else if (stage === 'video_started') {

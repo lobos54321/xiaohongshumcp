@@ -383,6 +383,9 @@ export class WorkflowProgressService {
         });
 
         console.log(`[WorkflowProgressService] Broadcasting node_update to ${connections.size} clients: ${step.step_key} -> ${step.status}`);
+        if (step.output) {
+            console.log(`[WorkflowProgressService] Step output:`, JSON.stringify(step.output).substring(0, 200));
+        }
 
         for (const ws of connections) {
             if (ws.readyState === WebSocket.OPEN) {
