@@ -8,10 +8,11 @@
  * 2. RunningHub 生成数字人视频
  * 3. 返回视频 URL
  * 
- * API 文档：https://www.runninghub.cn/runninghub-api-doc-cn/api-279098421
+ * API 文档：https://www.runninghub.ai/runninghub-api-doc-en/api-279098421
  */
 
-const RUNNINGHUB_BASE_URL = 'https://www.runninghub.cn';
+// 海外节点 (runninghub.ai) - 更快更稳定
+const RUNNINGHUB_BASE_URL = 'https://www.runninghub.ai';
 
 // 工作流 ID
 const AVATAR_VIDEO_WEBAPP_ID = '1958162038503649281';  // 数字人视频生成
@@ -498,5 +499,5 @@ export class RunningHubClient {
 
 // 默认配置的单例（需要设置环境变量 RUNNINGHUB_API_KEY）
 export const runningHubClient = new RunningHubClient({
-    apiKey: process.env.RUNNINGHUB_API_KEY || 'd5e5511b4b3a4133bbb76622fcdf2883'
+    apiKey: process.env.RUNNINGHUB_API_KEY || '60ebcf8bc47546b7a1d1f25b905cc76b'
 });
