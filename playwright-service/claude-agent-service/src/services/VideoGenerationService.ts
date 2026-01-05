@@ -50,6 +50,27 @@ export class VideoGenerationService {
     constructor() {
         this.runningHub = runningHubClient;
     }
+    /**
+     * 从用户 ID 字符串中提取标准 UUID
+     * 例如: "user_9dee489189a644ee8fe869097846e97d_prome" -> "9dee4891-89a6-44ee-8fe8-69097846e97d"
+     */
+    private extractUuid(userId: string): string | null {
+        // 移除前缀和后缀
+        let cleaned = userId.replace(/^user_/, '').replace(/_prome$/, '');
+
+        // 如果是 32 个字符（没有连字符的 UUID），添加连字符
+        if (/^[a-f0-9]{32}$/i.test(cleaned)) {
+            cleaned = `${cleaned.slice(0, 8)}-${cleaned.slice(8, 12)}-${cleaned.slice(12, 16)}-${cleaned.slice(16, 20)}-${cleaned.slice(20)}`;
+        }
+
+        // 验证是否为有效 UUID 格式
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (uuidRegex.test(cleaned)) {
+            return cleaned.toLowerCase();
+        }
+
+        return null;
+    }
 
     /**
      * 格式化时间（秒 -> MM:SS 或 HH:MM:SS）
@@ -324,29 +345,34 @@ export class VideoGenerationService {
         });
 
         // 🔥 保存生成记录到 Supabase（持久化存储）
-        try {
-            const { error: saveError } = await supabaseAdmin
-                .from('avatar_video_generations')
-                .insert({
-                    user_id: supabaseUuid,
-                    task_id: request.taskId,
-                    script: script,
-                    audio_url: finalAudioUrl,
-                    video_url: finalVideoUrl,
-                    audio_duration: estimatedDuration,
-                    runninghub_task_id: videoTaskResponse.data.taskId,
-                    status: 'completed',
-                    created_at: new Date().toISOString()
-                });
+        const cleanUserId = this.extractUuid(supabaseUuid);
+        if (cleanUserId) {
+            try {
+                const { error: saveError } = await supabaseAdmin
+                    .from('avatar_video_generations')
+                    .insert({
+                        user_id: cleanUserId,
+                        task_id: request.taskId,
+                        script: script,
+                        audio_url: finalAudioUrl,
+                        video_url: finalVideoUrl,
+                        audio_duration: estimatedDuration,
+                        runninghub_task_id: videoTaskResponse.data.taskId,
+                        status: 'completed',
+                        created_at: new Date().toISOString()
+                    });
 
-            if (saveError) {
-                console.warn('[VideoGenerationService] Failed to save to Supabase:', saveError);
-            } else {
-                console.log('[VideoGenerationService] ✅ Video record saved to Supabase');
+                if (saveError) {
+                    console.warn('[VideoGenerationService] Failed to save to Supabase:', saveError);
+                } else {
+                    console.log('[VideoGenerationService] ✅ Video record saved to Supabase');
+                }
+            } catch (dbError) {
+                console.warn('[VideoGenerationService] Database save error:', dbError);
+                // 不阻塞主流程
             }
-        } catch (dbError) {
-            console.warn('[VideoGenerationService] Database save error:', dbError);
-            // 不阻塞主流程
+        } else {
+            console.warn(`[VideoGenerationService] Invalid user ID format, skipping database save: ${supabaseUuid}`);
         }
 
         return {
