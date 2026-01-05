@@ -306,10 +306,16 @@ export class VideoGenerationService {
             throw new Error('No audio output from Index TTS');
         }
 
-        const audioUrl = audioOutput.fileUrl;
-        console.log('[VideoGenerationService] TTS audio generated:', audioUrl);
+        const rawAudioUrl = audioOutput.fileUrl;
+        console.log('[VideoGenerationService] TTS audio generated:', rawAudioUrl);
 
-        // 🔥 通知 TTS 完成
+        // 🔥 立即上传音频到 Supabase（FLAC→MP3 转换 + 永久存储）
+        console.log('[VideoGenerationService] Uploading TTS audio to Supabase (with FLAC→MP3 conversion)...');
+        const supabaseAudioUrl = await this.uploadToSupabaseStorage(rawAudioUrl, supabaseUuid, 'audio');
+        const audioUrl = supabaseAudioUrl || rawAudioUrl;  // 用 Supabase URL（如有）
+        console.log('[VideoGenerationService] Audio URL for frontend:', audioUrl);
+
+        // 🔥 通知 TTS 完成（现在发送的是可播放的 Supabase MP3 URL）
         if (onProgress) {
             onProgress('tts_completed', { audioUrl });
         }
@@ -388,21 +394,16 @@ export class VideoGenerationService {
 
         console.log('[VideoGenerationService] Avatar video generated:', videoOutput.fileUrl);
 
-        // 🔥 上传到 Supabase Storage（永久存储 + 解决 CORS）
-        console.log('[VideoGenerationService] Uploading to Supabase Storage...');
-        const [supabaseAudioUrl, supabaseVideoUrl] = await Promise.all([
-            this.uploadToSupabaseStorage(audioUrl, supabaseUuid, 'audio'),
-            this.uploadToSupabaseStorage(videoOutput.fileUrl, supabaseUuid, 'video')
-        ]);
-
-        // 使用 Supabase URL（如果上传成功）或 RunningHub URL（作为备用）
-        const finalAudioUrl = supabaseAudioUrl || audioUrl;
+        // 🔥 上传视频到 Supabase Storage（永久存储 + 解决 CORS）
+        // 注意：音频已经在 TTS 完成后上传了，这里只需要上传视频
+        console.log('[VideoGenerationService] Uploading video to Supabase Storage...');
+        const supabaseVideoUrl = await this.uploadToSupabaseStorage(videoOutput.fileUrl, supabaseUuid, 'video');
         const finalVideoUrl = supabaseVideoUrl || videoOutput.fileUrl;
 
         console.log('[VideoGenerationService] Final URLs:', {
-            audio: finalAudioUrl,
+            audio: audioUrl,  // 已经是 Supabase URL（在 TTS 完成后上传的）
             video: finalVideoUrl,
-            usingSupabase: !!supabaseAudioUrl && !!supabaseVideoUrl
+            usingSupabase: !!supabaseVideoUrl
         });
 
         // 🔥 保存生成记录到 Supabase（持久化存储）
@@ -415,7 +416,7 @@ export class VideoGenerationService {
                         user_id: cleanUserId,
                         task_id: request.taskId,
                         script: script,
-                        audio_url: finalAudioUrl,
+                        audio_url: audioUrl,  // 已经是 Supabase URL
                         video_url: finalVideoUrl,
                         audio_duration: estimatedDuration,
                         runninghub_task_id: videoTaskResponse.data.taskId,
@@ -439,7 +440,7 @@ export class VideoGenerationService {
         return {
             success: true,
             videoUrl: finalVideoUrl,
-            audioUrl: finalAudioUrl,
+            audioUrl: audioUrl,  // 已经是 Supabase URL
             audioDuration: estimatedDuration,
             taskId: videoTaskResponse.data.taskId
         };
