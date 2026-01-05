@@ -2195,6 +2195,114 @@ app.post('/agent/auto/reset/:userId', async (req: Request, res: Response) => {
   }
 });
 
+// ========================================
+// 📜 视频历史记录 API
+// ========================================
+
+// 获取用户的视频生成历史
+app.get('/agent/videos/history', async (req: Request, res: Response) => {
+  try {
+    const userId = req.query.userId as string;
+    const limit = parseInt(req.query.limit as string) || 20;
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+
+    // 提取标准 UUID
+    let cleanUserId = userId.replace(/^user_/, '').replace(/_prome$/, '');
+    if (/^[a-f0-9]{32}$/i.test(cleanUserId)) {
+      cleanUserId = `${cleanUserId.slice(0, 8)}-${cleanUserId.slice(8, 12)}-${cleanUserId.slice(12, 16)}-${cleanUserId.slice(16, 20)}-${cleanUserId.slice(20)}`;
+    }
+
+    console.log(`[Videos API] Fetching history for user: ${cleanUserId}`);
+
+    const { data, error, count } = await supabaseClient!
+      .from('avatar_video_generations')
+      .select('*', { count: 'exact' })
+      .eq('user_id', cleanUserId)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) {
+      console.error('[Videos API] Error fetching history:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        videos: data || [],
+        total: count || 0,
+        limit,
+        offset
+      }
+    });
+  } catch (error: any) {
+    console.error('[Videos API] Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 获取用户的视频使用统计
+app.get('/agent/videos/stats', async (req: Request, res: Response) => {
+  try {
+    const userId = req.query.userId as string;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+
+    // 提取标准 UUID
+    let cleanUserId = userId.replace(/^user_/, '').replace(/_prome$/, '');
+    if (/^[a-f0-9]{32}$/i.test(cleanUserId)) {
+      cleanUserId = `${cleanUserId.slice(0, 8)}-${cleanUserId.slice(8, 12)}-${cleanUserId.slice(12, 16)}-${cleanUserId.slice(16, 20)}-${cleanUserId.slice(20)}`;
+    }
+
+    console.log(`[Videos API] Fetching stats for user: ${cleanUserId}`);
+
+    // 总视频数
+    const { count: totalVideos } = await supabaseClient!
+      .from('avatar_video_generations')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', cleanUserId);
+
+    // 本月视频数
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const { count: monthlyVideos } = await supabaseClient!
+      .from('avatar_video_generations')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', cleanUserId)
+      .gte('created_at', startOfMonth.toISOString());
+
+    // 总音频时长（秒）
+    const { data: durationData } = await supabaseClient!
+      .from('avatar_video_generations')
+      .select('audio_duration')
+      .eq('user_id', cleanUserId);
+
+    const totalDuration = (durationData || []).reduce((sum, v) => sum + (v.audio_duration || 0), 0);
+
+    res.json({
+      success: true,
+      data: {
+        totalVideos: totalVideos || 0,
+        monthlyVideos: monthlyVideos || 0,
+        totalDurationSeconds: totalDuration,
+        totalDurationFormatted: `${Math.floor(totalDuration / 60)}分${totalDuration % 60}秒`
+      }
+    });
+  } catch (error: any) {
+    console.error('[Videos API] Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+
 // 图片生成API (单张)
 app.post('/agent/image/generate', async (req: Request, res: Response) => {
   try {

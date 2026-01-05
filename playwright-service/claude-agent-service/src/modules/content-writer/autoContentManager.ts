@@ -631,31 +631,49 @@ export class AutoContentManager {
         await workflowProgressService.startStep(taskId, 'script-gen', '正在根据策略生成数字人口播脚本...');
 
         try {
-          // 使用 Claude 生成真实脚本 (测试模式：短文案)
-          const scriptPrompt = `你是一个小红书短视频脚本专家。
-根据以下产品信息，生成一个超短测试脚本。
-产品：${userProfile.productName}
+          // 使用 Claude 生成专业口播脚本
+          const scriptPrompt = `你是一个小红书短视频口播脚本专家，擅长创作高转化的种草内容。
 
-要求：
-1. 只需要 15-25 个汉字
-2. 简洁有力，适合快速测试
-3. 只返回脚本正文，不要有任何其他解释。
+根据以下产品信息，生成一个适合数字人口播的短视频脚本：
 
-示例格式：大家好，今天给大家推荐一款超棒的产品！`;
+产品/服务：${userProfile.productName}
+目标受众：${userProfile.targetAudience || '年轻用户'}
+营销目标：${userProfile.marketingGoal || '品牌曝光'}
+品牌调性：${userProfile.brandStyle || 'professional'}
+
+脚本要求：
+1. 字数控制在 200-400 字之间（约 50-100 秒口播时长）
+2. 开头要有吸引力的 Hook（前 3 秒决定用户是否继续看）
+3. 中间部分突出产品核心卖点和使用场景
+4. 结尾有明确的行动号召（CTA）
+5. 语言口语化、有感染力，适合真人口播
+6. 不要使用 emoji 或特殊符号
+7. 不要有标题或分段标记，只返回连贯的口播脚本正文
+
+示例格式：
+姐妹们，你们有没有遇到过这样的困扰？[描述痛点]...今天给大家分享一个超级好用的[产品]...[核心卖点]...[使用效果]...心动的姐妹赶紧试试吧！`;
 
           const response = await this.anthropic.messages.create({
             model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20240620',
-            max_tokens: 1000,
+            max_tokens: 2000,
             messages: [{ role: 'user', content: scriptPrompt }],
           });
 
           generatedScript = (response.content[0] as any).text;
-          console.log(`✅ [continueAvatarWorkflow] Script generated: ${generatedScript.substring(0, 50)}...`);
+
+          // 估算口播时长（中文约 4 字/秒）
+          const estimatedSeconds = Math.ceil(generatedScript.replace(/\s/g, '').length / 4);
+          const estimatedDuration = estimatedSeconds >= 60
+            ? `${Math.floor(estimatedSeconds / 60)}分${estimatedSeconds % 60}秒`
+            : `${estimatedSeconds}秒`;
+
+          console.log(`✅ [continueAvatarWorkflow] Script generated: ${generatedScript.substring(0, 80)}... (${generatedScript.length}字, 约${estimatedDuration})`);
 
           await workflowProgressService.completeStep(taskId, 'script-gen', {
             script: generatedScript,
             scriptCount: 1,
-            duration: '1-2分钟',
+            duration: estimatedDuration,
+            wordCount: generatedScript.length,
             title: `${userProfile.productName} 爆款口播`
           });
         } catch (scriptError) {
