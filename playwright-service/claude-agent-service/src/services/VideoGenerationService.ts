@@ -77,6 +77,60 @@ export class VideoGenerationService {
     }
 
     /**
+     * 下载文件并上传到 Supabase Storage（永久存储 + 解决 CORS）
+     */
+    private async uploadToSupabaseStorage(
+        sourceUrl: string,
+        userId: string,
+        fileType: 'audio' | 'video'
+    ): Promise<string | null> {
+        try {
+            console.log(`[VideoGenerationService] Downloading ${fileType} from: ${sourceUrl}`);
+
+            // 1. 下载文件
+            const response = await fetch(sourceUrl);
+            if (!response.ok) {
+                throw new Error(`Failed to download: ${response.status}`);
+            }
+
+            const arrayBuffer = await response.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+
+            // 2. 生成文件路径
+            const ext = sourceUrl.split('.').pop()?.split('?')[0] || (fileType === 'video' ? 'mp4' : 'flac');
+            const timestamp = Date.now();
+            const fileName = `${fileType}_${timestamp}.${ext}`;
+            const filePath = `${userId}/${fileName}`;
+
+            // 3. 上传到 Supabase Storage
+            const bucketName = 'avatar-videos';
+            const { data, error } = await supabaseAdmin.storage
+                .from(bucketName)
+                .upload(filePath, buffer, {
+                    contentType: fileType === 'video' ? 'video/mp4' : 'audio/flac',
+                    upsert: true
+                });
+
+            if (error) {
+                console.error(`[VideoGenerationService] Storage upload error:`, error);
+                return null;
+            }
+
+            // 4. 获取公开 URL
+            const { data: publicUrl } = supabaseAdmin.storage
+                .from(bucketName)
+                .getPublicUrl(filePath);
+
+            console.log(`[VideoGenerationService] ✅ Uploaded to Supabase: ${publicUrl.publicUrl}`);
+            return publicUrl.publicUrl;
+
+        } catch (error) {
+            console.error(`[VideoGenerationService] Upload to Supabase failed:`, error);
+            return null;
+        }
+    }
+
+    /**
      * 生成视频（根据内容模式）
      */
     async generateVideo(request: VideoGenerationRequest): Promise<VideoGenerationResult> {
@@ -252,7 +306,24 @@ export class VideoGenerationService {
 
         console.log('[VideoGenerationService] Avatar video generated:', videoOutput.fileUrl);
 
-        // 🔥 保存生成记录到 Supabase（持久化存储，RunningHub 文件只保留 14 天）
+        // 🔥 上传到 Supabase Storage（永久存储 + 解决 CORS）
+        console.log('[VideoGenerationService] Uploading to Supabase Storage...');
+        const [supabaseAudioUrl, supabaseVideoUrl] = await Promise.all([
+            this.uploadToSupabaseStorage(audioUrl, supabaseUuid, 'audio'),
+            this.uploadToSupabaseStorage(videoOutput.fileUrl, supabaseUuid, 'video')
+        ]);
+
+        // 使用 Supabase URL（如果上传成功）或 RunningHub URL（作为备用）
+        const finalAudioUrl = supabaseAudioUrl || audioUrl;
+        const finalVideoUrl = supabaseVideoUrl || videoOutput.fileUrl;
+
+        console.log('[VideoGenerationService] Final URLs:', {
+            audio: finalAudioUrl,
+            video: finalVideoUrl,
+            usingSupabase: !!supabaseAudioUrl && !!supabaseVideoUrl
+        });
+
+        // 🔥 保存生成记录到 Supabase（持久化存储）
         try {
             const { error: saveError } = await supabaseAdmin
                 .from('avatar_video_generations')
@@ -260,8 +331,8 @@ export class VideoGenerationService {
                     user_id: supabaseUuid,
                     task_id: request.taskId,
                     script: script,
-                    audio_url: audioUrl,
-                    video_url: videoOutput.fileUrl,
+                    audio_url: finalAudioUrl,
+                    video_url: finalVideoUrl,
                     audio_duration: estimatedDuration,
                     runninghub_task_id: videoTaskResponse.data.taskId,
                     status: 'completed',
@@ -280,8 +351,8 @@ export class VideoGenerationService {
 
         return {
             success: true,
-            videoUrl: videoOutput.fileUrl,
-            audioUrl: audioUrl,
+            videoUrl: finalVideoUrl,
+            audioUrl: finalAudioUrl,
             audioDuration: estimatedDuration,
             taskId: videoTaskResponse.data.taskId
         };
