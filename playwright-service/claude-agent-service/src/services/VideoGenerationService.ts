@@ -252,6 +252,32 @@ export class VideoGenerationService {
 
         console.log('[VideoGenerationService] Avatar video generated:', videoOutput.fileUrl);
 
+        // 🔥 保存生成记录到 Supabase（持久化存储，RunningHub 文件只保留 14 天）
+        try {
+            const { error: saveError } = await supabaseAdmin
+                .from('avatar_video_generations')
+                .insert({
+                    user_id: supabaseUuid,
+                    task_id: request.taskId,
+                    script: script,
+                    audio_url: audioUrl,
+                    video_url: videoOutput.fileUrl,
+                    audio_duration: estimatedDuration,
+                    runninghub_task_id: videoTaskResponse.data.taskId,
+                    status: 'completed',
+                    created_at: new Date().toISOString()
+                });
+
+            if (saveError) {
+                console.warn('[VideoGenerationService] Failed to save to Supabase:', saveError);
+            } else {
+                console.log('[VideoGenerationService] ✅ Video record saved to Supabase');
+            }
+        } catch (dbError) {
+            console.warn('[VideoGenerationService] Database save error:', dbError);
+            // 不阻塞主流程
+        }
+
         return {
             success: true,
             videoUrl: videoOutput.fileUrl,
