@@ -15,6 +15,14 @@ import { runningHubClient, RunningHubClient } from './RunningHubClient.js';
 import { n8nUgcClient } from './N8nUgcClient.js';
 import { supabaseAdmin } from '../orchestrator/db/supabase.js';
 import { ContentMode } from '../orchestrator/types/contracts.js';
+import ffmpegPath from '@ffmpeg-installer/ffmpeg';
+import ffmpeg from 'fluent-ffmpeg';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { writeFile, unlink, readFile } from 'fs/promises';
+
+// 设置 ffmpeg 路径
+ffmpeg.setFfmpegPath(ffmpegPath.path);
 
 
 export interface VideoGenerationRequest {
@@ -98,6 +106,44 @@ export class VideoGenerationService {
     }
 
     /**
+     * 将 FLAC 音频转换为 MP3 格式（浏览器兼容性）
+     */
+    private async convertFlacToMp3(flacBuffer: Buffer): Promise<Buffer> {
+        const inputPath = join(tmpdir(), `input_${Date.now()}.flac`);
+        const outputPath = join(tmpdir(), `output_${Date.now()}.mp3`);
+
+        try {
+            // 写入临时 FLAC 文件
+            await writeFile(inputPath, flacBuffer);
+
+            // 使用 ffmpeg 转换
+            await new Promise<void>((resolve, reject) => {
+                ffmpeg(inputPath)
+                    .audioBitrate('192k')
+                    .audioCodec('libmp3lame')
+                    .output(outputPath)
+                    .on('end', () => resolve())
+                    .on('error', (err: Error) => reject(err))
+                    .run();
+            });
+
+            // 读取 MP3 文件
+            const mp3Buffer = await readFile(outputPath);
+
+            // 清理临时文件
+            await unlink(inputPath).catch(() => { });
+            await unlink(outputPath).catch(() => { });
+
+            return Buffer.from(mp3Buffer);
+        } catch (error) {
+            // 清理临时文件（如果存在）
+            await unlink(inputPath).catch(() => { });
+            await unlink(outputPath).catch(() => { });
+            throw error;
+        }
+    }
+
+    /**
      * 下载文件并上传到 Supabase Storage（永久存储 + 解决 CORS）
      */
     private async uploadToSupabaseStorage(
@@ -115,20 +161,35 @@ export class VideoGenerationService {
             }
 
             const arrayBuffer = await response.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
+            let buffer = Buffer.from(arrayBuffer);
+            let ext = sourceUrl.split('.').pop()?.split('?')[0] || (fileType === 'video' ? 'mp4' : 'flac');
+            let contentType = fileType === 'video' ? 'video/mp4' : 'audio/flac';
 
-            // 2. 生成文件路径
-            const ext = sourceUrl.split('.').pop()?.split('?')[0] || (fileType === 'video' ? 'mp4' : 'flac');
+            // 2. 如果是 FLAC 音频，转换为 MP3（浏览器兼容性更好）
+            if (fileType === 'audio' && ext.toLowerCase() === 'flac') {
+                console.log('[VideoGenerationService] Converting FLAC to MP3 for browser compatibility...');
+                try {
+                    buffer = await this.convertFlacToMp3(buffer) as Buffer<ArrayBuffer>;
+                    ext = 'mp3';
+                    contentType = 'audio/mpeg';
+                    console.log('[VideoGenerationService] ✅ FLAC converted to MP3 successfully');
+                } catch (conversionError) {
+                    console.warn('[VideoGenerationService] FLAC to MP3 conversion failed, using original:', conversionError);
+                    // 继续使用原始 FLAC
+                }
+            }
+
+            // 3. 生成文件路径
             const timestamp = Date.now();
             const fileName = `${fileType}_${timestamp}.${ext}`;
             const filePath = `${userId}/${fileName}`;
 
-            // 3. 上传到 Supabase Storage
+            // 4. 上传到 Supabase Storage
             const bucketName = 'avatar-videos';
             const { data, error } = await supabaseAdmin.storage
                 .from(bucketName)
                 .upload(filePath, buffer, {
-                    contentType: fileType === 'video' ? 'video/mp4' : 'audio/flac',
+                    contentType,
                     upsert: true
                 });
 
