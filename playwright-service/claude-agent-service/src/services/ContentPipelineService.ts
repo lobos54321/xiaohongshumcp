@@ -20,6 +20,7 @@ import { videoGenerationService, VideoGenerationRequest, VideoGenerationResult }
 import { copyAnalyzer, CopyAnalysisResult, CopySplitResult, CopyVariantResult } from './CopyAnalyzer.js';
 import { imageAdaptationBrain, ImageAnalysis, BrainDecision, GenerationRequest } from './ImageAdaptationBrain.js';
 import { geminiImageClient, ImageGenerationResult } from './GeminiImageClient.js';
+import { enhancedProductInfoBuilder } from './EnhancedProductInfoBuilder.js';
 import { ContentMode } from '../orchestrator/types/contracts.js';
 import { supabaseAdmin } from '../orchestrator/db/supabase.js';
 
@@ -53,6 +54,8 @@ export interface ContentPipelineRequest {
     productImages?: string[];
     /** 图片 AI 分析结果 */
     imageAnalyses?: ImageAnalysis[];
+    /** 是否使用增强版 productInfo (包含用户素材和爆款参考) */
+    useEnhancedProductInfo?: boolean;
 }
 
 /**
@@ -101,8 +104,24 @@ export class ContentPipelineService {
             // ========== 阶段 1：生成母文案 ==========
             console.log('[ContentPipelineService] Stage 1: Generating mother copy via Dify...');
 
+            // 如果启用增强模式，先增强 productInfo
+            let finalProductInfo = request.productInfo;
+            if (request.useEnhancedProductInfo !== false) {
+                try {
+                    console.log('[ContentPipelineService] Enhancing productInfo with user materials and references...');
+                    const enhanced = await enhancedProductInfoBuilder.build(
+                        request.supabaseUuid,
+                        { originalProductInfo: request.productInfo }
+                    );
+                    finalProductInfo = enhanced.enhancedInfo;
+                    console.log('[ContentPipelineService] ProductInfo enhanced:', enhanced.stats);
+                } catch (enhanceError) {
+                    console.warn('[ContentPipelineService] Failed to enhance productInfo, using original:', enhanceError);
+                }
+            }
+
             const contentParams: ContentGenerationParams = {
-                productInfo: request.productInfo,
+                productInfo: finalProductInfo,
                 targetAudience: request.targetAudience,
                 marketingGoal: request.marketingGoal,
                 targetWords: request.targetWords,
