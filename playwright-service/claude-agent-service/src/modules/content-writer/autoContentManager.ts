@@ -567,7 +567,18 @@ export class AutoContentManager {
           today_target: dailyTasks[0]?.title || '首日内容生产',
           tasksCount: dailyTasks.length,
           taskCount: dailyTasks.length,
-          // 🔥 新增：传递任务摘要列表
+          // 🔥 完整任务数据（包含 content, hashtags, variants, imageUrls）
+          tasks: dailyTasks.map(t => ({
+            title: t.title,
+            content: t.content,  // 🔥 新增：完整正文
+            scheduledTime: t.scheduledTime.toISOString(),
+            type: t.contentType,
+            hashtags: t.hashtags, // 🔥 新增
+            variants: t.variants, // 🔥 新增：变体文案
+            imageUrls: t.imageUrls, // 🔥 新增
+            status: t.status
+          })),
+          // 保留旧格式兼容
           taskSummaries: dailyTasks.map(t => ({
             title: t.title,
             scheduledTime: t.scheduledTime.toISOString(),
