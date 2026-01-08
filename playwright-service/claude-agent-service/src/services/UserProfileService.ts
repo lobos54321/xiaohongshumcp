@@ -17,6 +17,7 @@ export interface UserProfile {
     brand_style: string;
     review_mode: string;
     post_frequency: string;
+    posts_per_day: number;  // 用户配置的每日发布篇数 (1-10)
     material_images: string[] | null;
     material_documents: string[] | null;
     material_analysis: string | null;

@@ -1113,15 +1113,9 @@ export class AutoContentManager {
    * 生成周计划
    */
   private async generateWeeklyPlan(profile: UserProfile, strategy: ContentStrategy): Promise<WeeklyPlan> {
-    // 根据发布频率计算每日发布数量
-    const frequencyMap = {
-      'daily': 1,        // 每天1篇
-      'twice-daily': 2,  // 每天2篇
-      'high-freq': 3     // 每天3-5篇，这里用3篇
-    };
-
-    const postsPerDay = frequencyMap[profile.postFrequency] || 1;
-    console.log(`📊 [DEBUG] 发布频率设置: ${profile.postFrequency}, 每天发布 ${postsPerDay} 篇`);
+    // 🔥 直接使用用户配置的每日发布篇数（1-10篇）
+    const postsPerDay = (profile as any).posts_per_day || 1;
+    console.log(`📊 [DEBUG] 用户配置每日发布 ${postsPerDay} 篇`);
 
     // 获取今天的日期
     const today = new Date();
