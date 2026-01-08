@@ -2385,8 +2385,20 @@ export class AutoContentManager {
       await workflowProgressService.completeStep(profile.taskId, 'detail-plan', {
         status: 'success',
         taskCount: successCount,
+        tasksCount: successCount,
         today_target: tasks[0]?.title || '完成内容策划',
-        // 🔥 新增：传递任务摘要列表，方便前端详细展示
+        // 🔥 完整任务数据（包含 content, hashtags, variants, imageUrls）
+        tasks: tasks.map(t => ({
+          title: t.title,
+          content: t.content,  // 🔥 正文
+          scheduledTime: t.scheduledTime.toISOString(),
+          type: t.contentType,
+          hashtags: t.hashtags, // 🔥 话题标签
+          variants: t.variants, // 🔥 变体文案
+          imageUrls: t.imageUrls, // 🔥 配图URL
+          status: t.status
+        })),
+        // 保留旧格式兼容
         taskSummaries: tasks.map(t => ({
           title: t.title,
           scheduledTime: t.scheduledTime.toISOString(),
