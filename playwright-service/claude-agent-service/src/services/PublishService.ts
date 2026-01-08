@@ -240,7 +240,7 @@ export class PublishService {
                 throw new Error(`Skyvern API error: ${response.status} - ${errorText}`);
             }
 
-            const result = await response.json();
+            const result = await response.json() as { workflow_run_id: string };
 
             // 更新任务状态
             await this.updateTaskStatus(task.id!, 'publishing', {
@@ -302,7 +302,7 @@ export class PublishService {
                 throw new Error(`Failed to check Skyvern status: ${response.status}`);
             }
 
-            const result = await response.json();
+            const result = await response.json() as { status: string; outputs?: any; failure_reason?: string };
 
             // 映射 Skyvern 状态到我们的状态
             let status: 'running' | 'completed' | 'failed';
