@@ -570,15 +570,15 @@ export class AutoContentManager {
           // 🔥 完整任务数据（包含 content, hashtags, variants, imageUrls）
           tasks: dailyTasks.map(t => ({
             title: t.title,
-            content: t.content,  // 🔥 新增：完整正文
+            content: t.content,
             scheduledTime: t.scheduledTime.toISOString(),
             type: t.contentType,
-            hashtags: t.hashtags, // 🔥 新增
-            variants: t.variants, // 🔥 新增：变体文案
-            imageUrls: t.imageUrls, // 🔥 新增
+            hashtags: t.hashtags,
+            variants: t.variants,
+            imageUrls: t.imageUrls,
             status: t.status
           })),
-          // 保留旧格式兼容
+          // 兼容旧格式
           taskSummaries: dailyTasks.map(t => ({
             title: t.title,
             scheduledTime: t.scheduledTime.toISOString(),
@@ -642,49 +642,33 @@ export class AutoContentManager {
         await workflowProgressService.startStep(taskId, 'script-gen', '正在根据策略生成数字人口播脚本...');
 
         try {
-          // 使用 Claude 生成专业口播脚本
-          const scriptPrompt = `你是一个小红书短视频口播脚本专家，擅长创作高转化的种草内容。
+          // 使用 Claude 生成真实脚本
+          const scriptPrompt = `你是一个小红书爆款短视频脚本专家。
+根据以下策略和产品信息，生成一个适合数字人口播的短视频脚本。
+产品：${userProfile.productName}
+目标受众：${userProfile.targetAudience}
+营销目标：${userProfile.marketingGoal === 'sales' ? '转化销售' : '品牌心智'}
+内容核心：${strategy.keyThemes[0] || '产品优势'}
 
-根据以下产品信息，生成一个适合数字人口播的短视频脚本：
-
-产品/服务：${userProfile.productName}
-目标受众：${userProfile.targetAudience || '年轻用户'}
-营销目标：${userProfile.marketingGoal || '品牌曝光'}
-品牌调性：${userProfile.brandStyle || 'professional'}
-
-脚本要求：
-1. 字数控制在 200-400 字之间（约 50-100 秒口播时长）
-2. 开头要有吸引力的 Hook（前 3 秒决定用户是否继续看）
-3. 中间部分突出产品核心卖点和使用场景
-4. 结尾有明确的行动号召（CTA）
-5. 语言口语化、有感染力，适合真人口播
-6. 不要使用 emoji 或特殊符号
-7. 不要有标题或分段标记，只返回连贯的口播脚本正文
-
-示例格式：
-姐妹们，你们有没有遇到过这样的困扰？[描述痛点]...今天给大家分享一个超级好用的[产品]...[核心卖点]...[使用效果]...心动的姐妹赶紧试试吧！`;
+要求：
+1. 语言口语化，适合短视频快节奏
+2. 包含 Hook（开头吸引）、Body（核心内容）、CTA（行动号召）
+3. 字数控制在 200-400 字之间（适合 1-2 分钟视频）
+4. 只返回脚本正文，不要有任何其他解释。`;
 
           const response = await this.anthropic.messages.create({
             model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20240620',
-            max_tokens: 2000,
+            max_tokens: 1000,
             messages: [{ role: 'user', content: scriptPrompt }],
           });
 
           generatedScript = (response.content[0] as any).text;
-
-          // 估算口播时长（中文约 4 字/秒）
-          const estimatedSeconds = Math.ceil(generatedScript.replace(/\s/g, '').length / 4);
-          const estimatedDuration = estimatedSeconds >= 60
-            ? `${Math.floor(estimatedSeconds / 60)}分${estimatedSeconds % 60}秒`
-            : `${estimatedSeconds}秒`;
-
-          console.log(`✅ [continueAvatarWorkflow] Script generated: ${generatedScript.substring(0, 80)}... (${generatedScript.length}字, 约${estimatedDuration})`);
+          console.log(`✅ [continueAvatarWorkflow] Script generated: ${generatedScript.substring(0, 50)}...`);
 
           await workflowProgressService.completeStep(taskId, 'script-gen', {
             script: generatedScript,
             scriptCount: 1,
-            duration: estimatedDuration,
-            wordCount: generatedScript.length,
+            duration: '1-2分钟',
             title: `${userProfile.productName} 爆款口播`
           });
         } catch (scriptError) {
@@ -705,7 +689,7 @@ export class AutoContentManager {
 
       if (workflowProgressService && taskId) {
         // 更新语音克隆步骤状态
-        await workflowProgressService.startStep(taskId, 'voice-clone', '正在进行高保真语音克隆...');
+        await workflowProgressService.startStep(taskId, 'voice-clone', '正在进行高保真语音克隆与视频合成...');
 
         if (userProfile.avatarPhotoUrl && userProfile.voiceSampleUrl) {
           try {
@@ -717,43 +701,21 @@ export class AutoContentManager {
               script: generatedScript,
               avatarPhotoUrl: userProfile.avatarPhotoUrl,
               voiceSampleUrl: userProfile.voiceSampleUrl,
-              emotion: '自然, 专业',
-              // 🔥 进度回调：更新前端状态
-              onProgress: async (stage, data) => {
-                console.log(`📍 [VideoProgress] Stage: ${stage}`, data);
-                if (stage === 'tts_completed') {
-                  // TTS 完成，更新 voice-clone 步骤
-                  console.log(`🔊 [continueAvatarWorkflow] TTS completed, audioUrl: ${data?.audioUrl}`);
-                  await workflowProgressService.completeStep(taskId, 'voice-clone', {
-                    status: 'success',
-                    audioUrl: data?.audioUrl
-                  });
-                  console.log(`✅ [continueAvatarWorkflow] voice-clone step completed with audioUrl`);
-                  // 开始 avatar-render 步骤
-                  await workflowProgressService.startStep(taskId, 'avatar-render', '正在渲染数字人视频...');
-                } else if (stage === 'video_started') {
-                  // 视频任务已创建
-                  console.log(`🎬 [continueAvatarWorkflow] Video task started: ${data?.taskId}`);
-                } else if (stage === 'video_progress') {
-                  // 🔥 视频渲染进度更新
-                  const elapsedFormatted = data?.elapsedFormatted || '0:00';
-                  await workflowProgressService.updateStep(taskId, 'avatar-render', {
-                    status: 'processing',
-                    current_action: `正在渲染... 已用时 ${elapsedFormatted}`
-                  });
-                }
-              }
+              emotion: '自然, 专业'
             });
 
             if (videoResult.success && videoResult.videoUrl) {
               finalVideoUrl = videoResult.videoUrl;
               console.log(`✅ [continueAvatarWorkflow] Video generated successfully: ${finalVideoUrl}`);
 
-              // voice-clone 已在 onProgress 回调中完成
-              // 完成 avatar-render 步骤，传递视频 URL 供预览
+              await workflowProgressService.completeStep(taskId, 'voice-clone', {
+                status: 'success',
+                audioUrl: videoResult.audioUrl
+              });
+
+              await workflowProgressService.startStep(taskId, 'avatar-render', '视频渲染已完成');
               await workflowProgressService.completeStep(taskId, 'avatar-render', {
                 videoUrl: finalVideoUrl,
-                audioUrl: videoResult.audioUrl,
                 status: 'success'
               });
             } else {
@@ -2079,21 +2041,13 @@ export class AutoContentManager {
                 await workflowProgressService.updateProgress(taskId, 'copy-gen', 40, 'Dify 引擎正在构建营销母语 (Mother Copy)...');
               }
 
-              // Retry logic for Dify with UI feedback
+              // Retry logic for Dify
               let retries = 0;
-              const maxRetries = 3; // Increased from 2 to 3
+              const maxRetries = 2;
               let difyResult;
 
               while (retries <= maxRetries) {
                 try {
-                  if (retries > 0 && workflowProgressService && taskId) {
-                    await workflowProgressService.updateProgress(
-                      taskId,
-                      'copy-gen',
-                      30 + (retries * 5),
-                      `🔄 Dify 引擎重试中 (${retries}/${maxRetries})... 请稍候`
-                    );
-                  }
                   difyResult = await difyClient.generateMarketingCopy({
                     productInfo: `${profile.productName}: ${post.theme}`,
                     targetAudience: profile.targetAudience,
@@ -2106,7 +2060,7 @@ export class AutoContentManager {
                   retries++;
                   console.warn(`⚠️ [Dify] 第 ${retries} 次尝试失败:`, err.message);
                   if (retries > maxRetries) throw err; // Re-throw if all retries fail
-                  await new Promise(resolve => setTimeout(resolve, 2000 * retries)); // Exponential backoff
+                  await new Promise(resolve => setTimeout(resolve, 2000)); // Wait before retry
                 }
               }
 
@@ -2186,17 +2140,12 @@ export class AutoContentManager {
               engine = 'Dify Marketing Engine'; // 确认使用了 Dify
               console.log('✅ [Dify] 母文案生成成功 (TaskId:', taskId, ')');
             } catch (difyError: any) {
-              console.error('❌ [Dify] 引擎调用彻底失败 (已重试4次):', difyError.message);
+              console.error('❌ [Dify] 引擎调用彻底失败 (已重试):', difyError.message);
               if (workflowProgressService && taskId) {
-                await workflowProgressService.updateProgress(taskId, 'copy-gen', 50, `⚠️ Dify 引擎暂时不可用，正在切换 Claude 备用引擎...`);
+                await workflowProgressService.updateProgress(taskId, 'copy-gen', 50, `Dify 核心引擎故障: ${difyError.message.substring(0, 50)}... 正在切换至备用引擎...`);
               }
-              // 使用 Claude 作为备用
               task = await this.createDetailedTask(profile, post);
               engine = 'Claude (Fallback)';
-              console.log('✅ [Claude Fallback] 备用引擎生成成功');
-              if (workflowProgressService && taskId) {
-                await workflowProgressService.updateProgress(taskId, 'copy-gen', 90, `✅ Claude 备用引擎已成功生成母文案`);
-              }
             }
           } else {
             task = await this.createDetailedTask(profile, post);
@@ -2390,15 +2339,15 @@ export class AutoContentManager {
         // 🔥 完整任务数据（包含 content, hashtags, variants, imageUrls）
         tasks: tasks.map(t => ({
           title: t.title,
-          content: t.content,  // 🔥 正文
+          content: t.content,
           scheduledTime: t.scheduledTime.toISOString(),
           type: t.contentType,
-          hashtags: t.hashtags, // 🔥 话题标签
-          variants: t.variants, // 🔥 变体文案
-          imageUrls: t.imageUrls, // 🔥 配图URL
+          hashtags: t.hashtags,
+          variants: t.variants,
+          imageUrls: t.imageUrls,
           status: t.status
         })),
-        // 保留旧格式兼容
+        // 兼容旧格式
         taskSummaries: tasks.map(t => ({
           title: t.title,
           scheduledTime: t.scheduledTime.toISOString(),
