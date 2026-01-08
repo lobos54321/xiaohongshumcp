@@ -2079,13 +2079,21 @@ export class AutoContentManager {
                 await workflowProgressService.updateProgress(taskId, 'copy-gen', 40, 'Dify 引擎正在构建营销母语 (Mother Copy)...');
               }
 
-              // Retry logic for Dify
+              // Retry logic for Dify with UI feedback
               let retries = 0;
-              const maxRetries = 2;
+              const maxRetries = 3; // Increased from 2 to 3
               let difyResult;
 
               while (retries <= maxRetries) {
                 try {
+                  if (retries > 0 && workflowProgressService && taskId) {
+                    await workflowProgressService.updateProgress(
+                      taskId,
+                      'copy-gen',
+                      30 + (retries * 5),
+                      `🔄 Dify 引擎重试中 (${retries}/${maxRetries})... 请稍候`
+                    );
+                  }
                   difyResult = await difyClient.generateMarketingCopy({
                     productInfo: `${profile.productName}: ${post.theme}`,
                     targetAudience: profile.targetAudience,
@@ -2098,7 +2106,7 @@ export class AutoContentManager {
                   retries++;
                   console.warn(`⚠️ [Dify] 第 ${retries} 次尝试失败:`, err.message);
                   if (retries > maxRetries) throw err; // Re-throw if all retries fail
-                  await new Promise(resolve => setTimeout(resolve, 2000)); // Wait before retry
+                  await new Promise(resolve => setTimeout(resolve, 2000 * retries)); // Exponential backoff
                 }
               }
 
@@ -2178,12 +2186,17 @@ export class AutoContentManager {
               engine = 'Dify Marketing Engine'; // 确认使用了 Dify
               console.log('✅ [Dify] 母文案生成成功 (TaskId:', taskId, ')');
             } catch (difyError: any) {
-              console.error('❌ [Dify] 引擎调用彻底失败 (已重试):', difyError.message);
+              console.error('❌ [Dify] 引擎调用彻底失败 (已重试4次):', difyError.message);
               if (workflowProgressService && taskId) {
-                await workflowProgressService.updateProgress(taskId, 'copy-gen', 50, `Dify 核心引擎故障: ${difyError.message.substring(0, 50)}... 正在切换至备用引擎...`);
+                await workflowProgressService.updateProgress(taskId, 'copy-gen', 50, `⚠️ Dify 引擎暂时不可用，正在切换 Claude 备用引擎...`);
               }
+              // 使用 Claude 作为备用
               task = await this.createDetailedTask(profile, post);
               engine = 'Claude (Fallback)';
+              console.log('✅ [Claude Fallback] 备用引擎生成成功');
+              if (workflowProgressService && taskId) {
+                await workflowProgressService.updateProgress(taskId, 'copy-gen', 90, `✅ Claude 备用引擎已成功生成母文案`);
+              }
             }
           } else {
             task = await this.createDetailedTask(profile, post);
