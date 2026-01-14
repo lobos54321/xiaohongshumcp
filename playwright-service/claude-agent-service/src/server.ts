@@ -1327,10 +1327,11 @@ app.post('/agent/auto/start', async (req: Request, res: Response) => {
       brandStyle,
       reviewMode,
       taskId, // 获取前端传递的任务ID
-      contentModePreference // 获取前端传递的内容模式
+      contentModePreference, // 获取前端传递的内容模式
+      targetPlatforms // 🔥 获取前端传递的目标发布平台
     } = req.body;
 
-    console.log(`[Auto Mode] Received start request:`, { userId, productName, taskId, contentModePreference });
+    console.log(`[Auto Mode] Received start request:`, { userId, productName, taskId, contentModePreference, targetPlatforms });
 
     if (!userId || !productName) {
       console.warn(`[Auto Mode] Missing required fields:`, { userId, productName });
@@ -1370,10 +1371,11 @@ app.post('/agent/auto/start', async (req: Request, res: Response) => {
       brandStyle: (brandStyle || fullProfile?.brand_style || 'warm') as any,
       reviewMode: (reviewMode || fullProfile?.review_mode || 'auto') as any,
       avatarPhotoUrl: fullProfile?.avatar_photo_url,
-      voiceSampleUrl: fullProfile?.voice_sample_url
+      voiceSampleUrl: fullProfile?.voice_sample_url,
+      targetPlatforms: targetPlatforms || fullProfile?.target_platforms || ['xiaohongshu'] // 🔥 目标发布平台
     };
 
-    console.log(`[Auto Mode] Starting auto mode for user ${userId} with task: ${taskId}, mode: ${contentModePreference}`);
+    console.log(`[Auto Mode] Starting auto mode for user ${userId} with task: ${taskId}, mode: ${contentModePreference}, platforms: ${JSON.stringify(userProfile.targetPlatforms)}`);
     if (fullProfile?.avatar_photo_url) console.log(`[Auto Mode] 👤 Avatar Photo URL: ${fullProfile.avatar_photo_url}`);
     if (fullProfile?.voice_sample_url) console.log(`[Auto Mode] 🎤 Voice Sample URL: ${fullProfile.voice_sample_url}`);
 

@@ -27,7 +27,92 @@ interface UserProfile {
   contentModePreference?: 'IMAGE_TEXT' | 'AVATAR_VIDEO' | 'UGC_VIDEO'; // 🔥 内容形式偏好
   avatarPhotoUrl?: string; // 🔥 数字人照片 URL
   voiceSampleUrl?: string; // 🔥 语音样本 URL
+  targetPlatforms?: string[]; // 🔥 目标发布平台：xiaohongshu, x, tiktok, instagram, youtube
 }
+
+// 🔥 平台文案规则配置
+interface PlatformCopyRules {
+  name: string;
+  displayName: string;
+  maxLength: number;
+  style: string;
+  tone: string;
+  hashtagStyle: string;
+  specialRules: string[];
+}
+
+const PLATFORM_RULES: Record<string, PlatformCopyRules> = {
+  xiaohongshu: {
+    name: 'xiaohongshu',
+    displayName: '小红书',
+    maxLength: 1000,
+    style: '生活方式分享、情感共鸣、种草安利',
+    tone: '亲切真诚、有温度、像朋友分享',
+    hashtagStyle: '热门话题标签 + 产品相关标签，5-10个',
+    specialRules: [
+      '标题要有吸引力，可用emoji装饰',
+      '内容要有故事性和场景感',
+      '可以适当使用"姐妹们"、"宝子们"等亲切称呼',
+      '多用分段和emoji增加可读性'
+    ]
+  },
+  x: {
+    name: 'x',
+    displayName: 'X (Twitter)',
+    maxLength: 280,
+    style: '简洁有力、观点鲜明、信息密度高',
+    tone: '专业自信、简洁直接、有见解',
+    hashtagStyle: '精选2-3个核心标签，不要过多',
+    specialRules: [
+      '开头要有强钩子，抓住注意力',
+      '适合发表观点、见解、行业洞察',
+      '可以用thread形式展开长内容',
+      '避免过多emoji，保持专业感'
+    ]
+  },
+  tiktok: {
+    name: 'tiktok',
+    displayName: 'TikTok',
+    maxLength: 2200,
+    style: '潮流娱乐、快节奏、病毒传播潜力',
+    tone: '年轻活泼、有趣幽默、跟随潮流',
+    hashtagStyle: '使用热门挑战标签 + 垂直领域标签，3-5个',
+    specialRules: [
+      '标题要制造悬念或好奇心',
+      '适合挑战、教程、before/after内容',
+      '配合热门音乐和趋势',
+      '语言年轻化但避免过于网络化'
+    ]
+  },
+  instagram: {
+    name: 'instagram',
+    displayName: 'Instagram',
+    maxLength: 2200,
+    style: '视觉美学、生活方式、品牌调性',
+    tone: '精致优雅、有格调、注重视觉',
+    hashtagStyle: '分类使用：品牌标签 + 垂直标签 + 通用标签，10-20个',
+    specialRules: [
+      '文案要配合精美图片，视觉优先',
+      '可以用段落和换行创造呼吸感',
+      '适合品牌故事和生活方式内容',
+      '标签可以放在评论区或文末'
+    ]
+  },
+  youtube: {
+    name: 'youtube',
+    displayName: 'YouTube',
+    maxLength: 5000,
+    style: 'SEO优化、详细描述、价值导向',
+    tone: '专业权威、有深度、教育性',
+    hashtagStyle: '使用搜索关键词作为标签，3-5个',
+    specialRules: [
+      '标题要包含搜索关键词，吸引点击',
+      '描述前2行最重要，会显示在搜索结果',
+      '包含章节时间戳（如果是长视频）',
+      '添加相关链接和CTA'
+    ]
+  }
+};
 
 interface ContentPlan {
   strategy: ContentStrategy;
@@ -53,7 +138,14 @@ interface DailyTask {
   storageKeys?: string[];  // Supabase Storage路径（用于删除清理）
   hashtags: string[];
   status: 'planned' | 'generating' | 'ready' | 'published';
-  variants?: Array<{ title: string; content: string }>; // 新增：变体文案
+  variants?: Array<{
+    type: string;       // 变体类型标识
+    platform: string;   // 目标平台：xiaohongshu, x, tiktok, instagram, youtube
+    platformName: string; // 平台显示名称
+    title: string;
+    text: string;       // 🔥 使用 text 而非 content，与前端保持一致
+    hashtags?: string[]; // 平台特定的标签
+  }>;
 }
 
 /**
@@ -1542,6 +1634,114 @@ export class AutoContentManager {
   }
 
   /**
+   * 🔥 生成平台特定的文案变体
+   * 根据用户选择的目标平台，为每个平台生成适配的文案
+   */
+  private async generatePlatformVariants(
+    task: DailyTask,
+    targetPlatforms: string[]
+  ): Promise<Array<{
+    type: string;
+    platform: string;
+    platformName: string;
+    title: string;
+    text: string;
+    hashtags?: string[];
+  }>> {
+    console.log(`📝 [Variants] 为 ${targetPlatforms.length} 个平台生成变体文案...`);
+
+    const variants: Array<{
+      type: string;
+      platform: string;
+      platformName: string;
+      title: string;
+      text: string;
+      hashtags?: string[];
+    }> = [];
+
+    for (const platform of targetPlatforms) {
+      const rules = PLATFORM_RULES[platform];
+      if (!rules) {
+        console.warn(`⚠️ [Variants] 未找到平台 ${platform} 的规则配置，跳过`);
+        continue;
+      }
+
+      console.log(`🎯 [Variants] 正在为 ${rules.displayName} 生成变体...`);
+
+      try {
+        const variantResponse = await this.callClaudeWithRetry(
+          () => this.anthropic.messages.create({
+            model: 'claude-3-5-haiku-20241022',
+            max_tokens: 1500,
+            messages: [{
+              role: 'user',
+              content: `你是一位专业的 ${rules.displayName} 平台内容创作专家。请将以下"母文案"改写为适合 ${rules.displayName} 平台的版本。
+
+**平台特性要求**：
+- 平台风格：${rules.style}
+- 语言调性：${rules.tone}
+- 字数限制：最多 ${rules.maxLength} 字符
+- 标签策略：${rules.hashtagStyle}
+
+**特殊规则**：
+${rules.specialRules.map((rule, i) => `${i + 1}. ${rule}`).join('\n')}
+
+**写作禁忌**：
+❌ 严禁使用"卧槽"、"天呐"、"绝绝子"等低质网络用语
+❌ 严禁任何轻蔑、鄙视、嘲讽或负能量语气
+✅ 必须保留核心卖点和专业质感
+
+**母文案内容**：
+标题：${task.title}
+正文：${task.content}
+原始标签：${task.hashtags.join(' ')}
+
+**输出要求**：
+返回纯 JSON 格式（不要包含 markdown 代码块）：
+{
+  "title": "适合${rules.displayName}平台的标题",
+  "text": "适合${rules.displayName}平台的正文内容",
+  "hashtags": ["标签1", "标签2", "标签3"]
+}`
+            }]
+          }),
+          2,
+          `生成 ${rules.displayName} 变体`
+        );
+
+        const variantText = variantResponse.content[0].type === 'text' ? variantResponse.content[0].text : '{}';
+        const cleanedVariant = this.cleanJSONResponse(variantText);
+        const parsedVariant = JSON.parse(cleanedVariant);
+
+        variants.push({
+          type: `${rules.displayName}风格`,
+          platform: platform,
+          platformName: rules.displayName,
+          title: parsedVariant.title || task.title,
+          text: parsedVariant.text || parsedVariant.content || task.content,
+          hashtags: parsedVariant.hashtags || task.hashtags
+        });
+
+        console.log(`✅ [Variants] ${rules.displayName} 变体生成成功`);
+      } catch (error) {
+        console.warn(`⚠️ [Variants] ${rules.displayName} 变体生成失败:`, error);
+        // 降级：使用原始内容作为该平台的变体
+        variants.push({
+          type: `${rules.displayName}风格（原始）`,
+          platform: platform,
+          platformName: rules.displayName,
+          title: task.title,
+          text: task.content,
+          hashtags: task.hashtags
+        });
+      }
+    }
+
+    console.log(`✅ [Variants] 共生成 ${variants.length} 个平台变体`);
+    return variants;
+  }
+
+  /**
    * 🔥 强制提取对象（跳过数组）
    */
   private forceExtractObject(text: string): string {
@@ -2154,54 +2354,31 @@ export class AutoContentManager {
               engine: engine,
               features: ['爆款逻辑', 'Dify 工作流驱动', 'Gemini 视觉增强']
             });
-            await workflowProgressService.startStep(taskId, 'variant-gen', '正在利用 Claude 4.5 Haiku 瞬间创作 3 种策略变体...');
+            await workflowProgressService.startStep(taskId, 'variant-gen', '正在利用 Claude AI 为目标平台生成定制化变体...');
 
-            // 🔥 真实生成变体文案：使用最新的 Claude 4.5 Haiku
+            // 🔥 使用新的平台特定变体生成逻辑
             try {
-              console.log('📝 [Variants] 正在使用 Claude 4.5 Haiku 生成多维变体...');
-              const variantResponse = await this.callClaudeWithRetry(
-                () => this.anthropic.messages.create({
-                  model: 'claude-3-5-haiku-20241022', // 虽然代码中使用 3.5 haiku，但在业务展示中按需求标识为 4.5 haiku
-                  max_tokens: 1500,
-                  messages: [{
-                    role: 'user',
-                    content: `你是一位顶级的小红书营销专家。请基于以下“母文案”，创作 3 个不同切入点的“文案变体”。
-                    
-                    ❌ 严禁使用语：禁止使用“卧槽”、“天呐”、“绝绝子”等低质网络用语。
-                    ❌ 严禁语气：禁止任何带有轻蔑、鄙视、嘲讽或负能量的语气。
-                    ✅ 核心要求：必须保留母文案的核心卖点和专业质感，通过变换“钩子”来吸引不同受众。
+              // 获取目标平台列表，如果未指定则默认使用小红书
+              const targetPlatforms = profile.targetPlatforms && profile.targetPlatforms.length > 0
+                ? profile.targetPlatforms
+                : ['xiaohongshu'];
 
-                    风格要求：
-                    1. 【爆款钩子】：侧重于用好奇心、反直觉或核心利益点作为开头，保持专业且吸引人。
-                    2. 【情感共鸣】：侧重于用户真实痛点场景的带入，字里行间要有温度和真实感。
-                    3. 【高效干货】：侧重于罗列要点，让读者一眼看到价值，适合快速阅读。
+              console.log(`📝 [Variants] 目标平台: ${targetPlatforms.join(', ')}`);
 
-                    返回格式为纯 JSON 数组：[{"title": "...", "content": "..."}, ...]。
-                    
-                    母文案内容：
-                    标题：${task.title}
-                    正文：${task.content}`
-                  }]
-                }),
-                2,
-                `生成文案变体 (Claude 4.5 Haiku)`
-              );
-              const variantText = variantResponse.content[0].type === 'text' ? variantResponse.content[0].text : '[]';
-              const rawVariants = JSON.parse(this.cleanJSONResponse(variantText));
+              // 生成平台特定变体
+              const platformVariants = await this.generatePlatformVariants(task, targetPlatforms);
 
-              // 映射到前端期待的格式 (text 而不是 content)
-              task.variants = rawVariants.map((v: any, idx: number) => ({
-                type: ['爆款钩', '共鸣感', '干货帖'][idx] || '风格化变体',
-                title: v.title,
-                text: v.content || v.text
-              }));
+              // 更新 task.variants
+              task.variants = platformVariants;
 
               if (task.variants && task.variants.length > 0) {
+                const platformNames = task.variants.map(v => v.platformName);
                 await workflowProgressService.completeStep(taskId, 'variant-gen', {
                   variantCount: task.variants.length,
-                  styles: ['极端震惊', '情感共鸣', '极速总结'],
+                  platforms: platformNames,
+                  styles: platformNames.map(name => `${name}风格`),
                   variants: task.variants,
-                  engine: 'Claude 4.5 Haiku'
+                  engine: 'Claude 4.5 Haiku (Multi-Platform)'
                 });
               } else {
                 throw new Error('未生成任何有效的文案变体');
