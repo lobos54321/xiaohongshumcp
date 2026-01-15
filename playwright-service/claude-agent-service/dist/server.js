@@ -25,6 +25,7 @@ import { controlCenter } from './orchestrator/index.js';
 import { skyvernExecutor } from './orchestrator/executors/SkyvernExecutor.js';
 // Workflow Progress Module
 import { WorkflowProgressService } from './services/WorkflowProgressService.js';
+import { userProfileService } from './services/UserProfileService.js';
 import { createClient } from '@supabase/supabase-js';
 import { MCPAuthClient } from './mcpAuthClient.js';
 dotenv.config();
@@ -1157,9 +1158,10 @@ ${schedule ? `发布计划：${schedule}` : '请立即全部发布'}`;
 app.post('/agent/auto/start', async (req, res) => {
     try {
         const { userId, productName, targetAudience, marketingGoal, postFrequency, brandStyle, reviewMode, taskId, // 获取前端传递的任务ID
-        contentModePreference // 获取前端传递的内容模式
+        contentModePreference, // 获取前端传递的内容模式
+        targetPlatforms // 🔥 获取前端传递的目标发布平台
          } = req.body;
-        console.log(`[Auto Mode] Received start request:`, { userId, productName, taskId, contentModePreference });
+        console.log(`[Auto Mode] Received start request:`, { userId, productName, taskId, contentModePreference, targetPlatforms });
         if (!userId || !productName) {
             console.warn(`[Auto Mode] Missing required fields:`, { userId, productName });
             return res.status(400).json({
@@ -1167,16 +1169,42 @@ app.post('/agent/auto/start', async (req, res) => {
                 error: 'userId and productName are required',
             });
         }
+        // 🔥 规范化 UUID：将 user_xxx_prome 转换为标准 UUID 格式
+        let normalizedUserId = userId;
+        if (userId.startsWith('user_')) {
+            // 提取中间的 32 位十六进制字符串
+            const match = userId.match(/user_([a-f0-9]{32})_prome/);
+            if (match) {
+                const h = match[1];
+                normalizedUserId = `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+            }
+        }
+        else if (userId.length === 32 && !userId.includes('-')) {
+            normalizedUserId = `${userId.slice(0, 8)}-${userId.slice(8, 12)}-${userId.slice(12, 16)}-${userId.slice(16, 20)}-${userId.slice(20)}`;
+        }
+        console.log(`[Auto Mode] Normalized User ID for DB search: ${normalizedUserId}`);
+        // 🔥 获取完整用户配置（包含数字人和语音样本）
+        const fullProfile = await userProfileService.getProfile(normalizedUserId);
+        if (!fullProfile) {
+            console.warn(`[Auto Mode] No profile found in DB for user ${normalizedUserId}, using request data.`);
+        }
         const userProfile = {
             userId,
-            productName,
-            targetAudience: targetAudience || '目标用户',
-            marketingGoal: marketingGoal || 'brand',
-            postFrequency: postFrequency || 'daily',
-            brandStyle: brandStyle || 'warm',
-            reviewMode: reviewMode || 'auto'
+            productName: productName || fullProfile?.product_name || '我的产品',
+            targetAudience: targetAudience || fullProfile?.target_audience || '目标用户',
+            marketingGoal: (marketingGoal || fullProfile?.marketing_goal || 'brand'),
+            postFrequency: (postFrequency || fullProfile?.post_frequency || 'daily'),
+            brandStyle: (brandStyle || fullProfile?.brand_style || 'warm'),
+            reviewMode: (reviewMode || fullProfile?.review_mode || 'auto'),
+            avatarPhotoUrl: fullProfile?.avatar_photo_url,
+            voiceSampleUrl: fullProfile?.voice_sample_url,
+            targetPlatforms: targetPlatforms || fullProfile?.target_platforms || ['xiaohongshu'] // 🔥 目标发布平台
         };
-        console.log(`[Auto Mode] Starting auto mode for user ${userId} with task: ${taskId}, mode: ${contentModePreference}`);
+        console.log(`[Auto Mode] Starting auto mode for user ${userId} with task: ${taskId}, mode: ${contentModePreference}, platforms: ${JSON.stringify(userProfile.targetPlatforms)}`);
+        if (fullProfile?.avatar_photo_url)
+            console.log(`[Auto Mode] 👤 Avatar Photo URL: ${fullProfile.avatar_photo_url}`);
+        if (fullProfile?.voice_sample_url)
+            console.log(`[Auto Mode] 🎤 Voice Sample URL: ${fullProfile.voice_sample_url}`);
         const mode = contentModePreference || 'IMAGE_TEXT';
         const finalTaskId = taskId || `task_${Date.now()}_${Math.random().toString(36).substring(7)}`;
         console.log(`🚀 [Auto Mode] Using TaskId: ${finalTaskId}, Mode: ${mode}`);
@@ -1390,6 +1418,91 @@ app.get('/agent/auto/plan/:userId', async (req, res) => {
     }
     catch (error) {
         console.error('[Auto Mode] Error getting plan:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+        });
+    }
+});
+// 获取任务列表 (适配前端 /tasks 路由)
+app.get('/agent/auto/tasks/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        // 从autoContentManager获取真实任务
+        const dailyTasks = autoContentManager.getDailyTasks(userId);
+        if (!dailyTasks || dailyTasks.length === 0) {
+            return res.json({
+                success: true,
+                tasks: []
+            });
+        }
+        // 格式化任务
+        const today = new Date().toISOString().split('T')[0];
+        const formattedTasks = dailyTasks.map((task, index) => {
+            let scheduledTimeStr = new Date().toISOString(); // 默认值
+            try {
+                if (task.scheduledTime && typeof task.scheduledTime === 'object' && task.scheduledTime.toISOString) {
+                    scheduledTimeStr = task.scheduledTime.toISOString();
+                }
+                else if (task.scheduledTime && typeof task.scheduledTime === 'string') {
+                    // 如果是字符串，尝试转换为Date
+                    const dateObj = new Date(task.scheduledTime);
+                    if (!isNaN(dateObj.getTime())) {
+                        scheduledTimeStr = dateObj.toISOString();
+                    }
+                }
+            }
+            catch (error) {
+                console.warn(`[Tasks API] 时间格式处理失败:`, error);
+            }
+            return {
+                id: (index + 1).toString(),
+                title: task.title || '默认标题',
+                scheduledTime: scheduledTimeStr,
+                status: task.status === 'published' ? 'completed' :
+                    task.status === 'generating' || task.status === 'ready' ? 'in-progress' :
+                        'pending',
+                type: task.contentType || '图文',
+                content: task.content || '',
+                image_urls: task.imageUrls || [],
+                image_prompts: task.imagePrompts || [],
+                hashtags: task.hashtags || []
+            };
+        });
+        res.json({
+            success: true,
+            tasks: formattedTasks
+        });
+    }
+    catch (error) {
+        console.error('[Auto Mode] Error getting tasks:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+        });
+    }
+});
+// 手动生成今日任务
+app.post('/agent/auto/tasks/generate/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        console.log(`[Auto Mode] Manual task generation requested for user: ${userId}`);
+        // 获取现有任务（任务在startAutoMode时已生成）
+        const dailyTasks = autoContentManager.getDailyTasks(userId);
+        if (!dailyTasks || dailyTasks.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'No tasks available. Please start auto mode first to generate tasks.'
+            });
+        }
+        res.json({
+            success: true,
+            message: 'Tasks retrieved successfully',
+            taskCount: dailyTasks.length
+        });
+    }
+    catch (error) {
+        console.error('[Auto Mode] Error generating tasks:', error);
         res.status(500).json({
             success: false,
             error: error.message,
@@ -1892,6 +2005,97 @@ app.post('/agent/auto/reset/:userId', async (req, res) => {
             success: false,
             error: error.message,
         });
+    }
+});
+// ========================================
+// 📜 视频历史记录 API
+// ========================================
+// 获取用户的视频生成历史
+app.get('/agent/videos/history', async (req, res) => {
+    try {
+        const userId = req.query.userId;
+        const limit = parseInt(req.query.limit) || 20;
+        const offset = parseInt(req.query.offset) || 0;
+        if (!userId) {
+            return res.status(400).json({ success: false, error: 'userId is required' });
+        }
+        // 提取标准 UUID
+        let cleanUserId = userId.replace(/^user_/, '').replace(/_prome$/, '');
+        if (/^[a-f0-9]{32}$/i.test(cleanUserId)) {
+            cleanUserId = `${cleanUserId.slice(0, 8)}-${cleanUserId.slice(8, 12)}-${cleanUserId.slice(12, 16)}-${cleanUserId.slice(16, 20)}-${cleanUserId.slice(20)}`;
+        }
+        console.log(`[Videos API] Fetching history for user: ${cleanUserId}`);
+        const { data, error, count } = await supabaseClient
+            .from('avatar_video_generations')
+            .select('*', { count: 'exact' })
+            .eq('user_id', cleanUserId)
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limit - 1);
+        if (error) {
+            console.error('[Videos API] Error fetching history:', error);
+            return res.status(500).json({ success: false, error: error.message });
+        }
+        res.json({
+            success: true,
+            data: {
+                videos: data || [],
+                total: count || 0,
+                limit,
+                offset
+            }
+        });
+    }
+    catch (error) {
+        console.error('[Videos API] Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+// 获取用户的视频使用统计
+app.get('/agent/videos/stats', async (req, res) => {
+    try {
+        const userId = req.query.userId;
+        if (!userId) {
+            return res.status(400).json({ success: false, error: 'userId is required' });
+        }
+        // 提取标准 UUID
+        let cleanUserId = userId.replace(/^user_/, '').replace(/_prome$/, '');
+        if (/^[a-f0-9]{32}$/i.test(cleanUserId)) {
+            cleanUserId = `${cleanUserId.slice(0, 8)}-${cleanUserId.slice(8, 12)}-${cleanUserId.slice(12, 16)}-${cleanUserId.slice(16, 20)}-${cleanUserId.slice(20)}`;
+        }
+        console.log(`[Videos API] Fetching stats for user: ${cleanUserId}`);
+        // 总视频数
+        const { count: totalVideos } = await supabaseClient
+            .from('avatar_video_generations')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', cleanUserId);
+        // 本月视频数
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        startOfMonth.setHours(0, 0, 0, 0);
+        const { count: monthlyVideos } = await supabaseClient
+            .from('avatar_video_generations')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', cleanUserId)
+            .gte('created_at', startOfMonth.toISOString());
+        // 总音频时长（秒）
+        const { data: durationData } = await supabaseClient
+            .from('avatar_video_generations')
+            .select('audio_duration')
+            .eq('user_id', cleanUserId);
+        const totalDuration = (durationData || []).reduce((sum, v) => sum + (v.audio_duration || 0), 0);
+        res.json({
+            success: true,
+            data: {
+                totalVideos: totalVideos || 0,
+                monthlyVideos: monthlyVideos || 0,
+                totalDurationSeconds: totalDuration,
+                totalDurationFormatted: `${Math.floor(totalDuration / 60)}分${totalDuration % 60}秒`
+            }
+        });
+    }
+    catch (error) {
+        console.error('[Videos API] Error:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 // 图片生成API (单张)

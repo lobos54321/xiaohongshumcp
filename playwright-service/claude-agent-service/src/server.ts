@@ -1616,6 +1616,98 @@ app.get('/agent/auto/plan/:userId', async (req: Request, res: Response) => {
   }
 });
 
+// 获取任务列表 (适配前端 /tasks 路由)
+app.get('/agent/auto/tasks/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    // 从autoContentManager获取真实任务
+    const dailyTasks = autoContentManager.getDailyTasks(userId);
+
+    if (!dailyTasks || dailyTasks.length === 0) {
+      return res.json({
+        success: true,
+        tasks: []
+      });
+    }
+
+    // 格式化任务
+    const today = new Date().toISOString().split('T')[0];
+    const formattedTasks = dailyTasks.map((task, index) => {
+      let scheduledTimeStr = new Date().toISOString(); // 默认值
+      try {
+        if (task.scheduledTime && typeof task.scheduledTime === 'object' && task.scheduledTime.toISOString) {
+          scheduledTimeStr = task.scheduledTime.toISOString();
+        } else if (task.scheduledTime && typeof task.scheduledTime === 'string') {
+          // 如果是字符串，尝试转换为Date
+          const dateObj = new Date(task.scheduledTime);
+          if (!isNaN(dateObj.getTime())) {
+            scheduledTimeStr = dateObj.toISOString();
+          }
+        }
+      } catch (error) {
+        console.warn(`[Tasks API] 时间格式处理失败:`, error);
+      }
+
+      return {
+        id: (index + 1).toString(),
+        title: task.title || '默认标题',
+        scheduledTime: scheduledTimeStr,
+        status: task.status === 'published' ? 'completed' :
+          task.status === 'generating' || task.status === 'ready' ? 'in-progress' :
+            'pending',
+        type: task.contentType || '图文',
+        content: task.content || '',
+        image_urls: task.imageUrls || [],
+        image_prompts: task.imagePrompts || [],
+        hashtags: task.hashtags || []
+      };
+    });
+
+    res.json({
+      success: true,
+      tasks: formattedTasks
+    });
+  } catch (error: any) {
+    console.error('[Auto Mode] Error getting tasks:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// 手动生成今日任务
+app.post('/agent/auto/tasks/generate/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    console.log(`[Auto Mode] Manual task generation requested for user: ${userId}`);
+
+    // 获取现有任务（任务在startAutoMode时已生成）
+    const dailyTasks = autoContentManager.getDailyTasks(userId);
+
+    if (!dailyTasks || dailyTasks.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No tasks available. Please start auto mode first to generate tasks.'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Tasks retrieved successfully',
+      taskCount: dailyTasks.length
+    });
+  } catch (error: any) {
+    console.error('[Auto Mode] Error generating tasks:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 // 批准发布内容
 // 🚀 批准发布 - 异步版本（立即返回 jobId）
 app.post('/agent/auto/approve/:userId', async (req: Request, res: Response) => {
