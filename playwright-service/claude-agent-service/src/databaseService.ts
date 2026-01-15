@@ -19,6 +19,9 @@ export interface UserProfile {
   post_frequency?: string;
   brand_style?: string;
   review_mode?: string;
+  target_platforms?: string[];  // 目标发布平台 ['xiaohongshu', 'douyin', 'weibo']
+  avatar_photo_url?: string;    // 数字人头像照片
+  voice_sample_url?: string;    // 数字人语音样本
   created_at?: string;
   updated_at?: string;
 }

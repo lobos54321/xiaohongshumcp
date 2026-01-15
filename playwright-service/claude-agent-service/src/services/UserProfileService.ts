@@ -27,6 +27,7 @@ export interface UserProfile {
     avatar_photo_url?: string;       // 数字人照片 URL
     voice_sample_url?: string;       // 语音样本 URL
     content_modes?: string[];        // 用户选择的内容模式
+    target_platforms?: string[];     // 目标发布平台 ['xiaohongshu', 'douyin', 'weibo']
 }
 
 export interface ExtractedKeywords {
