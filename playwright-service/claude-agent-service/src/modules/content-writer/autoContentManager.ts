@@ -2191,11 +2191,18 @@ ${rules.specialRules.map((rule, i) => `${i + 1}. ${rule}`).join('\n')}
     let successCount = 0;
     let failCount = 0;
 
-    const totalPosts = weeklyPlan.days.reduce((sum, d) => sum + d.posts.length, 0);
-    console.log(`📝 [任务生成] 开始生成任务，预计总数: ${totalPosts}`);
+    // 🔥 只生成当天的内容，不是整个7天
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const todayPlan = weeklyPlan.days.find(d => d.date === today);
 
-    for (const day of weeklyPlan.days) {
-      for (const post of day.posts) {
+    // 如果今天没有计划，使用第一天的计划（防止时区问题）
+    const targetDay = todayPlan || weeklyPlan.days[0];
+    const todayPosts = targetDay?.posts || [];
+
+    const totalPosts = todayPosts.length;
+    console.log(`📝 [任务生成] 🔥 只生成当日(${targetDay?.date || today})内容，预计总数: ${totalPosts} 篇`);
+
+    for (const post of todayPosts) {
         try {
           const isFirstTask = successCount === 0;
           const taskId = profile.taskId;
@@ -2494,10 +2501,6 @@ ${rules.specialRules.map((rule, i) => `${i + 1}. ${rule}`).join('\n')}
             break;
           }
         }
-      }
-
-      // 如果失败次数过多，跳出外层循环
-      if (failCount >= 3) break;
     }
 
     // 🔥 任务全部完成，立即标记 detail-plan 为完成

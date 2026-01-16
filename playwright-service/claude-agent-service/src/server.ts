@@ -1324,6 +1324,7 @@ app.post('/agent/auto/start', async (req: Request, res: Response) => {
       targetAudience,
       marketingGoal,
       postFrequency,
+      postsPerDay, // 🔥 每日发布篇数 (1-10)
       brandStyle,
       reviewMode,
       taskId, // 获取前端传递的任务ID
@@ -1368,6 +1369,7 @@ app.post('/agent/auto/start', async (req: Request, res: Response) => {
       targetAudience: targetAudience || fullProfile?.target_audience || '目标用户',
       marketingGoal: (marketingGoal || fullProfile?.marketing_goal || 'brand') as any,
       postFrequency: (postFrequency || fullProfile?.post_frequency || 'daily') as any,
+      posts_per_day: postsPerDay || fullProfile?.posts_per_day || 1, // 🔥 每日发布篇数，用于周计划详细内容生成
       brandStyle: (brandStyle || fullProfile?.brand_style || 'warm') as any,
       reviewMode: (reviewMode || fullProfile?.review_mode || 'auto') as any,
       avatarPhotoUrl: fullProfile?.avatar_photo_url,
@@ -1375,7 +1377,7 @@ app.post('/agent/auto/start', async (req: Request, res: Response) => {
       targetPlatforms: targetPlatforms || fullProfile?.target_platforms || ['xiaohongshu'] // 🔥 目标发布平台
     };
 
-    console.log(`[Auto Mode] Starting auto mode for user ${userId} with task: ${taskId}, mode: ${contentModePreference}, platforms: ${JSON.stringify(userProfile.targetPlatforms)}`);
+    console.log(`[Auto Mode] Starting auto mode for user ${userId} with task: ${taskId}, mode: ${contentModePreference}, platforms: ${JSON.stringify(userProfile.targetPlatforms)}, postsPerDay: ${userProfile.posts_per_day}`);
     if (fullProfile?.avatar_photo_url) console.log(`[Auto Mode] 👤 Avatar Photo URL: ${fullProfile.avatar_photo_url}`);
     if (fullProfile?.voice_sample_url) console.log(`[Auto Mode] 🎤 Voice Sample URL: ${fullProfile.voice_sample_url}`);
 
