@@ -691,20 +691,22 @@ export class AutoContentManager {
       });
       const targetDay = todayPlan || weeklyPlan.days[0];
       const postsPerDay = (userProfile as any).posts_per_day || 1;
+      // 🔥 从 targetDay.posts[0] 中获取主题
+      const todayTheme = targetDay?.posts?.[0]?.theme || '每日营销内容';
 
       if (workflowProgressService && taskId) {
         await workflowProgressService.startStep(taskId, 'detail-plan', '确认今日执行计划...');
         // 快速完成 detail-plan（1-2秒）
         await new Promise(resolve => setTimeout(resolve, 500));
         await workflowProgressService.completeStep(taskId, 'detail-plan', {
-          today_theme: targetDay?.theme || '每日营销内容',
+          today_theme: todayTheme,
           today_date: targetDay?.date || today,
           posts_count: postsPerDay,
-          message: `今日主题: ${targetDay?.theme || '默认'}，计划生成 ${postsPerDay} 篇内容`
+          message: `今日主题: ${todayTheme}，计划生成 ${postsPerDay} 篇内容`
         });
-        console.log(`✅ [detail-plan] 快速完成: 今日主题=${targetDay?.theme}, postsPerDay=${postsPerDay}`);
+        console.log(`✅ [detail-plan] 快速完成: 今日主题=${todayTheme}, postsPerDay=${postsPerDay}`);
       }
-      this.addRealTimeActivity(userProfile.userId, `📋 今日计划: ${targetDay?.theme || '营销内容'} × ${postsPerDay} 篇`, 'generation');
+      this.addRealTimeActivity(userProfile.userId, `📋 今日计划: ${todayTheme} × ${postsPerDay} 篇`, 'generation');
 
       // 4. 生成详细的每日任务（包含图片生成 + 渐进式保存）
       console.log(`🚀 [DEBUG] 步骤4: 开始生成详细任务...`);
@@ -749,32 +751,44 @@ export class AutoContentManager {
         console.log(`✅ [continueAvatarWorkflow] weekly-plan completed`);
       }
 
-      // 数字人模式：详细计划
-      console.log(`📝 [continueAvatarWorkflow] Step 2: detail-plan`);
+      // 数字人模式：详细计划 - 🔥 简化版，显示 postsPerDay
+      const postsPerDay = (userProfile as any).posts_per_day || 1;
+      console.log(`📝 [continueAvatarWorkflow] Step 2: detail-plan (postsPerDay=${postsPerDay})`);
       if (workflowProgressService && taskId) {
-        await workflowProgressService.startStep(taskId, 'detail-plan', '正在准备视频拍摄素材和分镜...');
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await workflowProgressService.startStep(taskId, 'detail-plan', '确认今日视频计划...');
+        await new Promise(resolve => setTimeout(resolve, 500));
         await workflowProgressService.completeStep(taskId, 'detail-plan', {
           target: '高转化口播视频',
-          taskCount: 1
+          taskCount: postsPerDay,
+          message: `计划生成 ${postsPerDay} 个口播脚本变体`
         });
         console.log(`✅ [continueAvatarWorkflow] detail-plan completed`);
       }
 
-      // 数字人模式：脚本生成
-      console.log(`📜 [continueAvatarWorkflow] Step 3: script-gen`);
-      let generatedScript = '欢迎观看我们的视频！';
-      if (workflowProgressService && taskId) {
-        await workflowProgressService.startStep(taskId, 'script-gen', '正在根据策略生成数字人口播脚本...');
+      // 🔥 数字人模式：脚本变体生成 - 根据 postsPerDay 生成多个变体
+      console.log(`📜 [continueAvatarWorkflow] Step 3: script-gen (generating ${postsPerDay} variants)`);
+      const scriptVariants: Array<{ angleName: string; script: string; title: string }> = [];
+      let primaryScript = '欢迎观看我们的视频！';
 
-        try {
-          // 使用 Claude 生成真实脚本
-          const scriptPrompt = `你是一个小红书爆款短视频脚本专家。
+      if (workflowProgressService && taskId) {
+        await workflowProgressService.startStep(taskId, 'script-gen', `正在生成 ${postsPerDay} 个口播脚本变体...`);
+
+        // 🔥 循环生成多个脚本变体
+        for (let i = 0; i < postsPerDay; i++) {
+          const angle = VARIANT_ANGLES[i % VARIANT_ANGLES.length];
+          console.log(`📜 [continueAvatarWorkflow] Generating script variant ${i + 1}/${postsPerDay}: ${angle.name}`);
+
+          try {
+            const scriptPrompt = `你是一个小红书爆款短视频脚本专家。
 根据以下策略和产品信息，生成一个适合数字人口播的短视频脚本。
+
 产品：${userProfile.productName}
 目标受众：${userProfile.targetAudience}
 营销目标：${userProfile.marketingGoal === 'sales' ? '转化销售' : '品牌心智'}
-内容核心：${strategy.keyThemes[0] || '产品优势'}
+内容核心：${strategy.keyThemes[i % strategy.keyThemes.length] || '产品优势'}
+
+🔥 创作角度：${angle.name}
+${angle.prompt}
 
 要求：
 1. 语言口语化，适合短视频快节奏
@@ -782,31 +796,53 @@ export class AutoContentManager {
 3. 字数控制在 200-400 字之间（适合 1-2 分钟视频）
 4. 只返回脚本正文，不要有任何其他解释。`;
 
-          const response = await this.anthropic.messages.create({
-            model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20240620',
-            max_tokens: 1000,
-            messages: [{ role: 'user', content: scriptPrompt }],
-          });
+            const response = await this.anthropic.messages.create({
+              model: process.env.CLAUDE_HAIKU_MODEL || 'claude-3-5-haiku-20241022',
+              max_tokens: 1000,
+              messages: [{ role: 'user', content: scriptPrompt }],
+            });
 
-          generatedScript = (response.content[0] as any).text;
-          console.log(`✅ [continueAvatarWorkflow] Script generated: ${generatedScript.substring(0, 50)}...`);
+            const generatedScript = (response.content[0] as any).text;
+            console.log(`✅ [continueAvatarWorkflow] Script variant ${i + 1} generated: ${generatedScript.substring(0, 50)}...`);
 
-          await workflowProgressService.completeStep(taskId, 'script-gen', {
-            script: generatedScript,
-            scriptCount: 1,
-            duration: '1-2分钟',
-            title: `${userProfile.productName} 爆款口播`
-          });
-        } catch (scriptError) {
-          console.error(`❌ [continueAvatarWorkflow] Script generation failed:`, scriptError);
-          // 降级使用默认脚本
-          await workflowProgressService.completeStep(taskId, 'script-gen', {
-            script: generatedScript,
-            scriptCount: 1,
-            error: 'AI 生成失败，使用默认脚本'
-          });
+            scriptVariants.push({
+              angleName: angle.name,
+              script: generatedScript,
+              title: `${userProfile.productName} - ${angle.name}口播`
+            });
+
+            // 第一个作为主脚本
+            if (i === 0) {
+              primaryScript = generatedScript;
+            }
+
+            // 更新进度
+            const progress = Math.round(((i + 1) / postsPerDay) * 100);
+            await workflowProgressService.updateProgress(taskId, 'script-gen', progress, `已生成 ${i + 1}/${postsPerDay} 个脚本变体`);
+
+          } catch (scriptError) {
+            console.error(`❌ [continueAvatarWorkflow] Script variant ${i + 1} generation failed:`, scriptError);
+            scriptVariants.push({
+              angleName: angle.name,
+              script: `${angle.name}视角的口播脚本 - 生成失败，请重试`,
+              title: `${userProfile.productName} - ${angle.name}口播`
+            });
+          }
         }
+
+        await workflowProgressService.completeStep(taskId, 'script-gen', {
+          script: primaryScript,
+          scriptCount: scriptVariants.length,
+          duration: '1-2分钟',
+          title: `${userProfile.productName} 爆款口播`,
+          // 🔥 返回所有脚本变体
+          variants: scriptVariants
+        });
+        console.log(`✅ [continueAvatarWorkflow] All ${scriptVariants.length} script variants generated`);
       }
+
+      // 🔥 使用主脚本进行视频生成
+      const generatedScript = primaryScript;
 
       // 数字人模式：语音克隆 & 视频渲染 (合并调用 VideoGenerationService)
       console.log(`🎤 [continueAvatarWorkflow] Step 4 & 5: Video Generation`);
