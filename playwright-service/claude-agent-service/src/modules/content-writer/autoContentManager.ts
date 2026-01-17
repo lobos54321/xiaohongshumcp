@@ -114,6 +114,44 @@ const PLATFORM_RULES: Record<string, PlatformCopyRules> = {
   }
 };
 
+/**
+ * 🔥 变体角度配置
+ * 根据 postsPerDay 数量，为每个变体分配不同的写作角度
+ */
+interface VariantAngle {
+  id: string;
+  name: string;
+  prompt: string;
+}
+
+const VARIANT_ANGLES: VariantAngle[] = [
+  {
+    id: 'pain-point',
+    name: '痛点视角',
+    prompt: '从用户痛点和困扰切入，引发情感共鸣，让读者感到"这说的就是我"'
+  },
+  {
+    id: 'solution',
+    name: '方法视角',
+    prompt: '从解决方案和使用方法切入，提供实用价值，让读者觉得"学到了"'
+  },
+  {
+    id: 'story',
+    name: '故事视角',
+    prompt: '用真实场景或用户故事展开，增强代入感，让读者想象自己使用的场景'
+  },
+  {
+    id: 'data',
+    name: '数据视角',
+    prompt: '引用数据、权威背书或对比测评，增加说服力和可信度'
+  },
+  {
+    id: 'emotion',
+    name: '情感视角',
+    prompt: '触动情感，唤起向往、期待或紧迫感，激发行动欲望'
+  },
+];
+
 interface ContentPlan {
   strategy: ContentStrategy;
   weeklyPlan: WeeklyPlan;
@@ -642,42 +680,38 @@ export class AutoContentManager {
       console.log(`🚀 [DEBUG] 步骤2完成: 周计划生成成功，包含 ${weeklyPlan.days.length} 天计划`);
       this.addRealTimeActivity(userProfile.userId, `✅ 周计划生成成功，规划了${weeklyPlan.days.length}天的内容`, 'generation');
 
-      // 3. 生成详细的每日任务（包含图片生成 + 渐进式保存）
-      console.log(`🚀 [DEBUG] 步骤3: 开始生成详细任务...`);
+      // 3. 🔥 简化版 detail-plan：快速读取今日主题，确认 postsPerDay
+      console.log(`🚀 [DEBUG] 步骤3: 简化版 detail-plan - 快速确认今日任务...`);
+
+      // 读取今日主题
+      const today = new Date().toISOString().split('T')[0];
+      const todayPlan = weeklyPlan.days.find(d => {
+        const dateStr = d.date instanceof Date ? d.date.toISOString().split('T')[0] : String(d.date);
+        return dateStr === today;
+      });
+      const targetDay = todayPlan || weeklyPlan.days[0];
+      const postsPerDay = (userProfile as any).posts_per_day || 1;
+
       if (workflowProgressService && taskId) {
-        await workflowProgressService.startStep(taskId, 'detail-plan', '拆解今日具体执行目标...');
-        // 初始给一点进度，让用户看到它在动
-        await workflowProgressService.updateProgress(taskId, 'detail-plan', 1, '正在初始化每日任务队列...');
+        await workflowProgressService.startStep(taskId, 'detail-plan', '确认今日执行计划...');
+        // 快速完成 detail-plan（1-2秒）
+        await new Promise(resolve => setTimeout(resolve, 500));
+        await workflowProgressService.completeStep(taskId, 'detail-plan', {
+          today_theme: targetDay?.theme || '每日营销内容',
+          today_date: targetDay?.date || today,
+          posts_count: postsPerDay,
+          message: `今日主题: ${targetDay?.theme || '默认'}，计划生成 ${postsPerDay} 篇内容`
+        });
+        console.log(`✅ [detail-plan] 快速完成: 今日主题=${targetDay?.theme}, postsPerDay=${postsPerDay}`);
       }
+      this.addRealTimeActivity(userProfile.userId, `📋 今日计划: ${targetDay?.theme || '营销内容'} × ${postsPerDay} 篇`, 'generation');
+
+      // 4. 生成详细的每日任务（包含图片生成 + 渐进式保存）
+      console.log(`🚀 [DEBUG] 步骤4: 开始生成详细任务...`);
       this.addRealTimeActivity(userProfile.userId, '📝 正在创建详细的每日任务（包含配图）...', 'generation');
 
       // 🔥 传入strategy，支持渐进式保存和错误容忍
       const dailyTasks = await this.generateDailyTasks(userProfile, weeklyPlan, strategy, workflowProgressService);
-
-      if (workflowProgressService && taskId) {
-        await workflowProgressService.completeStep(taskId, 'detail-plan', {
-          today_target: dailyTasks[0]?.title || '首日内容生产',
-          tasksCount: dailyTasks.length,
-          taskCount: dailyTasks.length,
-          // 🔥 完整任务数据（包含 content, hashtags, variants, imageUrls）
-          tasks: dailyTasks.map(t => ({
-            title: t.title,
-            content: t.content,
-            scheduledTime: t.scheduledTime.toISOString(),
-            type: t.contentType,
-            hashtags: t.hashtags,
-            variants: t.variants,
-            imageUrls: t.imageUrls,
-            status: t.status
-          })),
-          // 兼容旧格式
-          taskSummaries: dailyTasks.map(t => ({
-            title: t.title,
-            scheduledTime: t.scheduledTime.toISOString(),
-            type: t.contentType
-          }))
-        });
-      }
 
       this.generationStatus.set(userProfile.userId, 'completed');
       this.startScheduler(userProfile.userId);
@@ -1634,12 +1668,20 @@ export class AutoContentManager {
   }
 
   /**
-   * 🔥 生成平台特定的文案变体
-   * 根据用户选择的目标平台，为每个平台生成适配的文案
+   * 🔥 生成平台特定的文案变体 (V2 - 按 postsPerDay 控制数量)
+   *
+   * 核心逻辑变更:
+   * - 旧逻辑: 每个平台生成 1 个变体 → 变体数 = 平台数
+   * - 新逻辑: 每个平台生成 postsPerDay 个变体 → 变体数 = 平台数 × postsPerDay
+   *
+   * @param task 母文案任务
+   * @param targetPlatforms 目标平台列表
+   * @param postsPerDay 每日发布篇数 (控制每平台变体数量)
    */
   private async generatePlatformVariants(
     task: DailyTask,
-    targetPlatforms: string[]
+    targetPlatforms: string[],
+    postsPerDay: number = 1
   ): Promise<Array<{
     type: string;
     platform: string;
@@ -1647,8 +1689,11 @@ export class AutoContentManager {
     title: string;
     text: string;
     hashtags?: string[];
+    variantIndex?: number;
+    angleName?: string;
   }>> {
-    console.log(`📝 [Variants] 为 ${targetPlatforms.length} 个平台生成变体文案...`);
+    const totalVariants = targetPlatforms.length * postsPerDay;
+    console.log(`📝 [Variants] 🔥 新版变体生成: ${targetPlatforms.length} 个平台 × ${postsPerDay} 篇/平台 = ${totalVariants} 篇总计`);
 
     const variants: Array<{
       type: string;
@@ -1657,6 +1702,8 @@ export class AutoContentManager {
       title: string;
       text: string;
       hashtags?: string[];
+      variantIndex?: number;
+      angleName?: string;
     }> = [];
 
     for (const platform of targetPlatforms) {
@@ -1666,16 +1713,27 @@ export class AutoContentManager {
         continue;
       }
 
-      console.log(`🎯 [Variants] 正在为 ${rules.displayName} 生成变体...`);
+      console.log(`🎯 [Variants] 正在为 ${rules.displayName} 生成 ${postsPerDay} 个变体...`);
 
-      try {
-        const variantResponse = await this.callClaudeWithRetry(
-          () => this.anthropic.messages.create({
-            model: 'claude-3-5-haiku-20241022',
-            max_tokens: 1500,
-            messages: [{
-              role: 'user',
-              content: `你是一位专业的 ${rules.displayName} 平台内容创作专家。请将以下"母文案"改写为适合 ${rules.displayName} 平台的版本。
+      // 🔥 核心变更: 按 postsPerDay 循环生成变体
+      for (let i = 0; i < postsPerDay; i++) {
+        // 获取当前变体的写作角度
+        const angle = VARIANT_ANGLES[i % VARIANT_ANGLES.length];
+        const variantNumber = i + 1;
+
+        console.log(`  📝 [Variants] 变体 ${variantNumber}/${postsPerDay}: ${angle.name}`);
+
+        try {
+          const variantResponse = await this.callClaudeWithRetry(
+            () => this.anthropic.messages.create({
+              model: 'claude-3-5-haiku-20241022',
+              max_tokens: 1500,
+              messages: [{
+                role: 'user',
+                content: `你是一位专业的 ${rules.displayName} 平台内容创作专家。请将以下"母文案"改写为适合 ${rules.displayName} 平台的版本。
+
+**🎯 写作角度要求 (重要)**：
+本变体需要采用【${angle.name}】进行创作：${angle.prompt}
 
 **平台特性要求**：
 - 平台风格：${rules.style}
@@ -1684,12 +1742,13 @@ export class AutoContentManager {
 - 标签策略：${rules.hashtagStyle}
 
 **特殊规则**：
-${rules.specialRules.map((rule, i) => `${i + 1}. ${rule}`).join('\n')}
+${rules.specialRules.map((rule: string, idx: number) => `${idx + 1}. ${rule}`).join('\n')}
 
 **写作禁忌**：
 ❌ 严禁使用"卧槽"、"天呐"、"绝绝子"等低质网络用语
 ❌ 严禁任何轻蔑、鄙视、嘲讽或负能量语气
 ✅ 必须保留核心卖点和专业质感
+✅ 要与其他角度的变体有明显区分
 
 **母文案内容**：
 标题：${task.title}
@@ -1699,45 +1758,50 @@ ${rules.specialRules.map((rule, i) => `${i + 1}. ${rule}`).join('\n')}
 **输出要求**：
 返回纯 JSON 格式（不要包含 markdown 代码块）：
 {
-  "title": "适合${rules.displayName}平台的标题",
-  "text": "适合${rules.displayName}平台的正文内容",
+  "title": "适合${rules.displayName}平台的${angle.name}标题",
+  "text": "适合${rules.displayName}平台的${angle.name}正文内容",
   "hashtags": ["标签1", "标签2", "标签3"]
 }`
-            }]
-          }),
-          2,
-          `生成 ${rules.displayName} 变体`
-        );
+              }]
+            }),
+            2,
+            `生成 ${rules.displayName} ${angle.name}变体`
+          );
 
-        const variantText = variantResponse.content[0].type === 'text' ? variantResponse.content[0].text : '{}';
-        const cleanedVariant = this.cleanJSONResponse(variantText);
-        const parsedVariant = JSON.parse(cleanedVariant);
+          const variantText = variantResponse.content[0].type === 'text' ? variantResponse.content[0].text : '{}';
+          const cleanedVariant = this.cleanJSONResponse(variantText);
+          const parsedVariant = JSON.parse(cleanedVariant);
 
-        variants.push({
-          type: `${rules.displayName}风格`,
-          platform: platform,
-          platformName: rules.displayName,
-          title: parsedVariant.title || task.title,
-          text: parsedVariant.text || parsedVariant.content || task.content,
-          hashtags: parsedVariant.hashtags || task.hashtags
-        });
+          variants.push({
+            type: `${rules.displayName}风格-${angle.name}`,
+            platform: platform,
+            platformName: rules.displayName,
+            title: parsedVariant.title || task.title,
+            text: parsedVariant.text || parsedVariant.content || task.content,
+            hashtags: parsedVariant.hashtags || task.hashtags,
+            variantIndex: variantNumber,
+            angleName: angle.name
+          });
 
-        console.log(`✅ [Variants] ${rules.displayName} 变体生成成功`);
-      } catch (error) {
-        console.warn(`⚠️ [Variants] ${rules.displayName} 变体生成失败:`, error);
-        // 降级：使用原始内容作为该平台的变体
-        variants.push({
-          type: `${rules.displayName}风格（原始）`,
-          platform: platform,
-          platformName: rules.displayName,
-          title: task.title,
-          text: task.content,
-          hashtags: task.hashtags
-        });
+          console.log(`  ✅ [Variants] ${rules.displayName} ${angle.name}变体生成成功`);
+        } catch (error) {
+          console.warn(`  ⚠️ [Variants] ${rules.displayName} ${angle.name}变体生成失败:`, error);
+          // 降级：使用原始内容作为该平台的变体
+          variants.push({
+            type: `${rules.displayName}风格-${angle.name}（原始）`,
+            platform: platform,
+            platformName: rules.displayName,
+            title: task.title,
+            text: task.content,
+            hashtags: task.hashtags,
+            variantIndex: variantNumber,
+            angleName: angle.name
+          });
+        }
       }
     }
 
-    console.log(`✅ [Variants] 共生成 ${variants.length} 个平台变体`);
+    console.log(`✅ [Variants] 🔥 共生成 ${variants.length} 个平台变体 (预期: ${totalVariants})`);
     return variants;
   }
 
@@ -2213,11 +2277,8 @@ ${rules.specialRules.map((rule, i) => `${i + 1}. ${rule}`).join('\n')}
 
           console.log(`📝 [任务生成] 正在生成任务 ${successCount + failCount + 1} - 主题: ${post.theme}`);
 
-          // 🔥 解决 detail-plan 卡在 0% 的问题：更新步骤进度
-          if (workflowProgressService && taskId) {
-            const baseProgress = Math.round(((successCount + failCount) / totalPosts) * 100);
-            await workflowProgressService.updateProgress(taskId, 'detail-plan', Math.max(1, baseProgress), `正在策划第 ${successCount + failCount + 1} 个任务: ${post.theme}`);
-          }
+          // 🔥 detail-plan 已在调用前完成，这里不再更新其进度
+          // 只在首个任务时启动 copy-analyze 和 copy-gen 步骤
 
           if (isFirstTask && workflowProgressService && taskId) {
             await workflowProgressService.startStep(taskId, 'copy-analyze', '正在从当前产品画像提取核心卖点与钩子...');
@@ -2374,10 +2435,13 @@ ${rules.specialRules.map((rule, i) => `${i + 1}. ${rule}`).join('\n')}
                 ? profile.targetPlatforms
                 : ['xiaohongshu'];
 
-              console.log(`📝 [Variants] 目标平台: ${targetPlatforms.join(', ')}`);
+              // 🔥 获取每日发布篇数 (核心修改)
+              const postsPerDay = (profile as any).posts_per_day || 1;
 
-              // 生成平台特定变体
-              const platformVariants = await this.generatePlatformVariants(task, targetPlatforms);
+              console.log(`📝 [Variants] 目标平台: ${targetPlatforms.join(', ')}, 每日篇数: ${postsPerDay}`);
+
+              // 生成平台特定变体 (传入 postsPerDay 参数)
+              const platformVariants = await this.generatePlatformVariants(task, targetPlatforms, postsPerDay);
 
               // 更新 task.variants
               task.variants = platformVariants;
@@ -2507,32 +2571,9 @@ ${rules.specialRules.map((rule, i) => `${i + 1}. ${rule}`).join('\n')}
         }
     }
 
-    // 🔥 任务全部完成，立即标记 detail-plan 为完成
-    if (workflowProgressService && profile.taskId) {
-      await workflowProgressService.completeStep(profile.taskId, 'detail-plan', {
-        status: 'success',
-        taskCount: successCount,
-        tasksCount: successCount,
-        today_target: tasks[0]?.title || '完成内容策划',
-        // 🔥 完整任务数据（包含 content, hashtags, variants, imageUrls）
-        tasks: tasks.map(t => ({
-          title: t.title,
-          content: t.content,
-          scheduledTime: t.scheduledTime.toISOString(),
-          type: t.contentType,
-          hashtags: t.hashtags,
-          variants: t.variants,
-          imageUrls: t.imageUrls,
-          status: t.status
-        })),
-        // 兼容旧格式
-        taskSummaries: tasks.map(t => ({
-          title: t.title,
-          scheduledTime: t.scheduledTime.toISOString(),
-          type: t.contentType
-        }))
-      });
-    }
+    // 🔥 detail-plan 已在调用前完成，这里不再重复标记
+    // 任务数据通过 tasks-save 节点展示
+    console.log(`✅ [generateDailyTasks] 完成，共生成 ${successCount} 个任务`);
 
     return tasks;
   }
