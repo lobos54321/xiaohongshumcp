@@ -2193,7 +2193,11 @@ ${rules.specialRules.map((rule, i) => `${i + 1}. ${rule}`).join('\n')}
 
     // 🔥 只生成当天的内容，不是整个7天
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    const todayPlan = weeklyPlan.days.find(d => d.date === today);
+    const todayPlan = weeklyPlan.days.find(d => {
+      // d.date 可能是 Date 对象或字符串，需要统一处理
+      const dateStr = d.date instanceof Date ? d.date.toISOString().split('T')[0] : String(d.date);
+      return dateStr === today;
+    });
 
     // 如果今天没有计划，使用第一天的计划（防止时区问题）
     const targetDay = todayPlan || weeklyPlan.days[0];
@@ -2314,7 +2318,7 @@ ${rules.specialRules.map((rule, i) => `${i + 1}. ${rule}`).join('\n')}
                   taskScheduledTime = post.scheduledTime;
                 } else if (typeof post.scheduledTime === 'string') {
                   // 如果是字符串，尝试解析
-                  const dateStr = day.date instanceof Date ? day.date.toISOString().split('T')[0] : day.date;
+                  const dateStr = targetDay.date instanceof Date ? targetDay.date.toISOString().split('T')[0] : String(targetDay.date);
                   taskScheduledTime = new Date(`${dateStr}T${post.scheduledTime}:00`);
                 } else {
                   taskScheduledTime = new Date();
