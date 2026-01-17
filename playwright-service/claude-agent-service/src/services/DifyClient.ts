@@ -359,19 +359,23 @@ export class DifyClient {
         try {
             console.log('[DifyClient] cleanJSONResponse: 开始清洗，原始长度:', responseText.length);
 
+            // 🔥 预处理：移除 <think>...</think> 标签及其内容
+            let processedText = this.removeThinkTags(responseText);
+            console.log('[DifyClient] cleanJSONResponse: 移除 think 标签后长度:', processedText.length);
+
             // 🔥 策略0：直接尝试完整文本解析（如果LLM严格输出了JSON）
             try {
-                const directParsed = JSON.parse(responseText.trim());
+                const directParsed = JSON.parse(processedText.trim());
                 if (directParsed.title && directParsed.text) {
                     console.log('[DifyClient] cleanJSONResponse: 直接解析成功！');
-                    return responseText.trim();
+                    return processedText.trim();
                 }
             } catch (e) {
                 // 继续尝试其他策略
             }
 
             // 移除 markdown 代码块标记
-            let cleanedText = responseText
+            let cleanedText = processedText
                 .replace(/```json\s*/gi, '')
                 .replace(/```\s*/g, '')
                 .trim();
@@ -491,11 +495,34 @@ export class DifyClient {
     }
 
     /**
+     * 移除 <think>...</think> 标签及其内容
+     * 处理 AI 模型思考过程的输出
+     */
+    private removeThinkTags(text: string): string {
+        // 移除 <think>...</think> 标签及其所有内容（包括多行）
+        let cleaned = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
+
+        // 移除可能的 JSON 字符串中转义的 think 标签
+        cleaned = cleaned.replace(/\\u003cthink\\u003e[\s\S]*?\\u003c\/think\\u003e/gi, '');
+
+        // 移除内容中的 \n<think> 到 </think>\n 模式
+        cleaned = cleaned.replace(/\\n<think>[\s\S]*?<\/think>\\n/gi, '\\n');
+
+        // 清理结果中可能的多余空白
+        cleaned = cleaned.replace(/^\s+/, '').replace(/\s+$/, '');
+
+        return cleaned;
+    }
+
+    /**
      * 降级方案：从非 JSON 响应中提取内容
      */
     private extractContentFallback(answer: string): DifyContentGenerationResult {
         console.log('[DifyClient] 使用降级提取方案...');
-        console.log('[DifyClient] 降级方案 - 原始内容前200字符:', answer.substring(0, 200));
+
+        // 🔥 首先移除 think 标签
+        const cleanedAnswer = this.removeThinkTags(answer);
+        console.log('[DifyClient] 降级方案 - 原始内容前200字符:', cleanedAnswer.substring(0, 200));
 
         // 🔥 策略1：即使在fallback中，也尝试直接从文本中提取JSON对象
         try {
@@ -504,7 +531,7 @@ export class DifyClient {
             let jsonStart = -1;
 
             for (const pattern of jsonStartPatterns) {
-                jsonStart = answer.indexOf(pattern);
+                jsonStart = cleanedAnswer.indexOf(pattern);
                 if (jsonStart !== -1) break;
             }
 
@@ -515,8 +542,8 @@ export class DifyClient {
                 let inString = false;
                 let escapeNext = false;
 
-                for (let i = jsonStart; i < answer.length; i++) {
-                    const char = answer[i];
+                for (let i = jsonStart; i < cleanedAnswer.length; i++) {
+                    const char = cleanedAnswer[i];
                     if (escapeNext) { escapeNext = false; continue; }
                     if (char === '\\') { escapeNext = true; continue; }
                     if (char === '"') { inString = !inString; continue; }
@@ -526,7 +553,7 @@ export class DifyClient {
                     else if (char === '}') {
                         depth--;
                         if (depth === 0) {
-                            const jsonStr = answer.substring(jsonStart, i + 1);
+                            const jsonStr = cleanedAnswer.substring(jsonStart, i + 1);
                             console.log('[DifyClient] 降级方案 - 提取到JSON，长度:', jsonStr.length);
 
                             // 尝试解析
@@ -539,7 +566,7 @@ export class DifyClient {
                                         text: parsed.text,
                                         emotion: parsed.emotion || '严肃的',
                                         hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : [],
-                                        rawResponse: answer,
+                                        rawResponse: cleanedAnswer,
                                     };
                                 }
                             } catch (e) {
@@ -559,7 +586,7 @@ export class DifyClient {
 
         // 尝试提取标题 (通常是第一行或 ## 标题)
         let title = '';
-        const titleMatch = answer.match(/^#+\s*(.+)$/m) || answer.match(/^(.{10,50})[\n\r]/);
+        const titleMatch = cleanedAnswer.match(/^#+\s*(.+)$/m) || cleanedAnswer.match(/^(.{10,50})[\n\r]/);
         if (titleMatch) {
             title = titleMatch[1].trim();
         }
@@ -567,7 +594,7 @@ export class DifyClient {
         // 尝试提取话题标签 - 改进正则以处理JSON转义格式
         const hashtags: string[] = [];
         // 匹配 #话题 或 "#话题" 格式
-        const hashtagMatches = answer.match(/#[^\s#"\\,\]]+/g);
+        const hashtagMatches = cleanedAnswer.match(/#[^\s#"\\,\]]+/g);
         if (hashtagMatches) {
             // 清理提取到的标签
             hashtagMatches.forEach(tag => {
@@ -580,22 +607,22 @@ export class DifyClient {
 
         // 推断情感
         let emotion = '严肃的';
-        if (answer.includes('揭露') || answer.includes('真相') || answer.includes('问题')) {
+        if (cleanedAnswer.includes('揭露') || cleanedAnswer.includes('真相') || cleanedAnswer.includes('问题')) {
             emotion = '犀利的';
-        } else if (answer.includes('温暖') || answer.includes('感动') || answer.includes('分享')) {
+        } else if (cleanedAnswer.includes('温暖') || cleanedAnswer.includes('感动') || cleanedAnswer.includes('分享')) {
             emotion = '温柔的';
-        } else if (answer.includes('激励') || answer.includes('希望') || answer.includes('突破')) {
+        } else if (cleanedAnswer.includes('激励') || cleanedAnswer.includes('希望') || cleanedAnswer.includes('突破')) {
             emotion = '兴奋的';
-        } else if (answer.includes('幽默') || answer.includes('哈哈') || answer.includes('笑')) {
+        } else if (cleanedAnswer.includes('幽默') || cleanedAnswer.includes('哈哈') || cleanedAnswer.includes('笑')) {
             emotion = '活泼的';
         }
 
         return {
             title: title || '营销文案',
-            text: answer,
+            text: cleanedAnswer,
             emotion: emotion,
             hashtags: hashtags.slice(0, 5), // 最多 5 个话题
-            rawResponse: answer,
+            rawResponse: cleanedAnswer,
         };
     }
 
