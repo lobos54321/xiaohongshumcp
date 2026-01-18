@@ -2,7 +2,7 @@
  * Orchestrator - 模块入口
  */
 
-export { controlCenter, ControlCenter } from './ControlCenter.js';
+export { controlCenter, ControlCenter, StartAutoWorkflowRequest, StartAutoWorkflowResponse } from './ControlCenter.js';
 export { supabaseAdmin, checkSupabaseConnection } from './db/supabase.js';
 export {
     createTask,

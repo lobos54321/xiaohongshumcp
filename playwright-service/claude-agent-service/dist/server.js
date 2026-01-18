@@ -1154,10 +1154,11 @@ ${schedule ? `发布计划：${schedule}` : '请立即全部发布'}`;
     }
 });
 // 自动运营模式API
-// 启动自动运营
+// 启动自动运营 - 🔥 通过 ControlCenter 调度，整合 BettaFish 舆情分析
 app.post('/agent/auto/start', async (req, res) => {
     try {
-        const { userId, productName, targetAudience, marketingGoal, postFrequency, brandStyle, reviewMode, taskId, // 获取前端传递的任务ID
+        const { userId, productName, targetAudience, marketingGoal, postFrequency, postsPerDay, // 🔥 每日发布篇数 (1-10)
+        brandStyle, reviewMode, taskId, // 获取前端传递的任务ID
         contentModePreference, // 获取前端传递的内容模式
         targetPlatforms // 🔥 获取前端传递的目标发布平台
          } = req.body;
@@ -1188,26 +1189,13 @@ app.post('/agent/auto/start', async (req, res) => {
         if (!fullProfile) {
             console.warn(`[Auto Mode] No profile found in DB for user ${normalizedUserId}, using request data.`);
         }
-        const userProfile = {
-            userId,
-            productName: productName || fullProfile?.product_name || '我的产品',
-            targetAudience: targetAudience || fullProfile?.target_audience || '目标用户',
-            marketingGoal: (marketingGoal || fullProfile?.marketing_goal || 'brand'),
-            postFrequency: (postFrequency || fullProfile?.post_frequency || 'daily'),
-            brandStyle: (brandStyle || fullProfile?.brand_style || 'warm'),
-            reviewMode: (reviewMode || fullProfile?.review_mode || 'auto'),
-            avatarPhotoUrl: fullProfile?.avatar_photo_url,
-            voiceSampleUrl: fullProfile?.voice_sample_url,
-            targetPlatforms: targetPlatforms || fullProfile?.target_platforms || ['xiaohongshu'] // 🔥 目标发布平台
-        };
-        console.log(`[Auto Mode] Starting auto mode for user ${userId} with task: ${taskId}, mode: ${contentModePreference}, platforms: ${JSON.stringify(userProfile.targetPlatforms)}`);
+        const mode = contentModePreference || 'IMAGE_TEXT';
+        const finalTaskId = taskId || `task_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        console.log(`🚀 [Auto Mode] Using TaskId: ${finalTaskId}, Mode: ${mode}`);
         if (fullProfile?.avatar_photo_url)
             console.log(`[Auto Mode] 👤 Avatar Photo URL: ${fullProfile.avatar_photo_url}`);
         if (fullProfile?.voice_sample_url)
             console.log(`[Auto Mode] 🎤 Voice Sample URL: ${fullProfile.voice_sample_url}`);
-        const mode = contentModePreference || 'IMAGE_TEXT';
-        const finalTaskId = taskId || `task_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-        console.log(`🚀 [Auto Mode] Using TaskId: ${finalTaskId}, Mode: ${mode}`);
         // 🔥 初始化工作流进度
         if (workflowProgressService && finalTaskId) {
             try {
@@ -1218,29 +1206,25 @@ app.post('/agent/auto/start', async (req, res) => {
                 console.error(`[WorkflowProgress] ❌ Failed to initialize steps:`, err);
             }
         }
-        // 🔥 FIX: 异步启动自动运营，传递内容模式偏好
-        autoContentManager.startAutoMode({
-            ...userProfile,
+        // 🔥 通过 ControlCenter 启动自动运营（包含 BettaFish 舆情分析）
+        console.log(`[Auto Mode] 🔥 Calling ControlCenter.startAutoWorkflow with BettaFish integration...`);
+        const result = await controlCenter.startAutoWorkflow({
+            userId,
+            productName: productName || fullProfile?.product_name || '我的产品',
+            targetAudience: targetAudience || fullProfile?.target_audience || '目标用户',
+            marketingGoal: marketingGoal || fullProfile?.marketing_goal || 'brand',
+            postFrequency: postFrequency || fullProfile?.post_frequency || 'daily',
+            postsPerDay: postsPerDay || fullProfile?.posts_per_day || 1,
+            brandStyle: brandStyle || fullProfile?.brand_style || 'warm',
+            reviewMode: reviewMode || fullProfile?.review_mode || 'auto',
             taskId: finalTaskId,
-            contentModePreference: mode
-        }, workflowProgressService)
-            .then(() => {
-            console.log(`[Auto Mode] ✅ 自动运营流程执行完成: ${userId}`);
-        })
-            .catch((error) => {
-            console.error(`[Auto Mode] ❌ 自动运营流程异常中断: ${userId}`, error);
-        });
-        // 立即返回响应，告知前端已开始生成
-        res.json({
-            success: true,
-            message: `自动运营已启动，正在后台为您的${productName}制定运营策略...`,
-            data: {
-                userId,
-                status: 'generating', // 状态：正在生成中
-                startTime: new Date().toISOString(),
-                note: '内容生成需要2-5分钟，请通过 GET /agent/auto/status/${userId} 查询进度'
-            }
-        });
+            contentModePreference: mode,
+            avatarPhotoUrl: fullProfile?.avatar_photo_url,
+            voiceSampleUrl: fullProfile?.voice_sample_url,
+            targetPlatforms: targetPlatforms || fullProfile?.target_platforms || ['xiaohongshu'],
+        }, autoContentManager, workflowProgressService);
+        // 返回 ControlCenter 的响应
+        res.json(result);
     }
     catch (error) {
         console.error('[Auto Mode] Error starting auto mode:', error);

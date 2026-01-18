@@ -28,6 +28,14 @@ interface UserProfile {
   avatarPhotoUrl?: string; // 🔥 数字人照片 URL
   voiceSampleUrl?: string; // 🔥 语音样本 URL
   targetPlatforms?: string[]; // 🔥 目标发布平台：xiaohongshu, x, tiktok, instagram, youtube
+  // 🔥 BettaFish 舆情数据（由 ControlCenter 注入）
+  sentimentData?: {
+    topics: string[];       // 热门话题
+    keywords: string[];     // 关键词
+    insights: any;          // 舆情洞察
+    riskSignals: string[];  // 风险信号
+    fetchedAt: string;      // 获取时间
+  } | null;
 }
 
 // 🔥 平台文案规则配置
@@ -694,18 +702,8 @@ export class AutoContentManager {
       // 🔥 从 targetDay.posts[0] 中获取主题
       const todayTheme = targetDay?.posts?.[0]?.theme || '每日营销内容';
 
-      if (workflowProgressService && taskId) {
-        await workflowProgressService.startStep(taskId, 'detail-plan', '确认今日执行计划...');
-        // 快速完成 detail-plan（1-2秒）
-        await new Promise(resolve => setTimeout(resolve, 500));
-        await workflowProgressService.completeStep(taskId, 'detail-plan', {
-          today_theme: todayTheme,
-          today_date: targetDay?.date || today,
-          posts_count: postsPerDay,
-          message: `今日主题: ${todayTheme}，计划生成 ${postsPerDay} 篇内容`
-        });
-        console.log(`✅ [detail-plan] 快速完成: 今日主题=${todayTheme}, postsPerDay=${postsPerDay}`);
-      }
+      // 🔥 detail-plan 假节点已删除，仅记录日志
+      console.log(`✅ [today-plan] 今日主题=${todayTheme}, postsPerDay=${postsPerDay}`);
       this.addRealTimeActivity(userProfile.userId, `📋 今日计划: ${todayTheme} × ${postsPerDay} 篇`, 'generation');
 
       // 4. 生成详细的每日任务（包含图片生成 + 渐进式保存）
@@ -751,19 +749,9 @@ export class AutoContentManager {
         console.log(`✅ [continueAvatarWorkflow] weekly-plan completed`);
       }
 
-      // 数字人模式：详细计划 - 🔥 简化版，显示 postsPerDay
+      // 数字人模式：🔥 detail-plan 假节点已删除
       const postsPerDay = (userProfile as any).posts_per_day || 1;
-      console.log(`📝 [continueAvatarWorkflow] Step 2: detail-plan (postsPerDay=${postsPerDay})`);
-      if (workflowProgressService && taskId) {
-        await workflowProgressService.startStep(taskId, 'detail-plan', '确认今日视频计划...');
-        await new Promise(resolve => setTimeout(resolve, 500));
-        await workflowProgressService.completeStep(taskId, 'detail-plan', {
-          target: '高转化口播视频',
-          taskCount: postsPerDay,
-          message: `计划生成 ${postsPerDay} 个口播脚本变体`
-        });
-        console.log(`✅ [continueAvatarWorkflow] detail-plan completed`);
-      }
+      console.log(`📝 [continueAvatarWorkflow] 今日视频计划: postsPerDay=${postsPerDay}`);
 
       // 🔥 数字人模式：脚本变体生成 - 根据 postsPerDay 生成多个变体
       console.log(`📜 [continueAvatarWorkflow] Step 3: script-gen (generating ${postsPerDay} variants)`);
@@ -1176,8 +1164,22 @@ ${angle.prompt}
 
   /**
    * 使用Claude制定内容策略
+   * 🔥 已整合 BettaFish 舆情数据
    */
   private async createContentStrategy(profile: UserProfile): Promise<ContentStrategy> {
+    // 🔥 构建舆情数据部分（如果有）
+    const sentimentSection = profile.sentimentData ? `
+【🔥 实时舆情数据（来自 BettaFish 分析）】
+- 当前热门话题：${profile.sentimentData.topics.slice(0, 5).join('、') || '暂无'}
+- 热门关键词：${profile.sentimentData.keywords.slice(0, 10).join('、') || '暂无'}
+- 风险信号：${profile.sentimentData.riskSignals.length > 0 ? profile.sentimentData.riskSignals.join('、') : '无明显风险'}
+- 数据更新时间：${profile.sentimentData.fetchedAt}
+
+请务必结合以上舆情热点来制定内容策略，确保内容与当前热点趋势契合！
+` : `
+【舆情数据】暂无实时舆情数据，请基于行业经验和目标客户需求制定策略。
+`;
+
     const prompt = `
 你是一位资深的小红书运营专家。请为以下产品制定详细的内容营销策略：
 
@@ -1187,16 +1189,21 @@ ${angle.prompt}
 - 营销目标：${profile.marketingGoal}
 - 品牌风格：${profile.brandStyle}
 - 发布频率：${profile.postFrequency}
-
+${sentimentSection}
 请分析并提供：
-1. 5个核心内容主题（针对目标客户的痛点和需求）
+1. 5个核心内容主题（针对目标客户的痛点和需求${profile.sentimentData ? '，并结合当前热点话题' : ''}）
 2. 8种适合的内容类型（如：教程图文、测评对比、探店分享、生活方式、干货笔记、视频教程等）
 3. 最佳发布时间（3个时段，考虑目标客户的作息）
-4. 20个高热度相关话题标签
-5. 当前相关的3个热门趋势话题
+4. 20个高热度相关话题标签${profile.sentimentData ? '（请结合舆情热门关键词）' : ''}
+5. 当前相关的3个热门趋势话题${profile.sentimentData ? '（请直接使用舆情数据中的热点）' : ''}
 
 请以JSON格式返回，确保建议专业且具有可执行性。
 `;
+
+    console.log('📊 [策略生成] 是否包含舆情数据:', !!profile.sentimentData);
+    if (profile.sentimentData) {
+      console.log('📊 [策略生成] 舆情热点话题:', profile.sentimentData.topics.slice(0, 3));
+    }
 
     // 🔥 使用重试机制调用Claude API
     const response = await this.callClaudeWithRetry(
@@ -1249,19 +1256,23 @@ ${angle.prompt}
         trendingTopics: this.extractArrayData(rawStrategy, ['trendingTopics', 'trending_topics', '当前热门趋势', '热门趋势'])
       };
 
-      console.log('📋 [DEBUG] 解析后的策略数据:', JSON.stringify(strategy, null, 2));
+      // 🔥 如果有舆情数据，用真实热点补充/替换
+      if (profile.sentimentData && profile.sentimentData.topics.length > 0) {
+        // 合并 Claude 生成的和真实舆情数据
+        const realTopics = profile.sentimentData.topics.slice(0, 5);
+        const combinedTopics = [...new Set([...realTopics, ...strategy.trendingTopics])].slice(0, 5);
+        strategy.trendingTopics = combinedTopics;
+        console.log('✅ [热门话题] 已整合 BettaFish 真实热点:', combinedTopics);
 
-      // Removed MCP trending topics fetching
-      /*
-      // 尝试从小红书获取真实的热门话题
-      if (strategy.keyThemes && strategy.keyThemes.length > 0) {
-        const realTrending = await this.fetchRealTrendingTopics(profile.userId, strategy.keyThemes);
-        if (realTrending.length > 0) {
-          strategy.trendingTopics = realTrending;
-          console.log('✅ [热门话题] 已更新为真实热门话题:', realTrending);
+        // 补充热门关键词到 hashtags
+        if (profile.sentimentData.keywords.length > 0) {
+          const realKeywords = profile.sentimentData.keywords.slice(0, 10);
+          strategy.hashtags = [...new Set([...realKeywords, ...strategy.hashtags])].slice(0, 20);
+          console.log('✅ [话题标签] 已整合 BettaFish 热门关键词');
         }
       }
-      */
+
+      console.log('📋 [DEBUG] 解析后的策略数据:', JSON.stringify(strategy, null, 2));
 
       return strategy;
     } catch (error) {
@@ -2313,21 +2324,11 @@ ${rules.specialRules.map((rule: string, idx: number) => `${idx + 1}. ${rule}`).j
 
           console.log(`📝 [任务生成] 正在生成任务 ${successCount + failCount + 1} - 主题: ${post.theme}`);
 
-          // 🔥 detail-plan 已在调用前完成，这里不再更新其进度
-          // 只在首个任务时启动 copy-analyze 和 copy-gen 步骤
+          // 🔥 detail-plan 已删除，这里不再更新其进度
+          // 只在首个任务时启动 copy-gen 步骤（copy-analyze 已删除）
 
           if (isFirstTask && workflowProgressService && taskId) {
-            await workflowProgressService.startStep(taskId, 'copy-analyze', '正在从当前产品画像提取核心卖点与钩子...');
-            // 模拟分析过程
-            await new Promise(resolve => setTimeout(resolve, 800));
-            await workflowProgressService.completeStep(taskId, 'copy-analyze', {
-              strategy: '深度全案策略',
-              key_themes: ['解放双手的带娃神器', '极致省心的育儿单品'], // 给前端显示用
-              readabilityScore: 92,
-              insight: '基于 Prome Dify 工作流的深度营销分析',
-              goldenQuotes: ['解放双手的带娃神器', '这大概是今年最值得入手的单品'],
-              engine: 'Prome Analysis Engine'
-            });
+            // 🔥 copy-analyze 假节点已删除，直接启动 copy-gen
             await workflowProgressService.startStep(taskId, 'copy-gen', '正在启动 Dify 文案工作流生产母文案...');
           }
 
@@ -2499,24 +2500,7 @@ ${rules.specialRules.map((rule: string, idx: number) => `${idx + 1}. ${rule}`).j
               await workflowProgressService.completeStep(taskId, 'variant-gen', { variantCount: 0, error: '生成超时或失败', engine: 'Claude' });
             }
 
-            await workflowProgressService.startStep(taskId, 'image-adapt', '正在分析视觉编排：基于文案规划首图钩子与内页排版...');
-
-            // 🔥 注入真实的视觉编排建议
-            const visualAdvice = {
-              layout: '封面 1:1 比例，采用“大图+标题”结构',
-              lighting: '自然光，突出产品质感',
-              arrangement: [
-                '首图：视觉冲击力强的产品实拍 + 利益点痛点文字',
-                '内页2-3：真实使用场景展示',
-                '末页：品牌引导或求关注钩子'
-              ],
-              plannedImages: task.imagePrompts.length,
-              styleReference: '真实生活感 (Photorealistic Lifestyle)'
-            };
-
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            await workflowProgressService.completeStep(taskId, 'image-adapt', visualAdvice);
-
+            // 🔥 image-adapt 假节点已删除，直接启动 image-gen
             await workflowProgressService.startStep(taskId, 'image-gen', `正在编排生成高精图片 (共 ${task.imagePrompts.length} 张)...`);
           }
 

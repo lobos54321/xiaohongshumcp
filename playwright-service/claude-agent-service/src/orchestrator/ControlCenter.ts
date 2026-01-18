@@ -24,6 +24,47 @@ import { bettaFishClient, SentimentBrief } from '../services/BettaFishClient.js'
 import { userProfileService, UserProfile, ExtractedKeywords } from '../services/UserProfileService.js';
 import { contentModeSelector, ContentModeDecision } from '../services/ContentModeSelector.js';
 import { contentPipelineService, ContentPipelineResult } from '../services/ContentPipelineService.js';
+import AutoContentManager from '../modules/content-writer/autoContentManager.js';
+
+/**
+ * 自动运营启动请求参数
+ */
+export interface StartAutoWorkflowRequest {
+    userId: string;
+    productName: string;
+    targetAudience?: string;
+    marketingGoal?: 'brand' | 'sales' | 'engagement' | 'traffic';
+    postFrequency?: 'daily' | 'twice-daily' | 'high-freq';
+    postsPerDay?: number;
+    brandStyle?: 'warm' | 'professional' | 'trendy' | 'funny';
+    reviewMode?: 'auto' | 'review' | 'edit';
+    taskId?: string;
+    contentModePreference?: 'IMAGE_TEXT' | 'AVATAR_VIDEO' | 'UGC_VIDEO';
+    avatarPhotoUrl?: string;
+    voiceSampleUrl?: string;
+    targetPlatforms?: string[];
+    // 🔥 新增：舆情开关
+    enableSentiment?: boolean;  // 是否启用舆情分析，默认 true
+}
+
+/**
+ * 自动运营启动响应
+ */
+export interface StartAutoWorkflowResponse {
+    success: boolean;
+    message: string;
+    data?: {
+        userId: string;
+        status: 'generating' | 'failed';
+        startTime: string;
+        sentimentData?: {
+            topics: string[];
+            keywords: string[];
+            fetchedAt: string;
+        };
+    };
+    error?: string;
+}
 
 
 export class ControlCenter {
@@ -354,6 +395,165 @@ export class ControlCenter {
             steps_created: stepsData.length,
             steps_by_status: stepsByStatus,
         };
+    }
+
+    /**
+     * 🔥 新方法：启动自动运营工作流
+     *
+     * 整合 BettaFish 舆情分析 + autoContentManager 内容生成
+     * 替代原有的 server.ts 直接调用 autoContentManager 的模式
+     *
+     * 特性：
+     * - 舆情开关：enableSentiment=false 可禁用舆情
+     * - 24小时缓存：同一产品+受众每天只调用一次舆情API
+     * - AI 备用：BettaFish 不可用时自动使用 Claude 生成热点
+     */
+    async startAutoWorkflow(
+        req: StartAutoWorkflowRequest,
+        autoContentManager: AutoContentManager,
+        workflowProgressService?: any
+    ): Promise<StartAutoWorkflowResponse> {
+        console.log('[ControlCenter] 🚀 Starting auto workflow for user:', req.userId);
+        console.log('[ControlCenter] Product:', req.productName);
+        console.log('[ControlCenter] Content Mode:', req.contentModePreference);
+        console.log('[ControlCenter] Target Platforms:', req.targetPlatforms);
+        console.log('[ControlCenter] Enable Sentiment:', req.enableSentiment !== false);
+
+        try {
+            // 🔥 舆情开关检查（默认启用）
+            const enableSentiment = req.enableSentiment !== false;
+
+            // 1. 获取舆情数据 (使用智能方法：BettaFish → AI 备用 → 默认数据)
+            let sentimentBrief: SentimentBrief | null = null;
+
+            if (enableSentiment) {
+                try {
+                    console.log('[ControlCenter] 🔍 Fetching sentiment with smart fallback...');
+
+                    // 使用新的智能获取方法（带缓存和备用方案）
+                    sentimentBrief = await bettaFishClient.getSmartSentiment(
+                        req.productName,
+                        req.targetAudience || '',
+                        true,  // enableSentiment
+                        false  // forceRefresh - 使用缓存
+                    );
+
+                    if (sentimentBrief) {
+                        console.log('[ControlCenter] ✅ Sentiment brief obtained:', {
+                            source: sentimentBrief.source,
+                            topics: sentimentBrief.topics.slice(0, 5),
+                            keywords: sentimentBrief.keywords.slice(0, 5),
+                        });
+
+                        // 存入数据库（可选，用于追溯）
+                        try {
+                            await supabaseAdmin.from('xhs_sentiment_briefs').insert({
+                                supabase_uuid: req.userId,
+                                brief_data: sentimentBrief,
+                                source: sentimentBrief.source,
+                                query: sentimentBrief.query,
+                            });
+                        } catch (dbErr) {
+                            console.warn('[ControlCenter] Failed to save sentiment brief (non-blocking):', dbErr);
+                        }
+                    }
+                } catch (sentimentError) {
+                    console.warn('[ControlCenter] ⚠️ Sentiment fetch failed (non-blocking):', sentimentError);
+                    // 继续执行，即使舆情获取失败
+                }
+            } else {
+                console.log('[ControlCenter] ℹ️ Sentiment analysis disabled by user');
+            }
+
+            // 2. 通知前端开始舆情分析步骤（如果有 workflowProgressService）
+            if (workflowProgressService && req.taskId) {
+                try {
+                    const stepOutput = enableSentiment
+                        ? {
+                            success: !!sentimentBrief,
+                            source: sentimentBrief?.source || 'disabled',
+                            topics: sentimentBrief?.topics || [],
+                            keywords: sentimentBrief?.keywords || [],
+                            fetchedAt: sentimentBrief?.fetchedAt || new Date().toISOString(),
+                            message: sentimentBrief
+                                ? `获取到 ${sentimentBrief.topics.length} 个热点话题（来源: ${sentimentBrief.source === 'cache' ? '24小时缓存' : sentimentBrief.source === 'bettafish' ? 'BettaFish' : 'AI分析'}）`
+                                : '舆情分析未能获取数据'
+                        }
+                        : {
+                            success: true,
+                            source: 'disabled',
+                            topics: [],
+                            keywords: [],
+                            fetchedAt: new Date().toISOString(),
+                            message: '舆情分析已禁用，将使用 AI 智能创作'
+                        };
+
+                    await workflowProgressService.completeStep(req.taskId, 'sentiment', stepOutput);
+                } catch (stepErr) {
+                    console.warn('[ControlCenter] Failed to complete sentiment step:', stepErr);
+                }
+            }
+
+            // 3. 构建用户配置（包含舆情数据）
+            const userProfile = {
+                userId: req.userId,
+                productName: req.productName,
+                targetAudience: req.targetAudience || '',
+                marketingGoal: req.marketingGoal || 'brand',
+                postFrequency: req.postFrequency || 'daily',
+                posts_per_day: req.postsPerDay || 1,
+                brandStyle: req.brandStyle || 'warm',
+                reviewMode: req.reviewMode || 'auto',
+                taskId: req.taskId,
+                contentModePreference: req.contentModePreference || 'IMAGE_TEXT',
+                avatarPhotoUrl: req.avatarPhotoUrl,
+                voiceSampleUrl: req.voiceSampleUrl,
+                targetPlatforms: req.targetPlatforms || ['xiaohongshu'],
+                // 🔥 注入舆情数据（如果启用且有数据）
+                sentimentData: sentimentBrief ? {
+                    topics: sentimentBrief.topics,
+                    keywords: sentimentBrief.keywords,
+                    insights: sentimentBrief.insights,
+                    riskSignals: sentimentBrief.riskSignals,
+                    fetchedAt: sentimentBrief.fetchedAt,
+                    source: sentimentBrief.source,
+                } : null,
+            };
+
+            // 4. 异步调用 autoContentManager（带舆情数据）
+            console.log('[ControlCenter] 📝 Calling autoContentManager.startAutoMode with sentiment data...');
+            autoContentManager.startAutoMode(userProfile as any, workflowProgressService)
+                .then(() => {
+                    console.log(`[ControlCenter] ✅ Auto workflow completed for user: ${req.userId}`);
+                })
+                .catch((error) => {
+                    console.error(`[ControlCenter] ❌ Auto workflow failed for user: ${req.userId}`, error);
+                });
+
+            // 5. 立即返回响应（异步执行）
+            return {
+                success: true,
+                message: `自动运营已启动，正在为 ${req.productName} 制定基于舆情的运营策略...`,
+                data: {
+                    userId: req.userId,
+                    status: 'generating',
+                    startTime: new Date().toISOString(),
+                    sentimentData: sentimentBrief ? {
+                        topics: sentimentBrief.topics,
+                        keywords: sentimentBrief.keywords,
+                        fetchedAt: sentimentBrief.fetchedAt,
+                    } : undefined,
+                },
+            };
+
+        } catch (error) {
+            console.error('[ControlCenter] ❌ startAutoWorkflow failed:', error);
+            return {
+                success: false,
+                message: '启动自动运营失败',
+                error: error instanceof Error ? error.message : 'Unknown error',
+            };
+        }
     }
 }
 

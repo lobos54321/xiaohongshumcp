@@ -39,35 +39,32 @@ export interface StepDefinition {
 }
 
 // 内容模式对应的步骤
+// 🔥 已优化：新增 sentiment 节点，删除假节点 (copy-analyze, detail-plan, image-adapt)
 export const MODE_STEPS: Record<string, StepDefinition[]> = {
     IMAGE_TEXT: [
+        { step_key: 'sentiment', step_title: '舆情热点分析', agent_name: 'Prome BettaFish' },
         { step_key: 'market-strategy', step_title: '内容营销策略', agent_name: 'Prome Strategy Master' },
         { step_key: 'weekly-plan', step_title: '每周计划生成', agent_name: 'Prome Planner' },
-        { step_key: 'detail-plan', step_title: '详细发布计划', agent_name: 'Prome Orchestrator' },
-        { step_key: 'copy-analyze', step_title: '文案策略分析', agent_name: 'Prome Content Analyzer' },
         { step_key: 'copy-gen', step_title: '智能文案生成', agent_name: 'Prome Marketing Engine' },
         { step_key: 'variant-gen', step_title: '变体文案生成', agent_name: 'Prome Copywriter' },
-        { step_key: 'image-adapt', step_title: '图片智能适配', agent_name: 'Prome Vision AI' },
         { step_key: 'image-gen', step_title: '图片生成编排', agent_name: 'Prome Image Studio' },
         { step_key: 'task-save', step_title: '内容入库', agent_name: 'Prome Executor' },
     ],
     AVATAR_VIDEO: [
+        { step_key: 'sentiment', step_title: '舆情热点分析', agent_name: 'Prome BettaFish' },
         { step_key: 'market-strategy', step_title: '内容营销策略', agent_name: 'Prome Strategy Master' },
         { step_key: 'weekly-plan', step_title: '每周计划生成', agent_name: 'Prome Planner' },
-        { step_key: 'detail-plan', step_title: '详细发布计划', agent_name: 'Prome Orchestrator' },
         { step_key: 'script-gen', step_title: '口播脚本生成', agent_name: 'Prome Script Writer' },
         { step_key: 'voice-clone', step_title: '语音克隆合成', agent_name: 'Prome Voice Engine' },
         { step_key: 'avatar-render', step_title: '数字人渲染', agent_name: 'Prome Avatar Renderer' },
         { step_key: 'task-save', step_title: '内容入库', agent_name: 'Prome Executor' },
     ],
     UGC_VIDEO: [
+        { step_key: 'sentiment', step_title: '舆情热点分析', agent_name: 'Prome BettaFish' },
         { step_key: 'market-strategy', step_title: '内容营销策略', agent_name: 'Prome Strategy Master' },
         { step_key: 'weekly-plan', step_title: '每周计划生成', agent_name: 'Prome Planner' },
-        { step_key: 'detail-plan', step_title: '详细发布计划', agent_name: 'Prome Orchestrator' },
-        { step_key: 'copy-analyze', step_title: '文案策略分析', agent_name: 'Prome Content Analyzer' },
         { step_key: 'copy-gen', step_title: '智能文案生成', agent_name: 'Prome Marketing Engine' },
         { step_key: 'variant-gen', step_title: '变体文案生成', agent_name: 'Prome Copywriter' },
-        { step_key: 'vision-analyze', step_title: '视觉特征分析', agent_name: 'Prome Visual AI' },
         { step_key: 'scene-gen', step_title: '场景图生成', agent_name: 'Prome Scene Studio' },
         { step_key: 'video-gen', step_title: '动态视频生成', agent_name: 'Prome Video Engine' },
         { step_key: 'task-save', step_title: '内容入库', agent_name: 'Prome Executor' },
