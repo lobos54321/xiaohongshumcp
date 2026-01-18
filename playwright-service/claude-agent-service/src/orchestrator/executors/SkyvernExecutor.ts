@@ -37,6 +37,7 @@ interface TaskStep {
     supabase_uuid: string;
     attempt: number;
     max_attempts: number;
+    platform?: string;  // 支持多平台: 'xiaohongshu' | 'x' | 'tiktok' | 'instagram' 等
 }
 
 interface SkyvernJobResponse {
@@ -258,11 +259,27 @@ export class SkyvernExecutor {
     private async createSkyvernJob(step: TaskStep, account: XhsAccount): Promise<string | null> {
         try {
             const input = step.input_snapshot;
+            const platform = step.platform || 'xiaohongshu';  // 默认小红书
 
             let taskConfig: any;
 
             if (step.step_type === 'publish') {
-                taskConfig = this.buildPublishTaskConfig(input, account);
+                // 根据平台选择不同的配置
+                switch (platform) {
+                    case 'x':
+                        taskConfig = this.buildXPublishTaskConfig(input, account);
+                        break;
+                    case 'tiktok':
+                        taskConfig = this.buildTikTokPublishTaskConfig(input, account);
+                        break;
+                    case 'instagram':
+                        taskConfig = this.buildInstagramPublishTaskConfig(input, account);
+                        break;
+                    case 'xiaohongshu':
+                    default:
+                        taskConfig = this.buildPublishTaskConfig(input, account);
+                        break;
+                }
             } else if (step.step_type === 'fetch_metrics') {
                 taskConfig = this.buildFetchMetricsTaskConfig(input, account);
             } else {
@@ -293,7 +310,7 @@ export class SkyvernExecutor {
     }
 
     /**
-     * 构建 Publish 任务配置
+     * 构建 Publish 任务配置 (小红书)
      */
     private buildPublishTaskConfig(input: any, account: XhsAccount): any {
         const noteType = input.note_type || 'IMAGE_TEXT';
@@ -320,6 +337,83 @@ export class SkyvernExecutor {
             max_steps_override: 50,
             error_code_mapping: {
                 'login_required': '需要重新登录',
+                'content_blocked': '内容被限制发布',
+            },
+        };
+    }
+
+    /**
+     * 构建 X (Twitter) 平台发布任务配置
+     */
+    private buildXPublishTaskConfig(input: any, account: XhsAccount): any {
+        const hasMedia = (input.image_urls?.length > 0) || input.video_url;
+
+        return {
+            url: 'https://x.com/compose/post',
+            navigation_goal: `在 X (Twitter) 发布推文。内容: ${input.content || input.title}`,
+            data_extraction_goal: '提取发布成功后的推文ID和推文URL',
+            browser_session_id: account.skyvern_profile_id,
+            navigation_payload: {
+                content: input.content || input.title,
+                images: input.image_urls || [],
+                video: input.video_url || null,
+            },
+            max_steps_override: 30,
+            error_code_mapping: {
+                'login_required': '需要重新登录 X',
+                'rate_limited': '发布频率受限',
+                'content_blocked': '内容被限制',
+            },
+        };
+    }
+
+    /**
+     * 构建 TikTok 平台发布任务配置
+     */
+    private buildTikTokPublishTaskConfig(input: any, account: XhsAccount): any {
+        return {
+            url: 'https://www.tiktok.com/upload',
+            navigation_goal: `在 TikTok 发布视频。标题: ${input.title}。描述: ${input.content}`,
+            data_extraction_goal: '提取发布成功后的视频ID和视频URL',
+            browser_session_id: account.skyvern_profile_id,
+            navigation_payload: {
+                title: input.title,
+                description: input.content,
+                video: input.video_url,
+                hashtags: input.hashtags || [],
+            },
+            max_steps_override: 40,
+            error_code_mapping: {
+                'login_required': '需要重新登录 TikTok',
+                'upload_failed': '视频上传失败',
+            },
+        };
+    }
+
+    /**
+     * 构建 Instagram 平台发布任务配置
+     */
+    private buildInstagramPublishTaskConfig(input: any, account: XhsAccount): any {
+        const isReel = input.video_url ? true : false;
+
+        return {
+            url: isReel
+                ? 'https://www.instagram.com/reels/create/'
+                : 'https://www.instagram.com/create/style/',
+            navigation_goal: isReel
+                ? `在 Instagram 发布 Reel 视频。描述: ${input.content}`
+                : `在 Instagram 发布图片帖子。描述: ${input.content}`,
+            data_extraction_goal: '提取发布成功后的帖子ID和帖子URL',
+            browser_session_id: account.skyvern_profile_id,
+            navigation_payload: {
+                caption: input.content,
+                images: input.image_urls || [],
+                video: input.video_url || null,
+                hashtags: input.hashtags || [],
+            },
+            max_steps_override: 40,
+            error_code_mapping: {
+                'login_required': '需要重新登录 Instagram',
                 'content_blocked': '内容被限制发布',
             },
         };

@@ -7,7 +7,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // 支持的平台类型
-export type Platform = 'xiaohongshu' | 'tiktok' | 'instagram' | 'youtube' | 'pinterest';
+export type Platform = 'xiaohongshu' | 'tiktok' | 'instagram' | 'youtube' | 'pinterest' | 'x';
 
 // 发布方式
 export type PublishMethod = 'chrome_extension' | 'skyvern';
@@ -70,7 +70,8 @@ const PLATFORM_CONFIG: Record<Platform, { method: PublishMethod; enabled: boolea
     tiktok: { method: 'skyvern', enabled: true },
     instagram: { method: 'skyvern', enabled: true },
     youtube: { method: 'skyvern', enabled: false },
-    pinterest: { method: 'skyvern', enabled: false }
+    pinterest: { method: 'skyvern', enabled: false },
+    x: { method: 'skyvern', enabled: true }
 };
 
 export class PublishService {
@@ -274,7 +275,8 @@ export class PublishService {
             tiktok: process.env.SKYVERN_WORKFLOW_TIKTOK || '',
             instagram: process.env.SKYVERN_WORKFLOW_INSTAGRAM || '',
             youtube: process.env.SKYVERN_WORKFLOW_YOUTUBE || '',
-            pinterest: process.env.SKYVERN_WORKFLOW_PINTEREST || ''
+            pinterest: process.env.SKYVERN_WORKFLOW_PINTEREST || '',
+            x: process.env.SKYVERN_WORKFLOW_X || ''
         };
 
         return workflows[platform] || null;
@@ -387,6 +389,23 @@ export class PublishService {
                 console.error(`[PublishService] Failed to poll task ${task.id}:`, error);
             }
         }
+    }
+
+    /**
+     * 根据 ID 获取单个任务
+     */
+    async getTaskById(taskId: string): Promise<PublishTask> {
+        const { data, error } = await this.supabase
+            .from('publish_tasks')
+            .select('*')
+            .eq('id', taskId)
+            .single();
+
+        if (error || !data) {
+            throw new Error(`Task not found: ${taskId}`);
+        }
+
+        return data;
     }
 }
 
