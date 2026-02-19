@@ -75,8 +75,9 @@ const MCP_ROUTER_URL = process.env.MCP_ROUTER_URL || 'http://127.0.0.1:3000';
 // 创建图片生成服务
 const imageService = new ImageGenerationService({
   geminiKey: process.env.GEMINI_API_KEY,
+  geminiBaseUrl: process.env.GEMINI_BASE_URL,
+  geminiModel: process.env.GEMINI_MODEL,
   unsplashKey: process.env.UNSPLASH_ACCESS_KEY,
-  // 🔥 FIX: 支持 VITE_SUPABASE_* 环境变量（Zeabur使用的格式）
   supabaseUrl: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
   supabaseKey: process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY
 });

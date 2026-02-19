@@ -1,47 +1,29 @@
 /**
- * GeminiImageClient - Gemini API 图片生成客户端
- * 
- * 使用 Google Gemini API (Nano Banana 2 Pro) 生成真实感图片
- * 
- * 文档: https://ai.google.dev/gemini-api/docs/imagen
- * 
- * @version 1.0.0
+ * GeminiImageClient - 通过 OpenAI 兼容 API 调用 Gemini 图片生成
+ *
+ * @version 2.0.0
  */
+
+import fetch from 'node-fetch';
 
 // ============ 类型定义 ============
 
-/**
- * 图片生成请求
- */
 export interface ImageGenerationRequest {
-    /** 生成描述 */
     prompt: string;
-    /** 参考图片 URL（用于风格参考） */
     referenceImageUrl?: string;
-    /** 图片数量 */
     numberOfImages?: number;
-    /** 宽高比 */
     aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4';
 }
 
-/**
- * 图片生成结果
- */
 export interface ImageGenerationResult {
     success: boolean;
     images: GeneratedImage[];
     error?: string;
 }
 
-/**
- * 生成的图片
- */
 export interface GeneratedImage {
-    /** Base64 编码的图片数据 */
     base64Data?: string;
-    /** 图片 URL（上传后） */
     imageUrl?: string;
-    /** MIME 类型 */
     mimeType: string;
 }
 
@@ -50,10 +32,12 @@ export interface GeneratedImage {
 export class GeminiImageClient {
     private apiKey: string;
     private baseUrl: string;
+    private model: string;
 
     constructor() {
         this.apiKey = process.env.GEMINI_API_KEY || '';
-        this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
+        this.baseUrl = (process.env.GEMINI_BASE_URL || 'http://bruder.yukinoapi.com/v1').replace(/\/$/, '');
+        this.model = process.env.GEMINI_MODEL || 'gemini-3-pro-image-preview';
 
         if (!this.apiKey) {
             console.warn('[GeminiImageClient] No GEMINI_API_KEY found in environment');
@@ -65,53 +49,18 @@ export class GeminiImageClient {
      */
     async generateImage(request: ImageGenerationRequest): Promise<ImageGenerationResult> {
         if (!this.apiKey) {
-            return {
-                success: false,
-                images: [],
-                error: 'GEMINI_API_KEY not configured',
-            };
+            return { success: false, images: [], error: 'GEMINI_API_KEY not configured' };
         }
 
         console.log('[GeminiImageClient] Generating image...');
         console.log('  Prompt:', request.prompt.substring(0, 100) + '...');
-        console.log('  Has reference:', !!request.referenceImageUrl);
 
         try {
-            // 构建请求 - 使用 Imagen 3
-            const endpoint = `${this.baseUrl}/models/imagen-3.0-generate-002:predict`;
-
-            const requestBody = this.buildRequestBody(request);
-
-            const response = await fetch(`${endpoint}?key=${this.apiKey}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(requestBody),
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('[GeminiImageClient] API error:', response.status, errorText);
-                return {
-                    success: false,
-                    images: [],
-                    error: `API error: ${response.status} - ${errorText}`,
-                };
+            const result = await this.callImageAPI(request.prompt);
+            if (result) {
+                return { success: true, images: [result] };
             }
-
-            const result = await response.json();
-
-            // 解析结果
-            const images = this.parseGenerationResult(result);
-
-            console.log('[GeminiImageClient] Generated', images.length, 'images');
-
-            return {
-                success: true,
-                images,
-            };
-
+            return { success: false, images: [], error: 'No image generated' };
         } catch (error) {
             console.error('[GeminiImageClient] Generation error:', error);
             return {
@@ -131,193 +80,78 @@ export class GeminiImageClient {
     ): Promise<ImageGenerationResult> {
         console.log('[GeminiImageClient] Generating with reference image...');
 
-        try {
-            // 下载参考图片并转为 base64
-            const referenceBase64 = await this.downloadImageAsBase64(referenceImageUrl);
+        // 下载参考图转 base64，拼入 prompt
+        const referenceBase64 = await this.downloadImageAsBase64(referenceImageUrl);
+        const enhancedPrompt = referenceBase64
+            ? `Based on a reference product image, generate: ${prompt}. Style: realistic, high quality, social media ready.`
+            : prompt;
 
-            if (!referenceBase64) {
-                console.warn('[GeminiImageClient] Could not download reference image');
-                // 回退到纯文本生成
-                return this.generateImage({ prompt });
-            }
-
-            // 使用 Gemini Pro Vision 进行图片编辑/生成
-            const endpoint = `${this.baseUrl}/models/gemini-2.0-flash-exp:generateContent`;
-
-            const requestBody = {
-                contents: [
-                    {
-                        parts: [
-                            {
-                                text: `基于这张参考图片，${prompt}
-
-要求：
-1. 保持参考图片的整体风格和构图
-2. 确保生成的图片真实自然
-3. 产品/人物位置合理
-4. 高清晰度，适合社交媒体发布`,
-                            },
-                            {
-                                inline_data: {
-                                    mime_type: 'image/jpeg',
-                                    data: referenceBase64,
-                                },
-                            },
-                        ],
-                    },
-                ],
-                generationConfig: {
-                    responseModalities: ['IMAGE', 'TEXT'],
-                    responseMimeType: 'image/jpeg',
-                },
-            };
-
-            const response = await fetch(`${endpoint}?key=${this.apiKey}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(requestBody),
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('[GeminiImageClient] Reference generation error:', response.status);
-                // 回退到纯文本生成
-                return this.generateImage({ prompt });
-            }
-
-            const result = await response.json();
-            const images = this.parseGeminiVisionResult(result);
-
-            return {
-                success: images.length > 0,
-                images,
-            };
-
-        } catch (error) {
-            console.error('[GeminiImageClient] Reference generation error:', error);
-            // 回退到纯文本生成
-            return this.generateImage({ prompt });
-        }
+        return this.generateImage({ prompt: enhancedPrompt });
     }
 
     /**
-     * 批量生成图片
+     * 批量生成
      */
-    async generateBatch(
-        requests: Array<{ prompt: string; referenceImageUrl?: string }>
+    async batchGenerate(
+        requests: ImageGenerationRequest[]
     ): Promise<ImageGenerationResult[]> {
         console.log('[GeminiImageClient] Batch generating', requests.length, 'images...');
 
         const results: ImageGenerationResult[] = [];
-
-        // 串行处理，避免 API 限制
-        for (const request of requests) {
-            if (request.referenceImageUrl) {
-                const result = await this.generateWithReference(
-                    request.prompt,
-                    request.referenceImageUrl
-                );
-                results.push(result);
-            } else {
-                const result = await this.generateImage({ prompt: request.prompt });
-                results.push(result);
-            }
-
-            // 简单限流
-            await this.sleep(1000);
+        for (const req of requests) {
+            const result = await this.generateImage(req);
+            results.push(result);
+            // 避免速率限制
+            await this.sleep(2000);
         }
-
         return results;
     }
 
-    // ============ 私有方法 ============
-
     /**
-     * 构建 Imagen API 请求体
+     * 核心 API 调用
      */
-    private buildRequestBody(request: ImageGenerationRequest): any {
-        return {
-            instances: [
-                {
-                    prompt: this.enhancePrompt(request.prompt),
-                },
-            ],
-            parameters: {
-                sampleCount: request.numberOfImages || 1,
-                aspectRatio: request.aspectRatio || '1:1',
-                safetyFilterLevel: 'block_only_high',
-                personGeneration: 'allow_adult',
-                language: 'zh',
+    private async callImageAPI(prompt: string): Promise<GeneratedImage | null> {
+        const response = await fetch(`${this.baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${this.apiKey}`,
+                'Content-Type': 'application/json'
             },
-        };
-    }
+            body: JSON.stringify({
+                model: this.model,
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 4096
+            })
+        });
 
-    /**
-     * 增强 Prompt（添加质量要求）
-     */
-    private enhancePrompt(prompt: string): string {
-        // 添加真实感和质量要求
-        const qualityModifiers = [
-            '真实摄影风格',
-            '高清细节',
-            '自然光线',
-            '专业构图',
-        ];
-
-        // 检查是否已有质量修饰词
-        const hasQualityMod = qualityModifiers.some(mod => prompt.includes(mod));
-
-        if (!hasQualityMod) {
-            return `${prompt}。真实摄影风格，高清画质，自然光线，适合社交媒体发布。`;
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`API error: ${response.status} - ${errorText.substring(0, 200)}`);
         }
 
-        return prompt;
-    }
+        const data = await response.json() as any;
+        const content = data.choices?.[0]?.message?.content || '';
 
-    /**
-     * 解析 Imagen 生成结果
-     */
-    private parseGenerationResult(result: any): GeneratedImage[] {
-        const images: GeneratedImage[] = [];
-
-        if (result.predictions) {
-            for (const prediction of result.predictions) {
-                if (prediction.bytesBase64Encoded) {
-                    images.push({
-                        base64Data: prediction.bytesBase64Encoded,
-                        mimeType: prediction.mimeType || 'image/png',
-                    });
-                }
-            }
+        // 匹配 base64 data URI
+        const base64Match = content.match(/!\[.*?\]\(data:(image\/[^;]+);base64,([^)]+)\)/);
+        if (base64Match) {
+            return {
+                base64Data: base64Match[2],
+                mimeType: base64Match[1],
+            };
         }
 
-        return images;
-    }
-
-    /**
-     * 解析 Gemini Vision 结果
-     */
-    private parseGeminiVisionResult(result: any): GeneratedImage[] {
-        const images: GeneratedImage[] = [];
-
-        if (result.candidates) {
-            for (const candidate of result.candidates) {
-                if (candidate.content?.parts) {
-                    for (const part of candidate.content.parts) {
-                        if (part.inline_data?.data) {
-                            images.push({
-                                base64Data: part.inline_data.data,
-                                mimeType: part.inline_data.mime_type || 'image/jpeg',
-                            });
-                        }
-                    }
-                }
-            }
+        // 匹配图片 URL
+        const urlMatch = content.match(/!\[.*?\]\((https?:\/\/[^)]+)\)/);
+        if (urlMatch) {
+            return {
+                imageUrl: urlMatch[1],
+                mimeType: 'image/png',
+            };
         }
 
-        return images;
+        console.error('[GeminiImageClient] No image found in response:', content.substring(0, 200));
+        return null;
     }
 
     /**
@@ -327,10 +161,8 @@ export class GeminiImageClient {
         try {
             const response = await fetch(imageUrl);
             if (!response.ok) return null;
-
             const arrayBuffer = await response.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
-            return buffer.toString('base64');
+            return Buffer.from(arrayBuffer).toString('base64');
         } catch (error) {
             console.error('[GeminiImageClient] Failed to download image:', error);
             return null;
@@ -345,8 +177,6 @@ export class GeminiImageClient {
         mimeType: string,
         supabaseUuid: string
     ): Promise<string | null> {
-        // TODO: 实现 Supabase Storage 上传
-        // 这里需要根据你的 Supabase 配置实现
         console.log('[GeminiImageClient] TODO: Upload to Supabase Storage');
         return null;
     }

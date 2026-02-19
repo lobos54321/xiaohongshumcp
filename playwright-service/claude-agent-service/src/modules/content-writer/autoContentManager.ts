@@ -2159,34 +2159,34 @@ ${rules.specialRules.map((rule: string, idx: number) => `${idx + 1}. ${rule}`).j
   }
 
   /**
-   * 调用 Gemini 3 (nano-banana-pro) 进行轻量级文本辅助生成
+   * 调用 Gemini 进行轻量级文本辅助生成 (通过 OpenAI 兼容 API)
    * 主要用于提示词生成、简单分析等场景
    */
   private async callGeminiWithRetry(prompt: string, context: string, retries = 2): Promise<string> {
     const geminiKey = process.env.GEMINI_API_KEY;
+    const geminiBaseUrl = (process.env.GEMINI_BASE_URL || 'http://bruder.yukinoapi.com/v1').replace(/\/$/, '');
+    const modelName = process.env.GEMINI_TEXT_MODEL || 'gemini-2.0-flash';
+
     if (!geminiKey) {
       console.warn('⚠️ 未配置 GEMINI_API_KEY，降级使用基础提示词');
       return '["lifestyle", "modern"]';
     }
 
-    // 映射到 nano-banana 级别的快速模型 (gemini-1.5-flash 是目前最稳健的)
-    const modelName = 'gemini-1.5-flash';
-    const apiVersion = 'v1'; // 尝试使用 v1 稳定版而非 v1beta
-
     for (let i = 0; i <= retries; i++) {
       try {
-        const url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${modelName}:generateContent`;
-        console.log(`📡 [Gemini 3] ${context} - 尝试 ${i + 1}/${retries + 1} (URL: ${url})`);
+        console.log(`📡 [Gemini] ${context} - 尝试 ${i + 1}/${retries + 1} (model: ${modelName})`);
 
-        const response = await fetch(url, {
+        const response = await fetch(`${geminiBaseUrl}/chat/completions`, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': geminiKey
+            'Authorization': `Bearer ${geminiKey}`,
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.7, maxOutputTokens: 1000 }
+            model: modelName,
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 1000,
+            temperature: 0.7
           })
         });
 
@@ -2196,36 +2196,12 @@ ${rules.specialRules.map((rule: string, idx: number) => `${idx + 1}. ${rule}`).j
         }
 
         const data = await response.json() as any;
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        const text = data.choices?.[0]?.message?.content;
 
         if (!text) throw new Error('Gemini 返回内容为空');
         return text;
       } catch (error: any) {
-        if (i === retries) {
-          // 如果尝试了 gemini-1.5-flash 还失败，最后尝试一个硬编码的版本镜像
-          if (modelName === 'gemini-1.5-flash') {
-            console.log('🔄 [Gemini 3] 尝试备选模型版本 gemini-1.5-flash-001...');
-            try {
-              const altModel = 'gemini-1.5-flash-001';
-              const altResp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${altModel}:generateContent`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'x-goog-api-key': geminiKey
-                },
-                body: JSON.stringify({
-                  contents: [{ parts: [{ text: prompt }] }],
-                  generationConfig: { temperature: 0.7, maxOutputTokens: 1000 }
-                })
-              });
-              if (altResp.ok) {
-                const altData = await altResp.json() as any;
-                return altData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-              }
-            } catch (e) { }
-          }
-          throw error;
-        }
+        if (i === retries) throw error;
         console.warn(`⚠️ [Gemini] ${context} 失败: ${error.message}, 正在重试...`);
         await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
       }

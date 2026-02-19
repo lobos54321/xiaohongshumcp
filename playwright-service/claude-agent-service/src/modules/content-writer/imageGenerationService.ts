@@ -11,6 +11,8 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 interface ImageGenerationConfig {
   geminiKey?: string;
+  geminiBaseUrl?: string;   // OpenAI 兼容 API 地址
+  geminiModel?: string;     // 模型名称
   unsplashKey?: string;
   supabaseUrl?: string;
   supabaseKey?: string;
@@ -33,11 +35,15 @@ interface ImageResult {
 
 export class ImageGenerationService {
   private geminiKey?: string;
+  private geminiBaseUrl: string;
+  private geminiModel: string;
   private unsplashKey?: string;
   private supabase?: SupabaseClient;
 
   constructor(config: ImageGenerationConfig) {
     this.geminiKey = config.geminiKey;
+    this.geminiBaseUrl = (config.geminiBaseUrl || process.env.GEMINI_BASE_URL || 'http://bruder.yukinoapi.com/v1').replace(/\/$/, '');
+    this.geminiModel = config.geminiModel || process.env.GEMINI_MODEL || 'gemini-3-pro-image-preview';
     this.unsplashKey = config.unsplashKey;
 
     // 初始化 Supabase 客户端
@@ -83,7 +89,7 @@ export class ImageGenerationService {
   }
 
   /**
-   * 使用 Gemini 3 (Imagen 3) 生成图片
+   * 使用 OpenAI 兼容 API 调用 Gemini 图片生成
    */
   private async generateWithGemini(request: ImageRequest): Promise<ImageResult | null> {
     try {
@@ -92,149 +98,107 @@ export class ImageGenerationService {
         return null;
       }
 
-      console.log('🎨 [Gemini 3] 开始使用 gemini-3-pro-image-preview 生成图片');
+      console.log(`🎨 [Gemini] 开始使用 ${this.geminiModel} 生成图片 (via ${this.geminiBaseUrl})`);
       const stylePrompt = this.getStylePrompt(request.style);
-      const fullPrompt = `Generate a high-quality studio image for a social media post: ${request.prompt}. 
-      Style requirements: ${stylePrompt}. 
+      const fullPrompt = `Generate a high-quality studio image for a social media post: ${request.prompt}.
+      Style requirements: ${stylePrompt}.
       Technical requirements: high resolution, professional lighting, social media aesthetic, stunning composition.`;
 
-      console.log('🎨 [Gemini 3] 提示词:', fullPrompt.substring(0, 100) + '...');
+      console.log('🎨 [Gemini] 提示词:', fullPrompt.substring(0, 100) + '...');
 
-      // 🔥 使用 Google AI Studio 的 gemini-3-pro-image-preview 模型
-      const response = await fetch(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent',
-        {
-          method: 'POST',
-          headers: {
-            'x-goog-api-key': this.geminiKey,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{
-                text: fullPrompt
-              }]
-            }],
-            generationConfig: {
-              responseModalities: ["image"]
-            }
-          })
-        }
-      );
+      const response = await fetch(`${this.geminiBaseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.geminiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: this.geminiModel,
+          messages: [{ role: 'user', content: fullPrompt }],
+          max_tokens: 4096
+        })
+      });
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('🎨 [Gemini 3] API错误:', response.status, errorText.substring(0, 200));
-        // 🔥 自动 fallback 到 Unsplash
-        console.log('🎨 [Gemini 3] 自动切换到 Unsplash 备选方案');
+        console.error('🎨 [Gemini] API错误:', response.status, errorText.substring(0, 200));
+        console.log('🎨 [Gemini] 自动切换到 Unsplash 备选方案');
         return await this.getFromUnsplash(request);
       }
 
       const data = await response.json() as any;
-      console.log('🎨 [Gemini 3] API响应状态:', response.status);
+      const content = data.choices?.[0]?.message?.content || '';
+      console.log('🎨 [Gemini] API响应状态:', response.status, '内容长度:', content.length);
 
+      // 解析返回内容：支持 base64 data URI 和普通 URL
       let base64Data: string | null = null;
+      let imageUrl: string | null = null;
       let mimeType = 'image/png';
 
-      // 策略2：处理 generateContent 响应 (candidates[0].content.parts[0].inlineData)
-      if (data.candidates && data.candidates[0] && data.candidates[0].content) {
-        const parts = data.candidates[0].content.parts;
-        const imagePart = parts.find((part: any) => part.inlineData && part.inlineData.mimeType?.startsWith('image/'));
-        if (imagePart && imagePart.inlineData && imagePart.inlineData.data) {
-          base64Data = imagePart.inlineData.data;
-          mimeType = imagePart.inlineData.mimeType || 'image/png';
-          console.log('🎨 [Gemini 3] 从 candidates 提取图片成功');
+      // 匹配 ![image](data:image/xxx;base64,...) 格式
+      const base64Match = content.match(/!\[.*?\]\(data:(image\/[^;]+);base64,([^)]+)\)/);
+      if (base64Match) {
+        mimeType = base64Match[1];
+        base64Data = base64Match[2];
+        console.log('🎨 [Gemini] 提取到 base64 图片数据，mimeType:', mimeType);
+      }
+
+      // 匹配 ![image](https://...) 格式
+      if (!base64Data) {
+        const urlMatch = content.match(/!\[.*?\]\((https?:\/\/[^)]+)\)/);
+        if (urlMatch) {
+          imageUrl = urlMatch[1];
+          console.log('🎨 [Gemini] 提取到图片 URL:', imageUrl);
         }
       }
 
+      // 处理 base64 数据
       if (base64Data) {
-        console.log('🎨 [Gemini] 成功获取图片数据，mimeType:', mimeType);
-
-        // 上传到 Supabase Storage（带自动fallback）
         if (this.supabase) {
           try {
             const { url, storageKey } = await this.uploadToSupabase(
-              base64Data,
-              request.userId,
-              'gemini',
-              mimeType
+              base64Data, request.userId, 'gemini', mimeType
             );
-
             console.log(`✅ [Gemini] Supabase上传成功: ${url}`);
-            return {
-              url,
-              storageKey,
-              source: 'gemini',
-              cost: 0.03
-            };
+            return { url, storageKey, source: 'gemini', cost: 0.03 };
           } catch (supabaseError: any) {
             console.warn(`⚠️ [Gemini] Supabase上传失败，fallback到本地存储: ${supabaseError.message}`);
           }
         }
 
-        // 备用方案：保存到本地
         console.log('📁 [Gemini] 使用本地存储');
         const localPath = await this.saveBase64Image(base64Data, 'gemini', mimeType);
         const filename = path.basename(localPath);
         const baseUrl = process.env.PUBLIC_URL || 'http://localhost:8080';
-        const imageUrl = `${baseUrl}/images/${filename}`;
-
-        return {
-          url: imageUrl,
-          storageKey: localPath,
-          source: 'gemini',
-          cost: 0.03
-        };
+        return { url: `${baseUrl}/images/${filename}`, storageKey: localPath, source: 'gemini', cost: 0.03 };
       }
 
-      console.error('🎨 [Gemini] 响应中未找到图片数据！');
+      // 处理 URL 返回（下载后上传到 Supabase）
+      if (imageUrl) {
+        if (this.supabase) {
+          try {
+            const imgResp = await fetch(imageUrl);
+            if (imgResp.ok) {
+              const buffer = Buffer.from(await imgResp.arrayBuffer());
+              const b64 = buffer.toString('base64');
+              const ct = imgResp.headers.get('content-type') || 'image/png';
+              const { url, storageKey } = await this.uploadToSupabase(b64, request.userId, 'gemini', ct);
+              console.log(`✅ [Gemini] 下载并上传到Supabase成功: ${url}`);
+              return { url, storageKey, source: 'gemini', cost: 0.03 };
+            }
+          } catch (dlError: any) {
+            console.warn(`⚠️ [Gemini] 下载图片失败: ${dlError.message}`);
+          }
+        }
+        // 直接返回外部 URL
+        return { url: imageUrl, source: 'gemini', cost: 0.03 };
+      }
+
+      console.error('🎨 [Gemini] 响应中未找到图片数据！content:', content.substring(0, 200));
       return null;
 
     } catch (error: any) {
       console.error('🎨 [Gemini] 生成失败:', error.message);
-      return null;
-    }
-  }
-
-  /**
-   * Gemini 备用API方法 (使用不同的端点)
-   */
-  private async generateWithGeminiV2(request: ImageRequest): Promise<ImageResult | null> {
-    try {
-      if (!this.geminiKey) return null;
-
-      const stylePrompt = this.getStylePrompt(request.style);
-      const fullPrompt = `${request.prompt}, ${stylePrompt}, high quality, vibrant colors, social media ready`;
-
-      // 使用 Gemini 文本到图片 API
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${this.geminiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: `Generate an image: ${fullPrompt}`
-            }]
-          }],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 1024
-          }
-        })
-      });
-
-      const data = await response.json() as any;
-
-      if (data.candidates && data.candidates[0] && data.candidates[0].content) {
-        const description = data.candidates[0].content.parts[0].text;
-        return await this.getFromUnsplash({ ...request, prompt: description });
-      }
-
-      return null;
-    } catch (error) {
-      console.error('Gemini V2 API 失败:', error);
       return null;
     }
   }
