@@ -18,7 +18,7 @@ const CONFIG = {
     N8N_WEBHOOK_URL: process.env.N8N_UGC_WEBHOOK_URL || 'https://n8n-worker-k4m9.zeabur.app/webhook/9d5986f5-fcba-42bf-b3d7-5fd94660943a',
 
     // 回调接收 URL (Agent 后端)
-    CALLBACK_URL: process.env.N8N_CALLBACK_URL || 'https://xiaohongshumcp.zeabur.app/api/ugc-video-callback',
+    CALLBACK_URL: process.env.N8N_CALLBACK_URL || 'https://xiaohongshu-automation-ai.zeabur.app/api/ugc-video-callback',
 
     // 轮询超时
     POLL_TIMEOUT_MS: 30 * 60 * 1000,  // 30 分钟
@@ -251,6 +251,7 @@ export class N8nUgcClient {
                         language: params.language,
                     },
                     sessionId: params.sessionId,
+                    callbackUrl: params.callbackUrl,
                 }),
             });
 
