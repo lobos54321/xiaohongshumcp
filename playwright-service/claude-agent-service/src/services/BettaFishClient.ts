@@ -11,6 +11,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import { configService } from './ConfigService.js';
 
 export interface BettaFishStatus {
     forum: { status: string; port: number | null; output_lines: number };
@@ -77,6 +78,22 @@ export class BettaFishClient {
                 apiKey: process.env.ANTHROPIC_API_KEY,
             });
         }
+    }
+
+    /**
+     * 确保 Anthropic 客户端已初始化（从 ConfigService 动态获取 key）
+     */
+    private async ensureAnthropicClient(): Promise<Anthropic | null> {
+        if (this.anthropicClient) return this.anthropicClient;
+        try {
+            const key = await configService.get('ANTHROPIC_API_KEY');
+            if (key) {
+                this.anthropicClient = new Anthropic({ apiKey: key });
+            }
+        } catch {
+            // fallback
+        }
+        return this.anthropicClient;
     }
 
     /**
@@ -257,7 +274,8 @@ export class BettaFishClient {
         targetAudience: string,
         cacheKey: string
     ): Promise<SentimentBrief | null> {
-        if (!this.anthropicClient) {
+        const client = await this.ensureAnthropicClient();
+        if (!client) {
             console.warn('[BettaFish] ⚠️ Anthropic API 未配置，无法使用 AI 备用方案');
             return this.getDefaultSentiment(productName, cacheKey);
         }
@@ -271,7 +289,7 @@ export class BettaFishClient {
                 day: 'numeric',
             });
 
-            const response = await this.anthropicClient.messages.create({
+            const response = await client.messages.create({
                 model: 'claude-sonnet-4-20250514',
                 max_tokens: 1024,
                 messages: [

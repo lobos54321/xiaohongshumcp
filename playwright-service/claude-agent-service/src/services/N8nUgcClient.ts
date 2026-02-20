@@ -10,6 +10,7 @@
  */
 
 import { supabaseAdmin } from '../orchestrator/db/supabase.js';
+import { configService } from './ConfigService.js';
 
 // ============ 配置 ============
 
@@ -74,6 +75,16 @@ interface CallbackData {
 export class N8nUgcClient {
 
     /**
+     * 从 ConfigService 获取动态配置
+     */
+    private async getConfig() {
+        return {
+            webhookUrl: await configService.get('N8N_UGC_WEBHOOK_URL') || CONFIG.N8N_WEBHOOK_URL,
+            callbackUrl: await configService.get('N8N_CALLBACK_URL') || CONFIG.CALLBACK_URL,
+        };
+    }
+
+    /**
      * 生成 UGC 视频
      * 
      * 流程:
@@ -97,6 +108,7 @@ export class N8nUgcClient {
             await this.createCallbackRecord(sessionId, request.taskId);
 
             // 2. 触发 N8n 工作流
+            const dynamicConfig = await this.getConfig();
             const triggerResult = await this.triggerWorkflow({
                 desc: request.productDescription,
                 img: request.productImageUrl,
@@ -104,7 +116,7 @@ export class N8nUgcClient {
                 duration: String(request.duration),
                 language: request.language,
                 sessionId,
-                callbackUrl: CONFIG.CALLBACK_URL,
+                callbackUrl: dynamicConfig.callbackUrl,
             });
 
             if (!triggerResult.success) {
@@ -165,6 +177,7 @@ export class N8nUgcClient {
             await this.createCallbackRecord(sessionId, request.taskId);
 
             // 触发工作流
+            const dynamicConfig2 = await this.getConfig();
             const result = await this.triggerWorkflow({
                 desc: request.productDescription,
                 img: request.productImageUrl,
@@ -172,7 +185,7 @@ export class N8nUgcClient {
                 duration: String(request.duration),
                 language: request.language,
                 sessionId,
-                callbackUrl: CONFIG.CALLBACK_URL,
+                callbackUrl: dynamicConfig2.callbackUrl,
             });
 
             return {
@@ -229,7 +242,8 @@ export class N8nUgcClient {
         callbackUrl: string;
     }): Promise<{ success: boolean; error?: string }> {
         try {
-            const response = await fetch(CONFIG.N8N_WEBHOOK_URL, {
+            const dynamicConfig = await this.getConfig();
+            const response = await fetch(dynamicConfig.webhookUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

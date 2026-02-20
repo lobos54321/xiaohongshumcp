@@ -1,5 +1,6 @@
 import fetch from 'node-fetch';
 import { Response } from 'node-fetch';
+import { configService } from './ConfigService.js';
 
 // ============ 类型定义 ============
 
@@ -132,8 +133,21 @@ export class DifyClient {
 
         console.log(`[DifyClient] 初始化完成:`);
         console.log(`   - API URL: ${this.baseUrl}`);
-        console.log(`   - API Key: ${process.env.DIFY_API_KEY ? '来自环境变量' : '使用代码硬编码 (app-fOxd...)'}`);
         console.log(`   - 最大并发: ${maxConcurrent}`);
+    }
+
+    /**
+     * 从 ConfigService 刷新配置
+     */
+    private async refreshConfig(): Promise<void> {
+        try {
+            const key = await configService.get('DIFY_API_KEY');
+            const url = await configService.get('DIFY_API_URL');
+            if (key) this.apiKey = key;
+            if (url) this.baseUrl = url;
+        } catch {
+            // fallback to current values
+        }
     }
 
     /**
@@ -155,6 +169,9 @@ export class DifyClient {
      * @returns 生成的文案内容 (title, text, emotion, hashtags)
      */
     async generateMarketingCopy(params: ContentGenerationParams): Promise<DifyContentGenerationResult> {
+        // 刷新配置
+        await this.refreshConfig();
+
         // 获取信号量，控制并发
         const status = this.getConcurrencyStatus();
         console.log(`[DifyClient] 请求生成文案，当前并发状态: ${status.max - status.available}/${status.max} 运行中，${status.waiting} 等待中`);

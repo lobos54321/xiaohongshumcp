@@ -24,6 +24,7 @@ import { bettaFishClient, SentimentBrief } from '../services/BettaFishClient.js'
 import { userProfileService, UserProfile, ExtractedKeywords } from '../services/UserProfileService.js';
 import { contentModeSelector, ContentModeDecision } from '../services/ContentModeSelector.js';
 import { contentPipelineService, ContentPipelineResult } from '../services/ContentPipelineService.js';
+import { brainService, BrainBrief } from '../services/BrainService.js';
 import AutoContentManager from '../modules/content-writer/autoContentManager.js';
 
 /**
@@ -39,7 +40,7 @@ export interface StartAutoWorkflowRequest {
     brandStyle?: 'warm' | 'professional' | 'trendy' | 'funny';
     reviewMode?: 'auto' | 'review' | 'edit';
     taskId?: string;
-    contentModePreference?: 'IMAGE_TEXT' | 'AVATAR_VIDEO' | 'UGC_VIDEO';
+    contentModePreference?: ContentMode | ContentMode[];
     avatarPhotoUrl?: string;
     voiceSampleUrl?: string;
     targetPlatforms?: string[];
@@ -506,6 +507,10 @@ export class ControlCenter {
                 reviewMode: req.reviewMode || 'auto',
                 taskId: req.taskId,
                 contentModePreference: req.contentModePreference || 'IMAGE_TEXT',
+                // 🔥 多模式支持：标准化为数组
+                contentModes: Array.isArray(req.contentModePreference)
+                    ? req.contentModePreference
+                    : [req.contentModePreference || 'IMAGE_TEXT'],
                 avatarPhotoUrl: req.avatarPhotoUrl,
                 voiceSampleUrl: req.voiceSampleUrl,
                 targetPlatforms: req.targetPlatforms || ['xiaohongshu'],
@@ -520,7 +525,41 @@ export class ControlCenter {
                 } : null,
             };
 
-            // 4. 异步调用 autoContentManager（带舆情数据）
+            // 4. Brain 分析（生成统一 brief）
+            let brainBrief: BrainBrief | null = null;
+            try {
+                console.log('[ControlCenter] 🧠 Running BrainService analysis...');
+                brainBrief = await brainService.analyze({
+                    productDescription: req.productName,
+                    userId: req.userId,
+                    taskId: req.taskId || `task_${Date.now()}`,
+                    targetAudience: req.targetAudience,
+                    marketingGoal: req.marketingGoal,
+                    brandStyle: req.brandStyle,
+                    sentimentData: sentimentBrief ? {
+                        topics: sentimentBrief.topics,
+                        keywords: sentimentBrief.keywords,
+                        insights: sentimentBrief.insights,
+                        riskSignals: sentimentBrief.riskSignals,
+                    } : null,
+                });
+
+                // 生成母文案
+                brainBrief = await brainService.execute(brainBrief);
+                console.log('[ControlCenter] 🧠 Brain brief ready:', {
+                    recommendedModes: brainBrief.recommendedModes,
+                    coreMessage: brainBrief.coreMessage?.substring(0, 50),
+                    hasMotherCopy: !!brainBrief.motherCopyText,
+                });
+
+                // 注入 brief 到 userProfile
+                (userProfile as any).brainBrief = brainBrief;
+            } catch (brainError) {
+                console.warn('[ControlCenter] ⚠️ BrainService failed (non-blocking):', brainError);
+                // fallback: 继续原有流程
+            }
+
+            // 5. 异步调用 autoContentManager（带舆情数据 + Brain brief）
             console.log('[ControlCenter] 📝 Calling autoContentManager.startAutoMode with sentiment data...');
             autoContentManager.startAutoMode(userProfile as any, workflowProgressService)
                 .then(() => {

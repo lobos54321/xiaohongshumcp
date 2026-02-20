@@ -5,6 +5,7 @@
  */
 
 import fetch from 'node-fetch';
+import { configService } from './ConfigService.js';
 
 // ============ 类型定义 ============
 
@@ -30,17 +31,30 @@ export interface GeneratedImage {
 // ============ GeminiImageClient 实现 ============
 
 export class GeminiImageClient {
-    private apiKey: string;
-    private baseUrl: string;
-    private model: string;
+    private apiKey: string = '';
+    private baseUrl: string = '';
+    private model: string = '';
 
     constructor() {
+        // 初始值从 env 读取，后续通过 refreshConfig() 从 ConfigService 动态获取
         this.apiKey = process.env.GEMINI_API_KEY || '';
         this.baseUrl = (process.env.GEMINI_BASE_URL || 'http://bruder.yukinoapi.com/v1').replace(/\/$/, '');
         this.model = process.env.GEMINI_MODEL || 'gemini-3-pro-image-preview';
+    }
 
-        if (!this.apiKey) {
-            console.warn('[GeminiImageClient] No GEMINI_API_KEY found in environment');
+    /**
+     * 从 ConfigService 刷新配置
+     */
+    private async refreshConfig(): Promise<void> {
+        try {
+            const key = await configService.get('GEMINI_API_KEY');
+            const url = await configService.get('GEMINI_BASE_URL');
+            const model = await configService.get('GEMINI_MODEL');
+            if (key) this.apiKey = key;
+            if (url) this.baseUrl = url.replace(/\/$/, '');
+            if (model) this.model = model;
+        } catch {
+            // fallback to current values
         }
     }
 
@@ -48,6 +62,7 @@ export class GeminiImageClient {
      * 生成图片
      */
     async generateImage(request: ImageGenerationRequest): Promise<ImageGenerationResult> {
+        await this.refreshConfig();
         if (!this.apiKey) {
             return { success: false, images: [], error: 'GEMINI_API_KEY not configured' };
         }

@@ -35,6 +35,8 @@ import { WorkflowProgressService } from './services/WorkflowProgressService.js';
 import { userProfileService } from './services/UserProfileService.js';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { MCPAuthClient } from './mcpAuthClient.js';
+import { configService } from './services/ConfigService.js';
+import { brainService } from './services/BrainService.js';
 
 dotenv.config();
 
@@ -977,6 +979,33 @@ app.get('/health', (_req: Request, res: Response) => {
     debug: 'ws-node-logic-v2',
     timestamp: new Date().toISOString(),
   });
+});
+
+// ============ Admin Config API ============
+
+app.get('/api/admin/config', async (_req: Request, res: Response) => {
+  try {
+    const configs = await configService.getAll();
+    res.json({ success: true, data: configs });
+  } catch (error) {
+    console.error('[AdminConfig] Failed to get configs:', error);
+    res.status(500).json({ success: false, error: 'Failed to get configs' });
+  }
+});
+
+app.put('/api/admin/config/:key', async (req: Request, res: Response) => {
+  try {
+    const { key } = req.params;
+    const { value } = req.body;
+    if (value === undefined || value === null) {
+      return res.status(400).json({ success: false, error: 'value is required' });
+    }
+    await configService.set(key, String(value), 'admin');
+    res.json({ success: true, message: `Config ${key} updated` });
+  } catch (error) {
+    console.error('[AdminConfig] Failed to update config:', error);
+    res.status(500).json({ success: false, error: 'Failed to update config' });
+  }
 });
 
 // ============ 统一状态管理API ============
@@ -4896,10 +4925,17 @@ app.post('/api/v1/analytics/sync', async (req: Request, res: Response) => {
 });
 
 // 启动服务器
-const server = app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', async () => {
   console.log(`[Claude Agent Service] Server listening on 0.0.0.0:${PORT}`);
   console.log(`[Claude Agent Service] Health check: http://localhost:${PORT}/health`);
   console.log(`[Claude Agent Service] MCP Router URL: ${MCP_ROUTER_URL}`);
+
+  // 预热 ConfigService 缓存
+  try {
+    await configService.warmup();
+  } catch (e) {
+    console.warn('[Startup] ConfigService warmup failed, using env fallback');
+  }
 });
 
 // ============================================================================

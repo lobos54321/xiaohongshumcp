@@ -25,6 +25,7 @@ interface UserProfile {
   reviewMode: 'auto' | 'review' | 'edit';
   taskId?: string; // 🔥 用于关联进度追踪
   contentModePreference?: 'IMAGE_TEXT' | 'AVATAR_VIDEO' | 'UGC_VIDEO'; // 🔥 内容形式偏好
+  contentModes?: string[]; // 🔥 多模式支持：同时生成多种内容形态
   avatarPhotoUrl?: string; // 🔥 数字人照片 URL
   voiceSampleUrl?: string; // 🔥 语音样本 URL
   targetPlatforms?: string[]; // 🔥 目标发布平台：xiaohongshu, x, tiktok, instagram, youtube
@@ -563,74 +564,80 @@ export class AutoContentManager {
       // 初始化活动记录
       this.addRealTimeActivity(userProfile.userId, '🚀 自动运营系统已启动', 'execution');
 
-      // 🔥 根据内容模式分流
-      const contentMode = userProfile.contentModePreference || 'IMAGE_TEXT';
-      console.log(`🎯 [DEBUG] 内容模式: ${contentMode}`);
+      // 🔥 根据内容模式分流（支持多模式）
+      const contentModes: string[] = (userProfile as any).contentModes
+        || (userProfile.contentModePreference ? [userProfile.contentModePreference] : ['IMAGE_TEXT']);
+      console.log(`🎯 [DEBUG] 内容模式: ${contentModes.join(', ')}`);
 
-      if (contentMode === 'AVATAR_VIDEO') {
-        // === 数字人视频模式 ===
-        console.log(`🎬 [AVATAR_VIDEO] 进入数字人视频流程... taskId=${taskId}`);
-        this.addRealTimeActivity(userProfile.userId, '🎭 进入数字人视频创作模式', 'execution');
+      // 多模式：先执行特殊模式（AVATAR_VIDEO, UGC_VIDEO），最后执行 IMAGE_TEXT
+      const hasImageText = contentModes.includes('IMAGE_TEXT');
+      const specialModes = contentModes.filter(m => m !== 'IMAGE_TEXT');
 
-        if (workflowProgressService && taskId) {
-          console.log(`📡 [AVATAR_VIDEO] Calling startStep for market-strategy...`);
-          await workflowProgressService.startStep(taskId, 'market-strategy', '正在为您量身定制数字人营销策略...');
-          console.log(`✅ [AVATAR_VIDEO] startStep completed`);
+      for (const mode of specialModes) {
+        if (mode === 'AVATAR_VIDEO') {
+          // === 数字人视频模式 ===
+          console.log(`🎬 [AVATAR_VIDEO] 进入数字人视频流程... taskId=${taskId}`);
+          this.addRealTimeActivity(userProfile.userId, '🎭 进入数字人视频创作模式', 'execution');
 
-          // 🔥 立即发送初始进度，让用户立刻看到不是 0%
-          await workflowProgressService.updateProgress(taskId, 'market-strategy', 5, '正在初始化AI分析模块...');
-          console.log(`✅ [AVATAR_VIDEO] Initial progress (5%) sent`);
+          if (workflowProgressService && taskId) {
+            console.log(`📡 [AVATAR_VIDEO] Calling startStep for market-strategy...`);
+            await workflowProgressService.startStep(taskId, 'market-strategy', '正在为您量身定制数字人营销策略...');
+            console.log(`✅ [AVATAR_VIDEO] startStep completed`);
 
-          // 🔥 心跳更新进度，让用户觉得系统在工作
-          let heartbeatCount = 0;
-          const progressInterval = setInterval(async () => {
-            heartbeatCount++;
-            const status = this.generationStatus.get(userProfile.userId);
-            console.log(`💓 [AVATAR_VIDEO] Heartbeat #${heartbeatCount}, status=${status}`);
-            if (status !== 'generating') {
-              console.log(`⏹️ [AVATAR_VIDEO] Stopping heartbeat - status changed to ${status}`);
+            await workflowProgressService.updateProgress(taskId, 'market-strategy', 5, '正在初始化AI分析模块...');
+            console.log(`✅ [AVATAR_VIDEO] Initial progress (5%) sent`);
+
+            let heartbeatCount = 0;
+            const progressInterval = setInterval(async () => {
+              heartbeatCount++;
+              const status = this.generationStatus.get(userProfile.userId);
+              console.log(`💓 [AVATAR_VIDEO] Heartbeat #${heartbeatCount}, status=${status}`);
+              if (status !== 'generating') {
+                console.log(`⏹️ [AVATAR_VIDEO] Stopping heartbeat - status changed to ${status}`);
+                clearInterval(progressInterval);
+                return;
+              }
+              const currentProgress = Math.min(10 + heartbeatCount * 15, 85);
+              console.log(`📈 [AVATAR_VIDEO] Sending progress update: ${currentProgress}%`);
+              await workflowProgressService.updateProgress(taskId, 'market-strategy', currentProgress, '深度分析目标客群与市场趋势...');
+            }, 5000);
+
+            try {
+              console.log(`🧠 [AVATAR_VIDEO] Starting createContentStrategy...`);
+              const strategy = await this.createContentStrategy(userProfile);
+              console.log(`✅ [AVATAR_VIDEO] createContentStrategy completed`);
               clearInterval(progressInterval);
-              return;
+
+              await workflowProgressService.completeStep(taskId, 'market-strategy', {
+                key_themes: strategy.keyThemes,
+                mode: 'AVATAR_VIDEO'
+              });
+
+              await this.continueAvatarWorkflow(userProfile, strategy, taskId, workflowProgressService);
+            } catch (error) {
+              clearInterval(progressInterval);
+              console.error(`❌ [AVATAR_VIDEO] Failed:`, error);
             }
-            // 进度从 10% 逐步增加到 85%
-            const currentProgress = Math.min(10 + heartbeatCount * 15, 85);
-            console.log(`📈 [AVATAR_VIDEO] Sending progress update: ${currentProgress}%`);
-            await workflowProgressService.updateProgress(taskId, 'market-strategy', currentProgress, '深度分析目标客群与市场趋势...');
-          }, 5000);
-
-          try {
-            // 数字人模式：策略分析
-            console.log(`🧠 [AVATAR_VIDEO] Starting createContentStrategy...`);
-            const strategy = await this.createContentStrategy(userProfile);
-            console.log(`✅ [AVATAR_VIDEO] createContentStrategy completed`);
-            clearInterval(progressInterval);
-
-            await workflowProgressService.completeStep(taskId, 'market-strategy', {
-              key_themes: strategy.keyThemes,
-              mode: 'AVATAR_VIDEO'
-            });
-
-            // 将 strategy 传递给后续步骤
-            await this.continueAvatarWorkflow(userProfile, strategy, taskId, workflowProgressService);
-            return;
-          } catch (error) {
-            clearInterval(progressInterval);
-            throw error;
           }
+          continue;
         }
-        return;
+
+        if (mode === 'UGC_VIDEO') {
+          // === UGC 视频模式 ===
+          console.log(`📹 [DEBUG] 进入 UGC 视频流程...`);
+          this.addRealTimeActivity(userProfile.userId, '📹 进入 UGC 视频创作模式', 'execution');
+          // TODO: 实现 UGC 视频流程
+          continue;
+        }
       }
 
-      if (contentMode === 'UGC_VIDEO') {
-        // === UGC 视频模式（占位）===
-        console.log(`📹 [DEBUG] 进入 UGC 视频流程...`);
-        this.addRealTimeActivity(userProfile.userId, '📹 进入 UGC 视频创作模式', 'execution');
-        // TODO: 实现 UGC 视频流程
+      // === 图文模式 ===
+      if (!hasImageText) {
+        // 多模式中不包含图文，直接完成
         this.generationStatus.set(userProfile.userId, 'completed');
         return;
       }
 
-      // === 图文模式（默认）===
       console.log(`📝 [DEBUG] 进入图文模式流程...`);
 
       // 1. 制定内容策略
@@ -1721,7 +1728,8 @@ ${sentimentSection}
   private async generatePlatformVariants(
     task: DailyTask,
     targetPlatforms: string[],
-    postsPerDay: number = 1
+    postsPerDay: number = 1,
+    brainBrief?: any
   ): Promise<Array<{
     type: string;
     platform: string;
@@ -1771,7 +1779,14 @@ ${sentimentSection}
               messages: [{
                 role: 'user',
                 content: `你是一位专业的 ${rules.displayName} 平台内容创作专家。请将以下"母文案"改写为适合 ${rules.displayName} 平台的版本。
-
+${brainBrief ? `
+**🧠 Brain 策略指导 (重要)**：
+- 核心传播信息：${brainBrief.coreMessage || ''}
+- 内容调性：${brainBrief.toneAndStyle || ''}
+- 核心卖点：${(brainBrief.keySellingPoints || []).join('、')}
+- 内容切入角度：${brainBrief.contentAngle || ''}
+请确保改写后的内容与以上策略保持一致。
+` : ''}
 **🎯 写作角度要求 (重要)**：
 本变体需要采用【${angle.name}】进行创作：${angle.prompt}
 
@@ -2446,8 +2461,8 @@ ${rules.specialRules.map((rule: string, idx: number) => `${idx + 1}. ${rule}`).j
 
               console.log(`📝 [Variants] 目标平台: ${targetPlatforms.join(', ')}, 每日篇数: ${postsPerDay}`);
 
-              // 生成平台特定变体 (传入 postsPerDay 参数)
-              const platformVariants = await this.generatePlatformVariants(task, targetPlatforms, postsPerDay);
+              // 生成平台特定变体 (传入 postsPerDay 参数 + brainBrief)
+              const platformVariants = await this.generatePlatformVariants(task, targetPlatforms, postsPerDay, (profile as any).brainBrief);
 
               // 更新 task.variants
               task.variants = platformVariants;

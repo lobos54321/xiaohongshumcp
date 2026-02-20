@@ -11,6 +11,8 @@
  * API 文档：https://www.runninghub.ai/runninghub-api-doc-en/api-279098421
  */
 
+import { configService } from './ConfigService.js';
+
 // 海外节点 (runninghub.ai) - 更快更稳定
 const RUNNINGHUB_BASE_URL = 'https://www.runninghub.ai';
 
@@ -88,9 +90,22 @@ export class RunningHubClient {
     }
 
     /**
+     * 从 ConfigService 刷新 API Key
+     */
+    private async refreshConfig(): Promise<void> {
+        try {
+            const key = await configService.get('RUNNINGHUB_API_KEY');
+            if (key) this.apiKey = key;
+        } catch {
+            // fallback
+        }
+    }
+
+    /**
      * 发起数字人视频生成任务
      */
     async createAvatarVideoTask(params: AvatarVideoParams): Promise<RunningHubTaskResponse> {
+        await this.refreshConfig();
         const { imageUrl, audioUrl, audioStartTime = 0, audioEndTime } = params;
 
         // 提取文件名（如果是完整 URL）
