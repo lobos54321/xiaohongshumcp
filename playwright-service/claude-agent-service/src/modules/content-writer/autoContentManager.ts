@@ -1773,8 +1773,8 @@ ${sentimentSection}
         try {
           const variantResponse = await this.callClaudeWithRetry(
             () => this.anthropic.messages.create({
-              model: 'claude-3-5-haiku-20241022',
-              max_tokens: 1500,
+              model: process.env.VARIANT_MODEL || 'claude-opus-4-6',
+              max_tokens: 2000,
               messages: [{
                 role: 'user',
                 content: `你是一位专业的 ${rules.displayName} 平台内容创作专家。请将以下"母文案"改写为适合 ${rules.displayName} 平台的版本。
@@ -2371,7 +2371,7 @@ ${rules.specialRules.map((rule: string, idx: number) => `${idx + 1}. ${rule}`).j
                 不要包含任何解释，只需返回 JSON。`;
 
                 const claudeResponse = await this.anthropic.messages.create({
-                  model: 'claude-3-5-haiku-20241022',
+                  model: process.env.VARIANT_MODEL || 'claude-opus-4-6',
                   max_tokens: 1000,
                   messages: [{ role: 'user', content: claudeImagePrompt }]
                 });
