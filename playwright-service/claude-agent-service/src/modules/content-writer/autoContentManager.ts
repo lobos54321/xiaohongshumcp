@@ -753,68 +753,62 @@ export class AutoContentManager {
       const postsPerDay = (userProfile as any).posts_per_day || 1;
       console.log(`📝 [continueAvatarWorkflow] 今日视频计划: postsPerDay=${postsPerDay}`);
 
-      // 🔥 数字人模式：脚本变体生成 - 根据 postsPerDay 生成多个变体
-      console.log(`📜 [continueAvatarWorkflow] Step 3: script-gen (generating ${postsPerDay} variants)`);
+      // 🔥 数字人模式：调用 Dify 生成母文案，直接作为口播脚本
+      console.log(`📜 [continueAvatarWorkflow] Step 3: script-gen via Dify (generating ${postsPerDay} variants)`);
       const scriptVariants: Array<{ angleName: string; script: string; title: string }> = [];
       let primaryScript = '欢迎观看我们的视频！';
 
       if (workflowProgressService && taskId) {
-        await workflowProgressService.startStep(taskId, 'script-gen', `正在生成 ${postsPerDay} 个口播脚本变体...`);
+        await workflowProgressService.startStep(taskId, 'script-gen', `正在通过 Dify 生成 ${postsPerDay} 个口播脚本...`);
 
-        // 🔥 循环生成多个脚本变体
         for (let i = 0; i < postsPerDay; i++) {
           const angle = VARIANT_ANGLES[i % VARIANT_ANGLES.length];
           console.log(`📜 [continueAvatarWorkflow] Generating script variant ${i + 1}/${postsPerDay}: ${angle.name}`);
 
           try {
-            const scriptPrompt = `你是一个小红书爆款短视频脚本专家。
-根据以下策略和产品信息，生成一个适合数字人口播的短视频脚本。
-
-产品：${userProfile.productName}
-目标受众：${userProfile.targetAudience}
-营销目标：${userProfile.marketingGoal === 'sales' ? '转化销售' : '品牌心智'}
-内容核心：${strategy.keyThemes[i % strategy.keyThemes.length] || '产品优势'}
-
-🔥 创作角度：${angle.name}
-${angle.prompt}
-
-要求：
-1. 语言口语化，适合短视频快节奏
-2. 包含 Hook（开头吸引）、Body（核心内容）、CTA（行动号召）
-3. 字数控制在 200-400 字之间（适合 1-2 分钟视频）
-4. 只返回脚本正文，不要有任何其他解释。`;
-
-            const response = await this.anthropic.messages.create({
-              model: process.env.CLAUDE_HAIKU_MODEL || 'claude-3-5-haiku-20241022',
-              max_tokens: 1000,
-              messages: [{ role: 'user', content: scriptPrompt }],
+            // 调用 Dify 生成母文案
+            const difyResult = await difyClient.generateMarketingCopy({
+              productInfo: `${userProfile.productName}: ${strategy.keyThemes[i % strategy.keyThemes.length] || '产品优势'} (创作角度: ${angle.name} - ${angle.prompt})`,
+              targetAudience: userProfile.targetAudience,
+              marketingGoal: userProfile.marketingGoal,
+              userId: userProfile.userId,
+              platform: '小红书短视频'
             });
 
-            const generatedScript = (response.content[0] as any).text;
-            console.log(`✅ [continueAvatarWorkflow] Script variant ${i + 1} generated: ${generatedScript.substring(0, 50)}...`);
-
-            scriptVariants.push({
-              angleName: angle.name,
-              script: generatedScript,
-              title: `${userProfile.productName} - ${angle.name}口播`
-            });
-
-            // 第一个作为主脚本
-            if (i === 0) {
-              primaryScript = generatedScript;
+            if (!difyResult || !difyResult.text) {
+              throw new Error('Dify 返回空结果');
             }
 
-            // 更新进度
-            const progress = Math.round(((i + 1) / postsPerDay) * 100);
-            await workflowProgressService.updateProgress(taskId, 'script-gen', progress, `已生成 ${i + 1}/${postsPerDay} 个脚本变体`);
+            console.log(`✅ [continueAvatarWorkflow] Dify script variant ${i + 1} generated: ${difyResult.title}`);
 
-          } catch (scriptError) {
-            console.error(`❌ [continueAvatarWorkflow] Script variant ${i + 1} generation failed:`, scriptError);
             scriptVariants.push({
               angleName: angle.name,
-              script: `${angle.name}视角的口播脚本 - 生成失败，请重试`,
-              title: `${userProfile.productName} - ${angle.name}口播`
+              script: difyResult.text,
+              title: difyResult.title || `${userProfile.productName} - ${angle.name}口播`
             });
+
+            if (i === 0) {
+              primaryScript = difyResult.text;
+            }
+
+            const progress = Math.round(((i + 1) / postsPerDay) * 100);
+            await workflowProgressService.updateProgress(taskId, 'script-gen', progress, `已生成 ${i + 1}/${postsPerDay} 个口播脚本`);
+
+          } catch (scriptError: any) {
+            console.error(`❌ [continueAvatarWorkflow] Dify script variant ${i + 1} failed:`, scriptError.message);
+            // Dify 失败时 fallback 到 Claude
+            try {
+              const fallbackResponse = await this.anthropic.messages.create({
+                model: process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001',
+                max_tokens: 1000,
+                messages: [{ role: 'user', content: `你是一个小红书短视频脚本专家。为产品"${userProfile.productName}"生成一个口播脚本，目标受众：${userProfile.targetAudience}，创作角度：${angle.name}。要求口语化，200-400字，包含Hook、Body、CTA。只返回脚本正文。` }],
+              });
+              const fallbackScript = (fallbackResponse.content[0] as any).text;
+              scriptVariants.push({ angleName: angle.name, script: fallbackScript, title: `${userProfile.productName} - ${angle.name}口播` });
+              if (i === 0) primaryScript = fallbackScript;
+            } catch {
+              scriptVariants.push({ angleName: angle.name, script: `${angle.name}视角的口播脚本 - 生成失败，请重试`, title: `${userProfile.productName} - ${angle.name}口播` });
+            }
           }
         }
 
@@ -823,7 +817,6 @@ ${angle.prompt}
           scriptCount: scriptVariants.length,
           duration: '1-2分钟',
           title: `${userProfile.productName} 爆款口播`,
-          // 🔥 返回所有脚本变体
           variants: scriptVariants
         });
         console.log(`✅ [continueAvatarWorkflow] All ${scriptVariants.length} script variants generated`);
