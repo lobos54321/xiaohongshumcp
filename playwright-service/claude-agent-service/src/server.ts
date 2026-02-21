@@ -37,9 +37,6 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { MCPAuthClient } from './mcpAuthClient.js';
 import { configService } from './services/ConfigService.js';
 import { brainService } from './services/BrainService.js';
-import { subtitleService } from './services/SubtitleService.js';
-import { videoGenerationService } from './services/VideoGenerationService.js';
-import { geminiImageClient } from './services/GeminiImageClient.js';
 
 dotenv.config();
 
@@ -4009,6 +4006,58 @@ app.post('/agent/auto-import/toggle', async (req: Request, res: Response) => {
   }
 });
 
+// 捕获所有未匹配的路由，重定向到根路径（SPA fallback）
+app.get('*', (req: Request, res: Response) => {
+  console.log(`[Server] Handling request: ${req.method} ${req.path}`);
+  console.log(`[Server] Headers:`, req.headers);
+
+  // 如果是API路径，返回404
+  if (req.path.startsWith('/api') || req.path.startsWith('/agent')) {
+    console.log(`[Server] API path not found: ${req.path}`);
+    return res.status(404).json({
+      error: 'API endpoint not found',
+      path: req.path,
+      method: req.method
+    });
+  }
+
+  // 特殊处理 /v1 路径
+  if (req.path === '/v1') {
+    console.log(`[Server] Redirecting /v1 to root with 301`);
+    return res.redirect(301, '/');
+  }
+
+  // 🔍 日志查看代理端点 - 转发到 MCP Router
+  if (req.path.startsWith('/api/mcp-logs')) {
+    const mcpPath = req.path.replace('/api/mcp-logs', '/api/logs');
+    const mcpUrl = `${MCP_ROUTER_URL}${mcpPath}${req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : ''}`;
+
+    (async () => {
+      try {
+        const { default: axios } = await import('axios');
+        const response = await axios.get(mcpUrl, { timeout: 10000 });
+        return res.json(response.data);
+      } catch (error: any) {
+        console.error('[MCP Logs Proxy] Error:', error.message);
+        return res.status(error.response?.status || 500).json({
+          success: false,
+          error: error.message,
+          message: 'Failed to fetch logs from MCP Router'
+        });
+      }
+    })();
+    return;
+  }
+
+  // 其他路径返回404（前端由prome-platform单独托管）
+  console.log(`[Server] Unknown path: ${req.path}`);
+  res.status(404).json({
+    error: 'Not Found',
+    path: req.path,
+    message: 'This is an API-only service. Frontend is hosted at prome.live'
+  });
+});
+
 // ============ Cookie数据库同步API ============
 
 // 从数据库加载Cookie
@@ -5620,364 +5669,4 @@ app.post('/api/workflow/initialize/:taskId', async (req: Request, res: Response)
       error: error.message || 'Failed to initialize workflow',
     });
   }
-});
-
-// ============ Video Editing APIs ============
-
-/**
- * POST /api/video/generate-subtitles - 从视频生成字幕
- */
-app.post('/api/video/generate-subtitles', async (req: Request, res: Response) => {
-  try {
-    const { videoUrl } = req.body;
-    if (!videoUrl) {
-      return res.status(400).json({ success: false, error: 'videoUrl is required' });
-    }
-
-    console.log('[API] Generate subtitles for:', videoUrl.substring(0, 80));
-    const result = await subtitleService.generateSubtitles(videoUrl);
-
-    res.json({
-      success: result.success,
-      subtitles: result.subtitles,
-      error: result.error,
-    });
-  } catch (error: any) {
-    console.error('[API] Generate subtitles error:', error);
-    res.status(500).json({ success: false, error: error.message || 'Failed to generate subtitles' });
-  }
-});
-
-/**
- * POST /api/video/export - 导出编辑后的视频
- */
-app.post('/api/video/export', async (req: Request, res: Response) => {
-  try {
-    const { videoUrl, subtitles, backgroundMusic, playbackSpeed } = req.body;
-    if (!videoUrl) {
-      return res.status(400).json({ success: false, error: 'videoUrl is required' });
-    }
-
-    console.log('[API] Export video with edits...');
-    const result = await videoGenerationService.exportWithEdits({
-      videoUrl,
-      subtitles,
-      backgroundMusic,
-      playbackSpeed,
-    });
-
-    if (!result.success) {
-      return res.status(500).json({ success: false, error: result.error });
-    }
-
-    res.json({
-      success: true,
-      exportedUrl: result.exportedUrl,
-    });
-  } catch (error: any) {
-    console.error('[API] Export video error:', error);
-    res.status(500).json({ success: false, error: error.message || 'Failed to export video' });
-  }
-});
-
-/**
- * GET /api/video/music-library - 获取预置背景音乐列表
- */
-app.get('/api/video/music-library', (_req: Request, res: Response) => {
-  const music = [
-    { id: 'upbeat-1', name: '欢快节奏', url: '', category: '活力', duration: 120 },
-    { id: 'calm-1', name: '轻柔舒缓', url: '', category: '放松', duration: 180 },
-    { id: 'corporate-1', name: '商务专业', url: '', category: '商务', duration: 150 },
-    { id: 'inspiring-1', name: '励志激昂', url: '', category: '激励', duration: 160 },
-  ];
-
-  res.json({ success: true, music });
-});
-
-// ============ Phase 3: Cover Generation API ============
-
-/**
- * POST /api/cover/generate - AI 生成封面图
- */
-app.post('/api/cover/generate', async (req: Request, res: Response) => {
-  try {
-    const { title, content, style, aspectRatio } = req.body;
-    if (!title) {
-      return res.status(400).json({ success: false, error: 'title is required' });
-    }
-
-    const coverPrompt = `为社交媒体内容生成一张精美封面图。
-标题: ${title}
-内容摘要: ${content || title}
-风格: ${style || '现代简约、吸引眼球'}
-要求: 高质量、适合${aspectRatio === '9:16' ? '竖版手机屏幕' : '横版视频封面'}、文字清晰可读`;
-
-    console.log('[API] Generating cover image...');
-    const result = await geminiImageClient.generateImage({
-      prompt: coverPrompt,
-      aspectRatio: aspectRatio || '16:9',
-    });
-
-    if (!result.success || result.images.length === 0) {
-      return res.status(500).json({ success: false, error: result.error || 'Cover generation failed' });
-    }
-
-    const image = result.images[0];
-    let imageUrl = image.imageUrl || '';
-
-    // 如果是 base64，上传到 Supabase Storage
-    if (image.base64Data && !imageUrl) {
-      const uploaded = await geminiImageClient.uploadToStorage(
-        image.base64Data,
-        image.mimeType,
-        'covers'
-      );
-      imageUrl = uploaded || `data:${image.mimeType};base64,${image.base64Data}`;
-    }
-
-    res.json({ success: true, imageUrl });
-  } catch (error: any) {
-    console.error('[API] Cover generation error:', error);
-    res.status(500).json({ success: false, error: error.message || 'Failed to generate cover' });
-  }
-});
-
-// ============ Phase 4: Content Review + Batch Publish APIs ============
-
-/**
- * POST /api/content/review - AI 内容审核
- */
-app.post('/api/content/review', async (req: Request, res: Response) => {
-  try {
-    const { title, content, platform } = req.body;
-    if (!content && !title) {
-      return res.status(400).json({ success: false, error: 'title or content is required' });
-    }
-
-    const anthropicKey = await configService.get('ANTHROPIC_API_KEY') || process.env.ANTHROPIC_API_KEY;
-    if (!anthropicKey) {
-      return res.status(500).json({ success: false, error: 'ANTHROPIC_API_KEY not configured' });
-    }
-
-    const Anthropic = (await import('@anthropic-ai/sdk')).default;
-    const client = new Anthropic({ apiKey: anthropicKey });
-
-    const reviewPrompt = `你是一个内容审核专家。请审核以下社交媒体内容，检查：
-1. 敏感词（政治敏感、色情、暴力、歧视等）
-2. 平台合规性（${platform || '小红书'}平台规则）
-3. 广告法合规（虚假宣传、绝对化用语如"最好"、"第一"等）
-4. 其他风险
-
-标题: ${title || '无'}
-内容: ${content || '无'}
-
-请以 JSON 格式返回审核结果：
-{
-  "status": "approved" | "warning" | "rejected",
-  "score": 0-100,
-  "issues": [
-    {
-      "type": "sensitive_word" | "compliance" | "ad_law" | "platform_rule",
-      "severity": "low" | "medium" | "high",
-      "description": "问题描述",
-      "suggestion": "修改建议"
-    }
-  ],
-  "summary": "总体评价"
-}
-
-只返回 JSON，不要其他文字。`;
-
-    const message = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2048,
-      messages: [{ role: 'user', content: reviewPrompt }],
-    });
-
-    const responseText = message.content[0].type === 'text' ? message.content[0].text : '';
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-
-    if (!jsonMatch) {
-      return res.status(500).json({ success: false, error: 'Failed to parse review result' });
-    }
-
-    const reviewResult = JSON.parse(jsonMatch[0]);
-    res.json({ success: true, review: reviewResult });
-  } catch (error: any) {
-    console.error('[API] Content review error:', error);
-    res.status(500).json({ success: false, error: error.message || 'Failed to review content' });
-  }
-});
-
-/**
- * GET /api/publish/batch-status/:batchId - 批量发布状态查询
- */
-app.get('/api/publish/batch-status/:batchId', async (req: Request, res: Response) => {
-  try {
-    const { batchId } = req.params;
-
-    if (!supabaseClient) {
-      return res.status(503).json({ success: false, error: 'Database not available' });
-    }
-
-    const { data, error } = await supabaseClient
-      .from('publish_tasks')
-      .select('*')
-      .eq('batch_id', batchId)
-      .order('created_at', { ascending: true });
-
-    if (error) {
-      throw error;
-    }
-
-    const tasks = data || [];
-    const total = tasks.length;
-    const completed = tasks.filter((t: any) => t.status === 'completed').length;
-    const failed = tasks.filter((t: any) => t.status === 'failed').length;
-    const pending = total - completed - failed;
-
-    res.json({
-      success: true,
-      batchId,
-      total,
-      completed,
-      failed,
-      pending,
-      progress: total > 0 ? Math.round((completed / total) * 100) : 0,
-      tasks,
-    });
-  } catch (error: any) {
-    console.error('[API] Batch status error:', error);
-    res.status(500).json({ success: false, error: error.message || 'Failed to get batch status' });
-  }
-});
-
-// ============ Phase 5: Analytics API ============
-
-/**
- * GET /api/analytics/overview/:userId - 聚合统计数据
- */
-app.get('/api/analytics/overview/:userId', async (req: Request, res: Response) => {
-  try {
-    const { userId } = req.params;
-
-    if (!supabaseClient) {
-      return res.status(503).json({ success: false, error: 'Database not available' });
-    }
-
-    // 查询自动化任务统计
-    const { data: tasks, error: tasksError } = await supabaseClient
-      .from('auto_content_tasks')
-      .select('content_mode, status, platform, created_at')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(500);
-
-    if (tasksError) {
-      console.warn('[Analytics] Tasks query error:', tasksError);
-    }
-
-    const taskList = tasks || [];
-
-    // 内容模式分布
-    const modeDistribution: Record<string, number> = {};
-    taskList.forEach((t: any) => {
-      const mode = t.content_mode || 'IMAGE_TEXT';
-      modeDistribution[mode] = (modeDistribution[mode] || 0) + 1;
-    });
-
-    // 平台分布
-    const platformDistribution: Record<string, number> = {};
-    taskList.forEach((t: any) => {
-      const platform = t.platform || 'xiaohongshu';
-      platformDistribution[platform] = (platformDistribution[platform] || 0) + 1;
-    });
-
-    // 状态分布
-    const statusDistribution: Record<string, number> = {};
-    taskList.forEach((t: any) => {
-      const status = t.status || 'unknown';
-      statusDistribution[status] = (statusDistribution[status] || 0) + 1;
-    });
-
-    // 最近 30 天发布趋势
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const dailyTrend: Record<string, number> = {};
-    taskList.forEach((t: any) => {
-      if (t.created_at) {
-        const date = t.created_at.substring(0, 10);
-        if (new Date(date) >= thirtyDaysAgo) {
-          dailyTrend[date] = (dailyTrend[date] || 0) + 1;
-        }
-      }
-    });
-
-    res.json({
-      success: true,
-      overview: {
-        totalTasks: taskList.length,
-        modeDistribution,
-        platformDistribution,
-        statusDistribution,
-        dailyTrend,
-      },
-    });
-  } catch (error: any) {
-    console.error('[API] Analytics overview error:', error);
-    res.status(500).json({ success: false, error: error.message || 'Failed to get analytics' });
-  }
-});
-
-// 捕获所有未匹配的路由，重定向到根路径（SPA fallback）
-// NOTE: 必须放在所有路由之后
-app.get('*', (req: Request, res: Response) => {
-  console.log(`[Server] Handling request: ${req.method} ${req.path}`);
-  console.log(`[Server] Headers:`, req.headers);
-
-  // 如果是API路径，返回404
-  if (req.path.startsWith('/api') || req.path.startsWith('/agent')) {
-    console.log(`[Server] API path not found: ${req.path}`);
-    return res.status(404).json({
-      error: 'API endpoint not found',
-      path: req.path,
-      method: req.method
-    });
-  }
-
-  // 特殊处理 /v1 路径
-  if (req.path === '/v1') {
-    console.log(`[Server] Redirecting /v1 to root with 301`);
-    return res.redirect(301, '/');
-  }
-
-  // 🔍 日志查看代理端点 - 转发到 MCP Router
-  if (req.path.startsWith('/api/mcp-logs')) {
-    const mcpPath = req.path.replace('/api/mcp-logs', '/api/logs');
-    const mcpUrl = `${MCP_ROUTER_URL}${mcpPath}${req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : ''}`;
-
-    (async () => {
-      try {
-        const { default: axios } = await import('axios');
-        const response = await axios.get(mcpUrl, { timeout: 10000 });
-        return res.json(response.data);
-      } catch (error: any) {
-        console.error('[MCP Logs Proxy] Error:', error.message);
-        return res.status(error.response?.status || 500).json({
-          success: false,
-          error: error.message,
-          message: 'Failed to fetch logs from MCP Router'
-        });
-      }
-    })();
-    return;
-  }
-
-  // 其他路径返回404（前端由prome-platform单独托管）
-  console.log(`[Server] Unknown path: ${req.path}`);
-  res.status(404).json({
-    error: 'Not Found',
-    path: req.path,
-    message: 'This is an API-only service. Frontend is hosted at prome.live'
-  });
 });
