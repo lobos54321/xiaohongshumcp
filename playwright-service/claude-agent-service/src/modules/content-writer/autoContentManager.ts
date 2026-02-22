@@ -966,6 +966,31 @@ export class AutoContentManager {
             videoUrl: finalVideoUrl
           }
         });
+
+        // 🔥 检查 reviewMode，自动发布模式下直接发布视频
+        if (userProfile.reviewMode === 'auto') {
+          try {
+            console.log(`📝 [自动发布] reviewMode=auto，正在自动发布数字人视频...`);
+            this.addRealTimeActivity(userProfile.userId, '📝 正在自动发布数字人视频到小红书...', 'execution');
+            const avatarTask: DailyTask = {
+              title: `${userProfile.productName} 数字人营销视频`,
+              content: primaryScript || '',
+              hashtags: [],
+              imageUrls: [],
+              videoUrl: finalVideoUrl,
+              scheduledTime: new Date(),
+              status: 'ready',
+              storageKeys: [],
+            } as any;
+            await this.publishContent(userProfile.userId, avatarTask, []);
+            this.addRealTimeActivity(userProfile.userId, '✅ 数字人视频自动发布成功', 'execution');
+            console.log(`✅ [自动发布] 数字人视频发布成功`);
+          } catch (pubErr: any) {
+            console.error(`❌ [自动发布] 视频发布失败:`, pubErr.message);
+            this.addRealTimeActivity(userProfile.userId, `❌ 自动发布失败: ${pubErr.message}`, 'execution');
+          }
+        }
+
         await workflowProgressService.completeWorkflow(taskId, {
           title: `${userProfile.productName} 数字人营销视频`,
           type: 'AVATAR_VIDEO'
@@ -2597,6 +2622,21 @@ ${rules.specialRules.map((rule: string, idx: number) => `${idx + 1}. ${rule}`).j
               status: 'success',
               result: resultData
             });
+
+            // 🔥 检查 reviewMode，自动发布模式下直接发布
+            if (profile.reviewMode === 'auto') {
+              try {
+                console.log(`📝 [自动发布] reviewMode=auto，正在自动发布内容...`);
+                this.addRealTimeActivity(profile.userId, `📝 正在自动发布内容到小红书（${task.imageUrls.length}张图片）...`, 'execution');
+                await this.publishContent(profile.userId, task, task.imageUrls);
+                task.status = 'published';
+                this.addRealTimeActivity(profile.userId, `✅ 内容自动发布成功: ${task.title}`, 'execution');
+                console.log(`✅ [自动发布] 发布成功: ${task.title}`);
+              } catch (pubErr: any) {
+                console.error(`❌ [自动发布] 发布失败:`, pubErr.message);
+                this.addRealTimeActivity(profile.userId, `❌ 自动发布失败: ${pubErr.message}`, 'execution');
+              }
+            }
 
             // 发送最终完成消息
             await workflowProgressService.completeWorkflow(taskId, resultData);
