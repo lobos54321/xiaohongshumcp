@@ -522,6 +522,15 @@ export class ControlCenter {
                         reasoning: aiDecision.reasoning,
                         confidence: aiDecision.confidence,
                     });
+
+                    // 🔥 广播 AI 决策结果到前端
+                    if (workflowProgressService && req.taskId) {
+                        workflowProgressService.broadcastAIDecision(req.taskId, {
+                            selectedMode: aiDecision.selectedMode,
+                            reasoning: aiDecision.reasoning,
+                            confidence: aiDecision.confidence,
+                        });
+                    }
                 } catch (aiErr) {
                     console.warn('[ControlCenter] ⚠️ AI mode selection failed, using IMAGE_TEXT:', aiErr);
                     resolvedMode = 'IMAGE_TEXT';

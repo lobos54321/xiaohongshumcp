@@ -442,6 +442,27 @@ export class WorkflowProgressService {
     }
 
     /**
+     * 广播 AI 决策结果
+     */
+    broadcastAIDecision(taskId: string, decision: { selectedMode: string; reasoning: string; confidence: number }): void {
+        const connections = taskConnections.get(taskId);
+        if (!connections || connections.size === 0) return;
+
+        const message = JSON.stringify({
+            type: 'ai_decision',
+            taskId,
+            data: decision,
+        });
+
+        console.log(`[WorkflowProgressService] Broadcasting ai_decision: ${decision.selectedMode} (${decision.confidence})`);
+        for (const ws of connections) {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(message);
+            }
+        }
+    }
+
+    /**
      * 标记工作流完成并发送结果
      */
     async completeWorkflow(taskId: string, result: any): Promise<void> {
