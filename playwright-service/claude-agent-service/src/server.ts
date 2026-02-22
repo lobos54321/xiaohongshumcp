@@ -1394,17 +1394,19 @@ app.post('/agent/auto/start', async (req: Request, res: Response) => {
     }
 
     const mode = contentModePreference || 'IMAGE_TEXT';
+    // 🔥 AUTO 模式下先用 IMAGE_TEXT 初始化步骤，ControlCenter AI 决策后会重新初始化
+    const initMode = mode === 'AUTO' ? 'IMAGE_TEXT' : mode;
     const finalTaskId = taskId || `task_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
-    console.log(`🚀 [Auto Mode] Using TaskId: ${finalTaskId}, Mode: ${mode}`);
+    console.log(`🚀 [Auto Mode] Using TaskId: ${finalTaskId}, Mode: ${mode}${mode === 'AUTO' ? ` (init as ${initMode})` : ''}`);
     if (fullProfile?.avatar_photo_url) console.log(`[Auto Mode] 👤 Avatar Photo URL: ${fullProfile.avatar_photo_url}`);
     if (fullProfile?.voice_sample_url) console.log(`[Auto Mode] 🎤 Voice Sample URL: ${fullProfile.voice_sample_url}`);
 
     // 🔥 初始化工作流进度
     if (workflowProgressService && finalTaskId) {
       try {
-        await workflowProgressService.initializeSteps(finalTaskId, mode);
-        console.log(`[WorkflowProgress] ✅ Initialized steps for ${finalTaskId} (${mode})`);
+        await workflowProgressService.initializeSteps(finalTaskId, initMode);
+        console.log(`[WorkflowProgress] ✅ Initialized steps for ${finalTaskId} (${initMode})`);
       } catch (err) {
         console.error(`[WorkflowProgress] ❌ Failed to initialize steps:`, err);
       }

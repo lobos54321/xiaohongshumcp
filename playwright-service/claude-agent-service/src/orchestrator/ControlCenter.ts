@@ -528,6 +528,17 @@ export class ControlCenter {
                 }
             }
 
+            // 🔥 AUTO 模式下，AI 决策后重新初始化工作流步骤
+            if (isAutoMode && workflowProgressService && req.taskId && resolvedMode !== 'IMAGE_TEXT') {
+                try {
+                    await workflowProgressService.initializeSteps(req.taskId, resolvedMode as string);
+                    await workflowProgressService.broadcastFullStatus(req.taskId);
+                    console.log(`[ControlCenter] 🔄 Re-initialized workflow steps for AI-resolved mode: ${resolvedMode}`);
+                } catch (reinitErr) {
+                    console.warn('[ControlCenter] ⚠️ Failed to re-initialize steps:', reinitErr);
+                }
+            }
+
             // 4. 构建用户配置（包含舆情数据）
             const userProfile = {
                 userId: req.userId,
