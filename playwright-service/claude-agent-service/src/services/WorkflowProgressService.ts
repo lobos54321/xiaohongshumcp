@@ -57,6 +57,7 @@ export const MODE_STEPS: Record<string, StepDefinition[]> = {
         { step_key: 'script-gen', step_title: '口播脚本生成', agent_name: 'Prome Script Writer' },
         { step_key: 'voice-clone', step_title: '语音克隆合成', agent_name: 'Prome Voice Engine' },
         { step_key: 'avatar-render', step_title: '数字人渲染', agent_name: 'Prome Avatar Renderer' },
+        { step_key: 'video-edit', step_title: '视频剪辑', agent_name: 'Prome Video Editor' },
         { step_key: 'task-save', step_title: '内容入库', agent_name: 'Prome Executor' },
     ],
     UGC_VIDEO: [

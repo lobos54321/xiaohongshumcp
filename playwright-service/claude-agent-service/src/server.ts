@@ -4006,6 +4006,50 @@ app.post('/agent/auto-import/toggle', async (req: Request, res: Response) => {
   }
 });
 
+// ============ Video Editing Routes ============
+import { videoEditService } from './services/VideoEditService.js';
+
+// POST /api/video/export — 导出编辑后的视频
+app.post('/api/video/export', async (req: Request, res: Response) => {
+  try {
+    const { videoUrl, subtitles, speed, bgm } = req.body;
+    if (!videoUrl) {
+      return res.status(400).json({ success: false, error: 'videoUrl is required' });
+    }
+    const result = await videoEditService.exportVideo({ videoUrl, subtitles, speed, bgm });
+    res.json(result);
+  } catch (error: any) {
+    console.error('[VideoEdit] Export error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/video/generate-subtitles — AI 字幕生成
+app.post('/api/video/generate-subtitles', async (req: Request, res: Response) => {
+  try {
+    const { videoUrl } = req.body;
+    if (!videoUrl) {
+      return res.status(400).json({ success: false, error: 'videoUrl is required' });
+    }
+    const result = await videoEditService.generateSubtitles(videoUrl);
+    res.json(result);
+  } catch (error: any) {
+    console.error('[VideoEdit] Subtitle generation error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/video/music-library — BGM 音乐库
+app.get('/api/video/music-library', async (req: Request, res: Response) => {
+  try {
+    const library = videoEditService.getMusicLibrary();
+    res.json({ success: true, tracks: library });
+  } catch (error: any) {
+    console.error('[VideoEdit] Music library error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // 捕获所有未匹配的路由，重定向到根路径（SPA fallback）
 app.get('*', (req: Request, res: Response) => {
   console.log(`[Server] Handling request: ${req.method} ${req.path}`);

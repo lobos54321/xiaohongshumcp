@@ -14,6 +14,7 @@ import { PlaywrightPublisher } from './playwrightPublisher.js';
 import { BrowserSessionManager } from '../auth/browserSessionManager.js';
 import { difyClient } from '../../services/DifyClient.js';
 import { videoGenerationService } from '../../services/VideoGenerationService.js';
+import { videoEditService } from '../../services/VideoEditService.js';
 
 interface UserProfile {
   userId: string;
@@ -868,6 +869,57 @@ export class AutoContentManager {
                 videoUrl: finalVideoUrl,
                 status: 'success'
               });
+
+              // Step: 视频剪辑（自动生成字幕 + 导出）
+              console.log(`✂️ [continueAvatarWorkflow] Step: video-edit`);
+              await workflowProgressService.startStep(taskId, 'video-edit', '正在自动生成字幕并导出视频...');
+              try {
+                // 1. 自动生成字幕
+                const subtitleResult = await videoEditService.generateSubtitles(finalVideoUrl);
+                let subtitles: Array<{ text: string; startTime: number; endTime: number; position: 'bottom'; fontSize: number; color: string }> = [];
+                if (subtitleResult.success && subtitleResult.text) {
+                  subtitles = [{
+                    text: subtitleResult.text,
+                    startTime: 0,
+                    endTime: 9999,
+                    position: 'bottom' as const,
+                    fontSize: 24,
+                    color: '#ffffff'
+                  }];
+                }
+
+                // 2. 用默认参数导出（字幕 + 1x速度 + 无BGM）
+                const exportResult = await videoEditService.exportVideo({
+                  videoUrl: finalVideoUrl,
+                  subtitles,
+                  speed: 1,
+                });
+
+                if (exportResult.success && exportResult.exportedUrl) {
+                  finalVideoUrl = exportResult.exportedUrl;
+                  console.log(`✅ [continueAvatarWorkflow] Video edited successfully: ${finalVideoUrl}`);
+                  await workflowProgressService.completeStep(taskId, 'video-edit', {
+                    videoUrl: finalVideoUrl,
+                    status: 'success',
+                    hasSubtitles: subtitles.length > 0
+                  });
+                } else {
+                  // 剪辑失败不阻断流程，使用原始视频继续
+                  console.warn(`⚠️ [continueAvatarWorkflow] Video edit export failed, using original video`);
+                  await workflowProgressService.completeStep(taskId, 'video-edit', {
+                    videoUrl: finalVideoUrl,
+                    status: 'skipped',
+                    error: exportResult.error || '导出失败，使用原始视频'
+                  });
+                }
+              } catch (editError: any) {
+                console.warn(`⚠️ [continueAvatarWorkflow] Video edit failed:`, editError.message);
+                await workflowProgressService.completeStep(taskId, 'video-edit', {
+                  videoUrl: finalVideoUrl,
+                  status: 'skipped',
+                  error: `剪辑失败: ${editError.message}，使用原始视频`
+                });
+              }
             } else {
               throw new Error(videoResult.error || '视频生成返回失败');
             }
@@ -877,6 +929,7 @@ export class AutoContentManager {
             // 🔥 标记失败并直接退出，不继续后续步骤
             await workflowProgressService.failStep(taskId, 'voice-clone', `视频生成失败: ${videoError.message}`);
             await workflowProgressService.failStep(taskId, 'avatar-render', '由于前置步骤失败，渲染已中止');
+            await workflowProgressService.failStep(taskId, 'video-edit', '由于前置步骤失败，剪辑已中止');
 
             this.addRealTimeActivity(userProfile.userId, `❌ 视频生成失败: ${videoError.message}`, 'execution');
             this.generationStatus.set(userProfile.userId, 'failed');
@@ -892,6 +945,11 @@ export class AutoContentManager {
           await workflowProgressService.completeStep(taskId, 'avatar-render', {
             status: 'skipped',
             videoUrl: finalVideoUrl
+          });
+          await workflowProgressService.startStep(taskId, 'video-edit', '跳过视频剪辑');
+          await workflowProgressService.completeStep(taskId, 'video-edit', {
+            status: 'skipped',
+            error: '无视频可剪辑'
           });
         }
       }
