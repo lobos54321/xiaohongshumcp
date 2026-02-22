@@ -495,7 +495,40 @@ export class ControlCenter {
                 }
             }
 
-            // 3. 构建用户配置（包含舆情数据）
+            // 3. AI 智能模式决策（autoMode 时）
+            const isAutoMode = req.contentModePreference === 'AUTO' as any;
+            let resolvedMode: ContentMode | ContentMode[] = req.contentModePreference || 'IMAGE_TEXT';
+
+            if (isAutoMode) {
+                console.log('[ControlCenter] 🤖 Auto mode detected, using AI mode selection...');
+                try {
+                    const modeContext = {
+                        profile: {
+                            product_name: req.productName,
+                            target_audience: req.targetAudience,
+                            marketing_goal: req.marketingGoal,
+                        } as any,
+                        keywords: { primary: [], secondary: [], hashtags: [] } as any,
+                        sentiment: sentimentBrief,
+                        hasDigitalHumanAsset: !!req.avatarPhotoUrl,
+                        hasVoiceAsset: !!req.voiceSampleUrl,
+                        userPreferredModes: ['IMAGE_TEXT', 'UGC_VIDEO', 'AVATAR_VIDEO'] as ContentMode[],
+                        autoMode: true,
+                    };
+                    const aiDecision = await contentModeSelector.selectModeWithAI(modeContext);
+                    resolvedMode = aiDecision.selectedMode;
+                    console.log('[ControlCenter] 🤖 AI mode decision:', {
+                        mode: aiDecision.selectedMode,
+                        reasoning: aiDecision.reasoning,
+                        confidence: aiDecision.confidence,
+                    });
+                } catch (aiErr) {
+                    console.warn('[ControlCenter] ⚠️ AI mode selection failed, using IMAGE_TEXT:', aiErr);
+                    resolvedMode = 'IMAGE_TEXT';
+                }
+            }
+
+            // 4. 构建用户配置（包含舆情数据）
             const userProfile = {
                 userId: req.userId,
                 productName: req.productName,
@@ -506,11 +539,11 @@ export class ControlCenter {
                 brandStyle: req.brandStyle || 'warm',
                 reviewMode: req.reviewMode || 'auto',
                 taskId: req.taskId,
-                contentModePreference: req.contentModePreference || 'IMAGE_TEXT',
+                contentModePreference: resolvedMode,
                 // 🔥 多模式支持：标准化为数组
-                contentModes: Array.isArray(req.contentModePreference)
-                    ? req.contentModePreference
-                    : [req.contentModePreference || 'IMAGE_TEXT'],
+                contentModes: Array.isArray(resolvedMode)
+                    ? resolvedMode
+                    : [resolvedMode],
                 avatarPhotoUrl: req.avatarPhotoUrl,
                 voiceSampleUrl: req.voiceSampleUrl,
                 targetPlatforms: req.targetPlatforms || ['xiaohongshu'],
@@ -525,7 +558,7 @@ export class ControlCenter {
                 } : null,
             };
 
-            // 4. Brain 分析（生成统一 brief）
+            // 5. Brain 分析（生成统一 brief）
             let brainBrief: BrainBrief | null = null;
             try {
                 console.log('[ControlCenter] 🧠 Running BrainService analysis...');
@@ -559,7 +592,7 @@ export class ControlCenter {
                 // fallback: 继续原有流程
             }
 
-            // 5. 异步调用 autoContentManager（带舆情数据 + Brain brief）
+            // 6. 异步调用 autoContentManager（带舆情数据 + Brain brief）
             console.log('[ControlCenter] 📝 Calling autoContentManager.startAutoMode with sentiment data...');
             autoContentManager.startAutoMode(userProfile as any, workflowProgressService)
                 .then(() => {
@@ -569,7 +602,7 @@ export class ControlCenter {
                     console.error(`[ControlCenter] ❌ Auto workflow failed for user: ${req.userId}`, error);
                 });
 
-            // 5. 立即返回响应（异步执行）
+            // 7. 立即返回响应（异步执行）
             return {
                 success: true,
                 message: `自动运营已启动，正在为 ${req.productName} 制定基于舆情的运营策略...`,

@@ -15,10 +15,12 @@
  * 4. IMAGE_TEXT 和 UGC_VIDEO 随时可用
  */
 
+import Anthropic from '@anthropic-ai/sdk';
 import { ContentMode } from '../orchestrator/types/contracts.js';
 import { SentimentBrief } from './BettaFishClient.js';
 import { UserProfile, ExtractedKeywords } from './UserProfileService.js';
 import { supabaseAdmin } from '../orchestrator/db/supabase.js';
+import { configService } from './ConfigService.js';
 
 export interface ContentModeDecision {
     selectedMode: ContentMode;
@@ -178,6 +180,94 @@ export class ContentModeSelector {
             confidence,
             availableModes
         };
+    }
+
+    /**
+     * AI 智能模式决策（autoMode 专用）
+     *
+     * 用 Claude 单轮调用分析产品、舆情、素材，选择最佳内容形式。
+     * 失败时 fallback 到规则引擎 selectMode()。
+     */
+    async selectModeWithAI(context: ContentModeContext): Promise<ContentModeDecision> {
+        const {
+            profile,
+            sentiment,
+            hasDigitalHumanAsset,
+            hasVoiceAsset,
+        } = context;
+
+        // 确定可用模式
+        const availableModes: ContentMode[] = ['IMAGE_TEXT', 'UGC_VIDEO'];
+        if (hasDigitalHumanAsset && hasVoiceAsset) {
+            availableModes.push('AVATAR_VIDEO');
+        }
+
+        try {
+            const model = await configService.get('CLAUDE_MODEL') || 'claude-sonnet-4-20250514';
+            const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY || '' });
+
+            const prompt = `你是 Prome 营销 AI 大脑。根据以下信息，选择最佳内容形式。
+
+产品：${profile.product_name || '未知产品'}
+目标受众：${profile.target_audience || '未指定'}
+营销目标：${profile.marketing_goal || '未指定'}
+舆情热点：${sentiment ? sentiment.topics.slice(0, 10).join('、') : '无舆情数据'}
+舆情关键词：${sentiment ? sentiment.keywords.slice(0, 10).join('、') : '无'}
+可用素材：数字人照片: ${hasDigitalHumanAsset ? '有' : '无'}，语音样本: ${hasVoiceAsset ? '有' : '无'}
+
+可选模式（仅从以下选择）：
+${availableModes.map(m => {
+    switch (m) {
+        case 'IMAGE_TEXT': return '- IMAGE_TEXT：图文笔记，适合产品展示、教程、种草';
+        case 'UGC_VIDEO': return '- UGC_VIDEO：UGC短视频，适合测评、开箱、体验分享';
+        case 'AVATAR_VIDEO': return '- AVATAR_VIDEO：数字人视频，适合口播、讲解（需要数字人素材）';
+        default: return `- ${m}`;
+    }
+}).join('\n')}
+
+返回 JSON（不要包含 markdown 代码块标记）：
+{
+  "selectedMode": "${availableModes.join('" | "')}",
+  "reasoning": "选择原因（一句话）",
+  "confidence": 0.0-1.0
+}`;
+
+            const response = await Promise.race([
+                client.messages.create({
+                    model,
+                    max_tokens: 256,
+                    messages: [{ role: 'user', content: prompt }],
+                }),
+                new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error('AI mode selection timeout')), 10000)
+                ),
+            ]);
+
+            const text = response.content[0].type === 'text' ? response.content[0].text : '';
+            const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            const result = JSON.parse(cleaned);
+
+            // 验证返回的模式在可用列表中
+            if (!availableModes.includes(result.selectedMode)) {
+                console.warn(`[ContentModeSelector] AI returned invalid mode: ${result.selectedMode}, falling back`);
+                return this.selectMode(context);
+            }
+
+            const decision: ContentModeDecision = {
+                selectedMode: result.selectedMode as ContentMode,
+                reasoning: `AI决策：${result.reasoning || ''}`,
+                alternativeModes: availableModes.filter(m => m !== result.selectedMode),
+                confidence: typeof result.confidence === 'number' ? result.confidence : 0.8,
+                availableModes,
+            };
+
+            console.log('[ContentModeSelector] AI decision:', decision);
+            return decision;
+
+        } catch (error) {
+            console.warn('[ContentModeSelector] AI mode selection failed, falling back to rules:', error);
+            return this.selectMode(context);
+        }
     }
 
     /**
